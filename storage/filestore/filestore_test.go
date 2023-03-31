@@ -20,7 +20,7 @@ import (
 	"sort"
 	"testing"
 
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/storage"
 )
 
 func TestPut(t *testing.T) {

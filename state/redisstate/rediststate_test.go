@@ -19,8 +19,8 @@ import (
 	"testing"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rivian/delta-go/state"
 	"github.com/stvp/tempredis"
-	"gitlab.com/rivian/rel/delta-go/state"
 )
 
 var servers []*tempredis.Server

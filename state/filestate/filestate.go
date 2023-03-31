@@ -18,8 +18,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"gitlab.com/rivian/rel/delta-go/state"
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/state"
+	"github.com/rivian/delta-go/storage"
 )
 
 type FileStateStore struct {

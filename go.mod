@@ -1,4 +1,4 @@
-module gitlab.com/rivian/rel/delta-go
+module github.com/rivian/delta-go
 
 go 1.20
 
@@ -6,6 +6,7 @@ require (
 	cirello.io/dynamolock v1.4.0
 	github.com/aws/aws-sdk-go v1.44.200
 	github.com/aws/aws-sdk-go-v2 v1.17.6
+	github.com/aws/smithy-go v1.13.5
 	github.com/go-redsync/redsync/v4 v4.8.1
 	github.com/gofrs/flock v0.8.1
 	github.com/google/uuid v1.3.0
@@ -26,7 +27,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.1.25 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.9.24 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.13.24 // indirect
-	github.com/aws/smithy-go v1.13.5 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 )

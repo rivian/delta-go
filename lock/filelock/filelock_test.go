@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/storage"
 )
 
 func TestTryLock(t *testing.T) {

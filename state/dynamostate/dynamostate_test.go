@@ -19,7 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-	"gitlab.com/rivian/rel/delta-go/state"
+	"github.com/rivian/delta-go/state"
 )
 
 type mockDynamoDBClient struct {

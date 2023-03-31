@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/rivian/rel/delta-go/state"
+	"github.com/rivian/delta-go/state"
 )
 
 // / Type alias for a string expected to match a GUID/UUID format

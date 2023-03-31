@@ -20,10 +20,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rivian/delta-go/lock"
+	"github.com/rivian/delta-go/state"
+	"github.com/rivian/delta-go/storage"
 	log "github.com/sirupsen/logrus"
-	"gitlab.com/rivian/rel/delta-go/lock"
-	"gitlab.com/rivian/rel/delta-go/state"
-	"gitlab.com/rivian/rel/delta-go/storage"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
 )

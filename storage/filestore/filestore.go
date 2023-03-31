@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/storage"
 )
 
 // FileObjectStore provides local file storage
