@@ -22,8 +22,8 @@ import (
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
-	"gitlab.com/rivian/rel/delta-go/internal/s3mock"
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/internal/s3mock"
+	"github.com/rivian/delta-go/storage"
 )
 
 // Test helper: setupTest does common setup for our tests, creating a mock S3 client and an S3ObjectStore

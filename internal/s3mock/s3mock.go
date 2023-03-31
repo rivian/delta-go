@@ -23,8 +23,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"gitlab.com/rivian/rel/delta-go/storage"
-	"gitlab.com/rivian/rel/delta-go/storage/filestore"
+	"github.com/rivian/delta-go/storage"
+	"github.com/rivian/delta-go/storage/filestore"
 )
 
 type S3MockClient struct {

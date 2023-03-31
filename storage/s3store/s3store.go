@@ -24,7 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/storage"
 )
 
 type S3ClientAPI interface {

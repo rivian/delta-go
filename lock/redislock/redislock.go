@@ -21,7 +21,7 @@ import (
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	goredislib "github.com/redis/go-redis/v9"
-	"gitlab.com/rivian/rel/delta-go/lock"
+	"github.com/rivian/delta-go/lock"
 )
 
 type RedisLock struct {

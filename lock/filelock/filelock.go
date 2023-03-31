@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"gitlab.com/rivian/rel/delta-go/lock"
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/lock"
+	"github.com/rivian/delta-go/storage"
 )
 
 type FileLock struct {

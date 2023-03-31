@@ -18,7 +18,7 @@ import (
 	"errors"
 
 	"github.com/redis/go-redis/v9"
-	"gitlab.com/rivian/rel/delta-go/state"
+	"github.com/rivian/delta-go/state"
 )
 
 type RedisStateStore struct {

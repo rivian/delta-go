@@ -28,11 +28,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/segmentio/parquet-go"
 	log "github.com/sirupsen/logrus"
-	"gitlab.com/rivian/rel/delta-go"
-	"gitlab.com/rivian/rel/delta-go/lock/filelock"
-	"gitlab.com/rivian/rel/delta-go/state/filestate"
-	"gitlab.com/rivian/rel/delta-go/storage"
-	"gitlab.com/rivian/rel/delta-go/storage/filestore"
+	"github.com/rivian/delta-go"
+	"github.com/rivian/delta-go/lock/filelock"
+	"github.com/rivian/delta-go/state/filestate"
+	"github.com/rivian/delta-go/storage"
+	"github.com/rivian/delta-go/storage/filestore"
 )
 
 func main() {

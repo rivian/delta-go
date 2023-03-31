@@ -19,7 +19,7 @@ import (
 
 	"cirello.io/dynamolock"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-	"gitlab.com/rivian/rel/delta-go/lock"
+	"github.com/rivian/delta-go/lock"
 )
 
 type DynamoLock struct {

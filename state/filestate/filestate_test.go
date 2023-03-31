@@ -16,8 +16,8 @@ import (
 	"errors"
 	"testing"
 
-	"gitlab.com/rivian/rel/delta-go/state"
-	"gitlab.com/rivian/rel/delta-go/storage"
+	"github.com/rivian/delta-go/state"
+	"github.com/rivian/delta-go/storage"
 )
 
 func TestGetPutData(t *testing.T) {
