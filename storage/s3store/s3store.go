@@ -194,10 +194,13 @@ func (s *S3ObjectStore) Head(location *storage.Path) (storage.ObjectMeta, error)
 }
 
 func (s *S3ObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, error) {
-	// We will need the store path with the trailing / for trimming results
-	pathWithTrailingSeparator := s.path
-	if !strings.HasSuffix(pathWithTrailingSeparator, "/") {
-		pathWithTrailingSeparator = pathWithTrailingSeparator + "/"
+	// We will need the store path with the leading and trailing /'s for trimming results
+	pathWithSeparators := s.path
+	if !strings.HasPrefix(pathWithSeparators, "/") {
+		pathWithSeparators = "/" + pathWithSeparators
+	}
+	if !strings.HasSuffix(pathWithSeparators, "/") {
+		pathWithSeparators = pathWithSeparators + "/"
 	}
 
 	// The prefix is used for pattern matching results. The fullPrefix prepends the
@@ -209,7 +212,7 @@ func (s *S3ObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, error)
 		// If the prefix is empty, use path with a trailing / to avoid listing anything
 		// outside of our store path that starts with the same string.
 		// (e.g. if our store folder is /data/ and we also have /data_out.txt, etc.)
-		fullPrefix = pathWithTrailingSeparator
+		fullPrefix = pathWithSeparators
 	} else {
 		fullPrefix, err = url.JoinPath(s.path, prefix.Raw)
 		if err != nil {
@@ -228,7 +231,7 @@ func (s *S3ObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, error)
 	objectMetas := make([]storage.ObjectMeta, 0, results.KeyCount)
 
 	for _, result := range results.Contents {
-		location := strings.TrimPrefix(*result.Key, pathWithTrailingSeparator)
+		location := strings.TrimPrefix(*result.Key, pathWithSeparators)
 		objectMetas = append(objectMetas, storage.ObjectMeta{
 			Location:     *storage.NewPath(location),
 			LastModified: *result.LastModified,
