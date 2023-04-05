@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -125,9 +126,10 @@ func (s *S3ObjectStore) Delete(location *storage.Path) error {
 }
 
 func (s *S3ObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path) error {
+	// return ErrorObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
-	if err == nil {
-		return errors.Join(storage.ErrorObjectAlreadyExists, err)
+	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+		return fmt.Errorf("error %w: Object at location %s already exists", storage.ErrorObjectAlreadyExists, to.Raw)
 	}
 
 	err = s.Rename(from, to)

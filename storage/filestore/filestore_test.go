@@ -113,7 +113,7 @@ func TestRenameIfNotExists(t *testing.T) {
 
 	//File already exists from previous rename, so err should be storage.ErrorVersionAlreadyExists
 	err = store.RenameIfNotExists(fromPath, toPath)
-	if !errors.Is(err, storage.ErrorVersionAlreadyExists) {
+	if !errors.Is(err, storage.ErrorObjectAlreadyExists) {
 		t.Errorf("err = %e;", err)
 	}
 
