@@ -415,7 +415,7 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 		err := transaction.TryCommit(commit)
 		//Reset local state with the version tried in the commit
 		//The next attempt should use the max of the remote state and local state, enables local incrimination if the remote state is stuck
-		if errors.Is(err, storage.ErrorVersionAlreadyExists) || errors.Is(err, lock.ErrorLockNotObtained) || errors.Is(err, storage.ErrorObjectAlreadyExists) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
+		if errors.Is(err, storage.ErrorObjectAlreadyExists) || errors.Is(err, lock.ErrorLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
 			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
 				attemptNumber += 1
 				// log.Debugf("Transaction attempt failed with %e. Incrementing attempt number to %d and retrying.", err, attemptNumber)

@@ -50,10 +50,10 @@ func (s *FileObjectStore) Put(location *storage.Path, bytes []byte) error {
 
 func (s *FileObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path) error {
 
-	// return ErrorVersionAlreadyExists if the destination file exists
+	// return ErrorObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
 	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
-		return fmt.Errorf("error %w: Object at location %s already exists", storage.ErrorVersionAlreadyExists, to.Raw)
+		return fmt.Errorf("error %w: Object at location %s already exists", storage.ErrorObjectAlreadyExists, to.Raw)
 	}
 	// rename source to destination
 	err = s.Rename(from, to)
