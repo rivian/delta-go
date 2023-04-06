@@ -349,7 +349,7 @@ func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadat
 
 	PreparedCommit, err := transaction.PrepareCommit(operation, appMetadata)
 	if err != nil {
-		log.Debugf("delta-go: PrepareCommit attempt failed. %e", err)
+		log.Debugf("delta-go: PrepareCommit attempt failed. %v", err)
 		return transaction.DeltaTable.State.Version, err
 	}
 
@@ -419,7 +419,7 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 		if errors.Is(err, storage.ErrorObjectAlreadyExists) || errors.Is(err, lock.ErrorLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
 			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
 				attemptNumber += 1
-				log.Debugf("delta-go: Transaction attempt failed with %e. Incrementing attempt number to %d and retrying.", err, attemptNumber)
+				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
 			} else {
 				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
 				return err
@@ -444,11 +444,12 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) error {
 	defer func() {
 		// Defer the unlock and overwrite any errors if unlock fails
 		if unlockErr := transaction.DeltaTable.LockClient.Unlock(); unlockErr != nil {
+			log.Debugf("delta-go: Unlock attempt failed. %v", unlockErr)
 			err = unlockErr
 		}
 	}()
 	if err != nil {
-		log.Debugf("delta-go: Lock attempt failed. %e", err)
+		log.Debugf("delta-go: Lock attempt failed. %v", err)
 		return errors.Join(lock.ErrorLockNotObtained, err)
 	}
 
@@ -457,7 +458,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) error {
 		priorState, err := transaction.DeltaTable.StateStore.Get()
 		if err != nil {
 			// Failed on state store get, fallback to using the local version
-			log.Debugf("delta-go: StateStore Get() attempt failed. %e", err)
+			log.Debugf("delta-go: StateStore Get() attempt failed. %v", err)
 			// return max(remoteVersion, version), err
 		}
 
@@ -471,7 +472,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) error {
 		}
 		defer func() {
 			if putErr := transaction.DeltaTable.StateStore.Put(newState); putErr != nil {
-				log.Debugf("delta-go: StateStore Put() attempt failed. %e", putErr)
+				log.Debugf("delta-go: StateStore Put() attempt failed. %v", putErr)
 				err = putErr
 			}
 		}()
@@ -481,11 +482,12 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) error {
 		to := transaction.DeltaTable.CommitUriFromVersion(version)
 		err = transaction.DeltaTable.Store.RenameIfNotExists(from, to)
 		if err != nil {
-			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %e", from.Raw, to.Raw, err)
+			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
 			return err
 		}
 
 	} else {
+		log.Debug("delta-go: Lock not obtained")
 		return errors.Join(lock.ErrorLockNotObtained, err)
 	}
 	return nil
