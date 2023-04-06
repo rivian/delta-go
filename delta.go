@@ -349,6 +349,7 @@ func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadat
 
 	PreparedCommit, err := transaction.PrepareCommit(operation, appMetadata)
 	if err != nil {
+		log.Debugf("delta-go: PrepareCommit attempt failed. %e", err)
 		return transaction.DeltaTable.State.Version, err
 	}
 
@@ -408,7 +409,7 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 			time.Sleep(transaction.Options.RetryWaitDuration)
 		}
 		if attemptNumber > int(transaction.Options.MaxRetryCommitAttempts)+1 {
-			log.Debugf("Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
 			return ErrorExceededCommitRetryAttempts
 		}
 
@@ -418,14 +419,14 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 		if errors.Is(err, storage.ErrorObjectAlreadyExists) || errors.Is(err, lock.ErrorLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
 			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
 				attemptNumber += 1
-				// log.Debugf("Transaction attempt failed with %e. Incrementing attempt number to %d and retrying.", err, attemptNumber)
+				log.Debugf("delta-go: Transaction attempt failed with %e. Incrementing attempt number to %d and retrying.", err, attemptNumber)
 			} else {
-				log.Debugf("Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
 				return err
 			}
 		} else {
 			// Everything went smooth... exit
-			log.Debugf("Transaction succeeded on attempt number to %d", attemptNumber)
+			log.Debugf("delta-go: Transaction succeeded on attempt number to %d", attemptNumber)
 			return err
 		}
 	}
@@ -447,16 +448,18 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) error {
 		}
 	}()
 	if err != nil {
+		log.Debugf("delta-go: Lock attempt failed. %e", err)
 		return errors.Join(lock.ErrorLockNotObtained, err)
 	}
 
 	if locked {
 		// 2) Lookup the latest prior state
 		priorState, err := transaction.DeltaTable.StateStore.Get()
-		// if err != nil {
-		// 	// Failed on state store get, fallback to using the local version
-		// 	return max(remoteVersion, version), err
-		// }
+		if err != nil {
+			// Failed on state store get, fallback to using the local version
+			log.Debugf("delta-go: StateStore Get() attempt failed. %e", err)
+			// return max(remoteVersion, version), err
+		}
 
 		// 4) Update the state with the latest tried, even in the case that the
 		// RenameNotExists was unsuccessful, this ensures that the next try increments the version
@@ -468,6 +471,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) error {
 		}
 		defer func() {
 			if putErr := transaction.DeltaTable.StateStore.Put(newState); putErr != nil {
+				log.Debugf("delta-go: StateStore Put() attempt failed. %e", putErr)
 				err = putErr
 			}
 		}()
@@ -477,6 +481,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) error {
 		to := transaction.DeltaTable.CommitUriFromVersion(version)
 		err = transaction.DeltaTable.Store.RenameIfNotExists(from, to)
 		if err != nil {
+			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %e", from.Raw, to.Raw, err)
 			return err
 		}
 
