@@ -32,6 +32,8 @@ type RedisLock struct {
 type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	TTL time.Duration
+	// Maximum number of tries when trying to acquire a lock
+	MaxTries int
 }
 
 // Compile time check that MutexWrapper implements lock.Locker
@@ -39,6 +41,7 @@ var _ lock.Locker = (*RedisLock)(nil)
 
 const (
 	TTL                    time.Duration = 60 * time.Second
+	maxTries               int           = 20
 	baseMilliSec           float64       = 100
 	multiplier             float64       = 1.5
 	minRandomNoiseMilliSec float64       = 50
@@ -46,9 +49,12 @@ const (
 )
 
 func (opt *Options) setOptionsDefaults() {
-	// Set the default TTL.
+	// Set default options
 	if opt.TTL == 0 {
 		opt.TTL = TTL
+	}
+	if opt.MaxTries == 0 {
+		opt.MaxTries = maxTries
 	}
 }
 
@@ -56,7 +62,7 @@ func NewFromClient(client goredislib.UniversalClient, key string, opt *Options) 
 	pool := goredis.NewPool(client)
 	rs := redsync.New(pool)
 
-	mutex := New(rs, key, &Options{TTL: opt.TTL})
+	mutex := New(rs, key, &Options{TTL: opt.TTL, MaxTries: opt.MaxTries})
 
 	return mutex
 }
@@ -67,8 +73,7 @@ func New(rs *redsync.Redsync, key string, opt *Options) *RedisLock {
 	// Obtain a new mutex by using the same name for all instances wanting the
 	// same lock.
 	mutex := new(RedisLock)
-	mutex.redsyncMutex = rs.NewMutex(key, redsync.WithExpiry(opt.TTL),
-		redsync.WithRetryDelayFunc(exponentialBackoff))
+	mutex.redsyncMutex = rs.NewMutex(key, redsync.WithExpiry(opt.TTL), redsync.WithTries(opt.MaxTries))
 	mutex.Key = key
 
 	return mutex
@@ -93,6 +98,7 @@ func (mutex *RedisLock) Unlock() error {
 	return nil
 }
 
+// Currently not used
 func exponentialBackoff(tries int) time.Duration {
 	// Computes base * (multiplier ^ tries) + random_number_milliseconds
 	return time.Duration(baseMilliSec*math.Pow(multiplier, float64(tries))+
