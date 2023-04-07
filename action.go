@@ -276,7 +276,7 @@ type Write struct {
 	/// The columns the write is partitioned by.
 	PartitionBy []string `json:"partitionBy"`
 	/// The predicate used during the write.
-	Predicate string
+	Predicate []string `json:"predicate"`
 }
 
 func (op Write) GetCommitInfo() CommitInfo {
@@ -284,7 +284,27 @@ func (op Write) GetCommitInfo() CommitInfo {
 
 	operation := "delta-go.Write"
 	commitInfo["operation"] = operation
-	commitInfo["operationParameters"] = op
+
+	// convert PartitionBy to JSON string, return "[]" if empty
+	partitionByJSON, _ := json.Marshal(op.PartitionBy)
+	if len(op.PartitionBy) == 0 {
+		partitionByJSON = []byte("[]")
+	}
+
+	// convert PartitionBy to JSON string, return "[]" if empty
+	predicateJSON, _ := json.Marshal(op.Predicate)
+	if len(op.Predicate) == 0 {
+		predicateJSON = []byte("[]")
+	}
+
+	// add operation parameters to map
+	operationParams := make(map[string]interface{})
+	operationParams["mode"] = op.Mode
+	operationParams["partitionBy"] = string(partitionByJSON)
+	operationParams["predicate"] = string(predicateJSON)
+
+	// add operation parameters map to commitInfo
+	commitInfo["operationParameters"] = operationParams
 
 	return commitInfo
 }
@@ -298,17 +318,6 @@ type StreamingUpdate struct {
 	/// The epoch id of the written micro-batch.
 	EpochId int64
 }
-
-//     #[serde(rename_all = "camelCase")]
-//     /// Represents a `Optimize` operation
-//     Optimize {
-//         // TODO: Create a string representation of the filter passed to optimize
-//         /// The filter used to determine which partitions to filter
-//         predicate: Option<String>,
-//         /// Target optimize size
-//         target_size: DeltaDataTypeLong,
-//     }, // TODO: Add more operations
-// }
 
 // / The SaveMode used when performing a DeltaOperation
 type SaveMode string
