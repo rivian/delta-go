@@ -14,7 +14,7 @@ package delta
 
 import (
 	"encoding/json"
-	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +50,7 @@ func TestLogEntryFromActions(t *testing.T) {
 	}
 	println(string(logs))
 
-	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":null,"Predicate":""},"timestamp":1675020556534}}
+	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]"},"timestamp":1675020556534}}
 	{"add":{"path":"part-1.snappy.parquet","size":1,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}}
 	{"path":"part-2.snappy.parquet","size":2,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}`
 
@@ -58,7 +58,7 @@ func TestLogEntryFromActions(t *testing.T) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
-	if !strings.Contains(string(logs), `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":null,"Predicate":""},"timestamp":1675020556534}}`) {
+	if !strings.Contains(string(logs), `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]"},"timestamp":1675020556534}}`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
@@ -165,7 +165,6 @@ func TestUpdateStats(t *testing.T) {
 
 	b, _ := json.Marshal(stats)
 	expectedStr := `{"numRecords":4,"tightBounds":false,"minValues":{"id":0,"label":"row0","value":1.23},"maxValues":{"id":3,"label":"row3","value":2.13},"nullCount":{"value":2}}`
-	fmt.Println(string(b))
 	statsString := string(b)
 	if statsString != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", statsString, expectedStr)
@@ -182,4 +181,88 @@ func TestFormatDefault(t *testing.T) {
 		t.Errorf("has:\n%s\nwant:\n%s", string(b), expectedStr)
 	}
 
+}
+
+func TestWriteOperationParameters(t *testing.T) {
+
+	write := Write{Mode: Append, PartitionBy: []string{"date"}}
+	commit := write.GetCommitInfo()
+	commit["timestamp"] = 1675020556534
+
+	var data []Action
+	data = append(data, commit)
+	logs, err := LogEntryFromActions(data)
+	if err != nil {
+		t.Error(err)
+	}
+	println(string(logs))
+	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"Append","partitionBy":"[\"date\"]"},"timestamp":1675020556534}}`
+
+	// compare the JSON strings
+	if !reflect.DeepEqual(expectedStr, string(logs)) {
+		t.Errorf("expected %s, but got %s", expectedStr, string(logs))
+	}
+
+}
+
+func TestWrite_GetCommitInfo(t *testing.T) {
+	// create a new Write struct
+	write := Write{
+		Mode:        Append,
+		PartitionBy: []string{"date"},
+		Predicate:   "col = 'value'",
+	}
+
+	// call GetCommitInfo()
+	commitInfo := write.GetCommitInfo()
+
+	// define expected commitInfo map
+	expected := CommitInfo{
+		"operation": "delta-go.Write",
+		"operationParameters": map[string]interface{}{
+			"mode":        "Append",
+			"partitionBy": "[\"date\"]",
+			"predicate":   "col = 'value'",
+		},
+	}
+
+	// marshal expected and actual maps to JSON strings for comparison
+	expectedJSON, _ := json.Marshal(expected)
+	actualJSON, _ := json.Marshal(commitInfo)
+
+	// compare the JSON strings
+	if !reflect.DeepEqual(expectedJSON, actualJSON) {
+		t.Errorf("expected %s, but got %s", expectedJSON, actualJSON)
+	}
+}
+
+func TestWrite_GetCommitInfoEmptyPartitionBy(t *testing.T) {
+	// create a new Write struct
+	write := Write{
+		Mode: Append,
+		// PartitionBy: []string{""},
+		Predicate: "col = 'value'",
+	}
+
+	// call GetCommitInfo()
+	commitInfo := write.GetCommitInfo()
+
+	// define expected commitInfo map
+	expected := CommitInfo{
+		"operation": "delta-go.Write",
+		"operationParameters": map[string]interface{}{
+			"mode":        "Append",
+			"partitionBy": "[]",
+			"predicate":   "col = 'value'",
+		},
+	}
+
+	// marshal expected and actual maps to JSON strings for comparison
+	expectedJSON, _ := json.Marshal(expected)
+	actualJSON, _ := json.Marshal(commitInfo)
+
+	// compare the JSON strings
+	if !reflect.DeepEqual(expectedJSON, actualJSON) {
+		t.Errorf("expected %s, but got %s", expectedJSON, actualJSON)
+	}
 }
