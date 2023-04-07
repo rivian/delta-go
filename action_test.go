@@ -50,7 +50,7 @@ func TestLogEntryFromActions(t *testing.T) {
 	}
 	println(string(logs))
 
-	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]"},"timestamp":1675020556534}}
+	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]","predicate":"[]"},"timestamp":1675020556534}}
 	{"add":{"path":"part-1.snappy.parquet","size":1,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}}
 	{"path":"part-2.snappy.parquet","size":2,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}`
 
@@ -58,7 +58,7 @@ func TestLogEntryFromActions(t *testing.T) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
-	if !strings.Contains(string(logs), `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]"},"timestamp":1675020556534}}`) {
+	if !strings.Contains(string(logs), `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]","predicate":"[]"},"timestamp":1675020556534}}`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
@@ -196,7 +196,7 @@ func TestWriteOperationParameters(t *testing.T) {
 		t.Error(err)
 	}
 	println(string(logs))
-	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"Append","partitionBy":"[\"date\"]"},"timestamp":1675020556534}}`
+	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"Append","partitionBy":"[\"date\"]","predicate":"[]"},"timestamp":1675020556534}}`
 
 	// compare the JSON strings
 	if !reflect.DeepEqual(expectedStr, string(logs)) {
@@ -209,8 +209,8 @@ func TestWrite_GetCommitInfo(t *testing.T) {
 	// create a new Write struct
 	write := Write{
 		Mode:        Append,
-		PartitionBy: []string{"date"},
-		Predicate:   "col = 'value'",
+		PartitionBy: []string{"id", "date"},
+		Predicate:   []string{"col = 'value'"},
 	}
 
 	// call GetCommitInfo()
@@ -221,8 +221,8 @@ func TestWrite_GetCommitInfo(t *testing.T) {
 		"operation": "delta-go.Write",
 		"operationParameters": map[string]interface{}{
 			"mode":        "Append",
-			"partitionBy": "[\"date\"]",
-			"predicate":   "col = 'value'",
+			"partitionBy": "[\"id\",\"date\"]",
+			"predicate":   "[\"col = 'value'\"]",
 		},
 	}
 
@@ -241,7 +241,7 @@ func TestWrite_GetCommitInfoEmptyPartitionBy(t *testing.T) {
 	write := Write{
 		Mode: Append,
 		// PartitionBy: []string{""},
-		Predicate: "col = 'value'",
+		// Predicate: []"col = 'value'",
 	}
 
 	// call GetCommitInfo()
@@ -253,7 +253,7 @@ func TestWrite_GetCommitInfoEmptyPartitionBy(t *testing.T) {
 		"operationParameters": map[string]interface{}{
 			"mode":        "Append",
 			"partitionBy": "[]",
-			"predicate":   "col = 'value'",
+			"predicate":   "[]",
 		},
 	}
 

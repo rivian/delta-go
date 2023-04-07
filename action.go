@@ -276,7 +276,7 @@ type Write struct {
 	/// The columns the write is partitioned by.
 	PartitionBy []string `json:"partitionBy"`
 	/// The predicate used during the write.
-	Predicate string `json:"predicate,omitempty"`
+	Predicate []string `json:"predicate"`
 }
 
 func (op Write) GetCommitInfo() CommitInfo {
@@ -291,13 +291,17 @@ func (op Write) GetCommitInfo() CommitInfo {
 		partitionByJSON = []byte("[]")
 	}
 
+	// convert PartitionBy to JSON string, return "[]" if empty
+	predicateJSON, _ := json.Marshal(op.Predicate)
+	if len(op.Predicate) == 0 {
+		predicateJSON = []byte("[]")
+	}
+
 	// add operation parameters to map
 	operationParams := make(map[string]interface{})
 	operationParams["mode"] = op.Mode
 	operationParams["partitionBy"] = string(partitionByJSON)
-	if op.Predicate != "" {
-		operationParams["predicate"] = op.Predicate
-	}
+	operationParams["predicate"] = string(predicateJSON)
 
 	// add operation parameters map to commitInfo
 	commitInfo["operationParameters"] = operationParams
