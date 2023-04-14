@@ -74,6 +74,41 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	}
 }
 
+func TestDeltaTableReadCommitVersion(t *testing.T) {
+	table, _, _ := setupTest(t)
+	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	transaction, operation, appMetaData := setupTransaction(t, table, nil)
+	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = transaction.TryCommit(&commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	actions, err := table.ReadCommitVersion(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(actions) != 3 {
+		t.Fatal("Expected 3 actions")
+	}
+	_, ok := actions[0].(*CommitInfo)
+	if !ok {
+		t.Error("Expected CommitInfo for first action")
+	}
+	_, ok = actions[1].(*Protocol)
+	if !ok {
+		t.Error("Expected Protocol for second action")
+	}
+	_, ok = actions[2].(*MetaData)
+	if !ok {
+		t.Error("Expected MetaData for third action")
+	}
+}
+
 func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table, _, _ := setupTest(t)
 	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})

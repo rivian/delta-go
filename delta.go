@@ -184,10 +184,14 @@ func (table *DeltaTable) Exists() (bool, error) {
 	return true, nil
 }
 
-// / Read a commit log and return a slice of actions from the log
-// / TODO - Maybe we should create a commit.go file?
-func (table *DeltaTable) ReadCommitLog(commitLogFile *storage.Path) ([]Action, error) {
-	commitData, err := table.Store.Get(commitLogFile)
+// / Read a commit log and return the actions from the log
+func (table *DeltaTable) ReadCommitVersion(version state.DeltaDataTypeVersion) ([]Action, error) {
+	path := table.CommitUriFromVersion(0)
+	return ReadCommitLog(table.Store, path)
+}
+
+func ReadCommitLog(store storage.ObjectStore, location *storage.Path) ([]Action, error) {
+	commitData, err := store.Get(location)
 	if err != nil {
 		return nil, err
 	}
