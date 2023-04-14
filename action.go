@@ -15,6 +15,7 @@ package delta
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"time"
 
@@ -203,6 +204,76 @@ func LogEntryFromActions(actions []Action) ([]byte, error) {
 	}
 
 	return bytes.Join(jsons, []byte("\n")), nil
+}
+
+// / Retrieve an action from a log entry
+func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, error) {
+	if len(unstructuredResult) != 1 {
+		return nil, errors.New("log entry JSON must have one value")
+	}
+
+	type ActionKey string
+
+	const (
+		AddActionKey         ActionKey = "add"
+		RemoveActionKey      ActionKey = "remove"
+		CommitInfoActionKey  ActionKey = "commitInfo"
+		ProtocolActionKey    ActionKey = "protocol"
+		MetaDataActionKey    ActionKey = "metaData"
+		FormatActionKey      ActionKey = "format"
+		TransactionActionKey ActionKey = "txn"
+		CDCActionKey         ActionKey = "cdc"
+	)
+
+	var action Action
+	var marshalledAction json.RawMessage
+	var actionFound bool
+
+	if marshalledAction, actionFound = unstructuredResult[string(AddActionKey)]; actionFound {
+		action = new(Add)
+	} else if marshalledAction, actionFound = unstructuredResult[string(RemoveActionKey)]; actionFound {
+		action = new(Remove)
+	} else if marshalledAction, actionFound = unstructuredResult[string(CommitInfoActionKey)]; actionFound {
+		action = new(CommitInfo)
+	} else if marshalledAction, actionFound = unstructuredResult[string(ProtocolActionKey)]; actionFound {
+		action = new(Protocol)
+	} else if marshalledAction, actionFound = unstructuredResult[string(MetaDataActionKey)]; actionFound {
+		action = new(MetaData)
+	} else if marshalledAction, actionFound = unstructuredResult[string(FormatActionKey)]; actionFound {
+		action = new(Format)
+	} else if marshalledAction, actionFound = unstructuredResult[string(TransactionActionKey)]; actionFound {
+		action = new(Txn)
+	} else if _, actionFound = unstructuredResult[string(CDCActionKey)]; actionFound {
+		return nil, errors.New("cdc action is not currently supported")
+	} else {
+		return nil, errors.New("unknown entry type in commit log")
+	}
+
+	err := json.Unmarshal(marshalledAction, &action)
+	if err != nil {
+		return nil, err
+	}
+
+	return action, nil
+}
+
+// / Retrieve all actions in this log
+func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
+	lines := bytes.Split(logEntries, []byte("\n"))
+	actions := make([]Action, 0, len(lines))
+	for _, currentLine := range lines {
+		var unstructuredResult map[string]json.RawMessage
+		err := json.Unmarshal(currentLine, &unstructuredResult)
+		if err != nil {
+			return nil, err
+		}
+		action, err := actionFromLogEntry(unstructuredResult)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, action)
+	}
+	return actions, nil
 }
 
 // Returns the table schema from the embedded schema string contained within the metadata

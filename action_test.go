@@ -266,3 +266,82 @@ func TestWrite_GetCommitInfoEmptyPartitionBy(t *testing.T) {
 		t.Errorf("expected %s, but got %s", expectedJSON, actualJSON)
 	}
 }
+
+func TestActionFromLogEntry(t *testing.T) {
+	type args struct {
+		unstructuredResult map[string]json.RawMessage
+	}
+
+	// Caveats:
+	// CommitInfo's operationParameters is not being tested because the result from the unmarshal process is a map[string]interface{} and I haven't
+	// been able to set up an expected map that maintains the interface{} type, so DeepEquals() fails
+	tests := []struct {
+		name    string
+		args    args
+		want    Action
+		wantErr bool
+	}{
+		{name: "Add", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`{"path":"mypath.parquet","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true,"stats":"{\"numRecords\":155,\"tightBounds\":false,\"minValues\":{\"timestamp\":1615338375007003},\"maxValues\":{\"timestamp\":1615338377517216},\"nullCount\":null}"}`)}},
+			want: &Add{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
+				Stats: `{"numRecords":155,"tightBounds":false,"minValues":{"timestamp":1615338375007003},"maxValues":{"timestamp":1615338377517216},"nullCount":null}`}, wantErr: false},
+		{name: "CommitInfo", args: args{unstructuredResult: map[string]json.RawMessage{"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
+			want: &CommitInfo{"clientVersion": "delta-go.alpha-0.0.0", "isBlindAppend": true, "operation": "delta-go.Write",
+				"timestamp": float64(1679610144893)}, wantErr: false},
+		{name: "Protocol", args: args{unstructuredResult: map[string]json.RawMessage{"protocol": []byte(`{"minReaderVersion":2,"minWriterVersion":7}`)}},
+			want: &Protocol{MinReaderVersion: 2, MinWriterVersion: 7}, wantErr: false},
+		{name: "Fail on invalid JSON", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`"path":"s3a://bucket/table","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true}`)}},
+			want: nil, wantErr: true},
+		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: true},
+		{name: "Fail on CDC", args: args{unstructuredResult: map[string]json.RawMessage{"cdc": []byte(`{}`)}}, want: nil, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := actionFromLogEntry(tt.args.unstructuredResult)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("actionFromLogEntry() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("actionFromLogEntry() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestActionsFromLogEntries(t *testing.T) {
+	add := Add{
+		Path:             "part-1.snappy.parquet",
+		Size:             1,
+		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
+	}
+
+	write := Write{Mode: ErrorIfExists}
+	commit := write.GetCommitInfo()
+	commit["timestamp"] = 1675020556534
+
+	var data []Action
+	data = append(data, commit)
+	data = append(data, add)
+	logs, err := LogEntryFromActions(data)
+	if err != nil {
+		t.Fatalf("LogEntryFromActions() error = %v", err)
+	}
+	logBytes := []byte(logs)
+
+	actions, err := ActionsFromLogEntries(logBytes)
+	if err != nil {
+		t.Fatalf("ActionsFromLogEntries() error = %v", err)
+	}
+
+	if len(actions) != len(data) {
+		t.Fatalf("Wrong number of actions returned. Got %d expected %d", len(actions), len(data))
+	}
+
+	// TODO Not sure how to compare: action contains a pointer, data[i] does not
+	// for i, action := range actions {
+	// 	if !reflect.DeepEqual(action, data[i]) {
+	// 		t.Errorf("Action did not match. Got %v expected %v", action, data[i])
+	// 	}
+	// }
+}

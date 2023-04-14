@@ -184,6 +184,21 @@ func (table *DeltaTable) Exists() (bool, error) {
 	return true, nil
 }
 
+// / Read a commit log and return a slice of actions from the log
+// / TODO - Maybe we should create a commit.go file?
+func (table *DeltaTable) ReadCommitLog(commitLogFile *storage.Path) ([]Action, error) {
+	commitData, err := table.Store.Get(commitLogFile)
+	if err != nil {
+		return nil, err
+	}
+
+	actions, err := ActionsFromLogEntries(commitData)
+	if err != nil {
+		return nil, err
+	}
+	return actions, nil
+}
+
 // The URI of the underlying data
 // func (table *DeltaTable) TableUri() string {
 // 	return table.Store.RootURI()
