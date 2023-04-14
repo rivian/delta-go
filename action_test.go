@@ -52,7 +52,7 @@ func TestLogEntryFromActions(t *testing.T) {
 
 	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]","predicate":"[]"},"timestamp":1675020556534}}
 	{"add":{"path":"part-1.snappy.parquet","size":1,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}}
-	{"path":"part-2.snappy.parquet","size":2,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}`
+	{"add":{"path":"part-2.snappy.parquet","size":2,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}}`
 
 	if !strings.Contains(string(logs), `{"commitInfo":{"operation":"delta-go.Write"`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))

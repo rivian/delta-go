@@ -182,6 +182,10 @@ func logEntryFromAction(action Action) ([]byte, error) {
 		key := strcase.ToLowerCamel(reflect.TypeOf(action).Name())
 		m[key] = action
 		log, err = json.Marshal(m)
+	case *Add, *Remove, *CommitInfo, *MetaData, *Protocol:
+		key := strcase.ToLowerCamel(reflect.ValueOf(action).Elem().Type().Name())
+		m[key] = action
+		log, err = json.Marshal(m)
 	default:
 		log, err = json.Marshal(action)
 	}
