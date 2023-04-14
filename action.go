@@ -249,7 +249,7 @@ func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, 
 		return nil, errors.New("unknown entry type in commit log")
 	}
 
-	err := json.Unmarshal(marshalledAction, &action)
+	err := json.Unmarshal(marshalledAction, action)
 	if err != nil {
 		return nil, err
 	}
@@ -435,6 +435,12 @@ type Stats struct {
 func (s *Stats) Json() []byte {
 	b, _ := json.Marshal(s)
 	return b
+}
+
+func StatsFromJson(b []byte) (*Stats, error) {
+	s := new(Stats)
+	err := json.Unmarshal(b, s)
+	return s, err
 }
 
 // UpdateStats computes Stats.NullCount, Stats.MinValues, Stats.MaxValues for a given k,v struct property

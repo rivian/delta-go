@@ -172,6 +172,52 @@ func TestUpdateStats(t *testing.T) {
 
 }
 
+func TestStatsFromJSON(t *testing.T) {
+	minValues := make(map[string]any)
+	minValues["id"] = 5
+	minValues["field1"] = "hello"
+
+	maxValues := make(map[string]any)
+	maxValues["id"] = 50
+	maxValues["field1"] = "world"
+
+	nullValues := make(map[string]int64)
+	nullValues["id"] = 0
+	nullValues["field1"] = 2
+
+	expectedStats := Stats{
+		NumRecords:  123,
+		TightBounds: true,
+		MinValues:   minValues,
+		MaxValues:   maxValues,
+		NullCount:   nullValues,
+	}
+
+	statsStr := "{\"numRecords\":123,\"tightBounds\":true,\"minValues\":{\"field1\":\"hello\",\"id\":5},\"maxValues\":{\"field1\":\"world\",\"id\":50},\"nullCount\":{\"field1\":2,\"id\":0}}"
+
+	stats, err := StatsFromJson([]byte(statsStr))
+	if err != nil {
+		t.Fatalf("Error in StatsFromJson: %v", err)
+	}
+
+	if !reflect.DeepEqual(stats.NumRecords, expectedStats.NumRecords) {
+		t.Errorf("NumRecords did not match: %d vs %d", stats.NumRecords, expectedStats.NumRecords)
+	}
+	if !reflect.DeepEqual(stats.TightBounds, expectedStats.TightBounds) {
+		t.Errorf("NumRecords did not match: %t vs %t", stats.TightBounds, expectedStats.TightBounds)
+	}
+	// MinValues and MaxValues will not match because unmarshalling JSON changes the type of the numeric fields
+	// if !reflect.DeepEqual(stats.MinValues, expectedStats.MinValues) {
+	// 	t.Errorf("MinValues did not match: %v vs %v", stats.MinValues, expectedStats.MinValues)
+	// }
+	// if !reflect.DeepEqual(stats.MaxValues, expectedStats.MaxValues) {
+	// 	t.Errorf("MaxValues did not match: %v vs %v", stats.MaxValues, expectedStats.MaxValues)
+	// }
+	if !reflect.DeepEqual(stats.NullCount, expectedStats.NullCount) {
+		t.Errorf("NullCount did not match: %v vs %v", stats.NullCount, expectedStats.NullCount)
+	}
+}
+
 func TestFormatDefault(t *testing.T) {
 
 	format := new(Format).Default()
@@ -310,10 +356,15 @@ func TestActionFromLogEntry(t *testing.T) {
 }
 
 func TestActionsFromLogEntries(t *testing.T) {
+	stats := Stats{
+		NumRecords: 123,
+	}
+
 	add := Add{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
+		Stats:            string(stats.Json()),
 	}
 
 	write := Write{Mode: ErrorIfExists}
@@ -338,10 +389,21 @@ func TestActionsFromLogEntries(t *testing.T) {
 		t.Fatalf("Wrong number of actions returned. Got %d expected %d", len(actions), len(data))
 	}
 
-	// TODO Not sure how to compare: action contains a pointer, data[i] does not
-	// for i, action := range actions {
-	// 	if !reflect.DeepEqual(action, data[i]) {
-	// 		t.Errorf("Action did not match. Got %v expected %v", action, data[i])
-	// 	}
+	// resultCommit, ok := actions[0].(*CommitInfo)
+	_, ok := actions[0].(*CommitInfo)
+	if !ok {
+		t.Error("Expected CommitInfo for first action")
+	}
+	// TODO - this fails because JSON unmarshalling changes the timestamp type.
+	// if !reflect.DeepEqual(*resultCommit, commit) {
+	// 	t.Errorf("Commit did not match.  Got %v expected %v", *resultCommit, commit)
 	// }
+
+	resultAdd, ok := actions[1].(*Add)
+	if !ok {
+		t.Error("Expected Add for second action")
+	}
+	if !reflect.DeepEqual(*resultAdd, add) {
+		t.Errorf("Add did not match.  Got %v expected %v", *resultAdd, add)
+	}
 }
