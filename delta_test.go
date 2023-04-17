@@ -14,6 +14,7 @@ package delta
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -106,6 +107,86 @@ func TestDeltaTableReadCommitVersion(t *testing.T) {
 	_, ok = actions[2].(*MetaData)
 	if !ok {
 		t.Error("Expected MetaData for third action")
+	}
+}
+
+func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
+	table, _, _ := setupTest(t)
+
+	firstFieldMetaData := make(map[string]any)
+	firstFieldMetaData["hasMetaData"] = true
+	fields := []SchemaField{
+		{Name: "first_column", Nullable: true, Metadata: firstFieldMetaData},
+		{Name: "second_column", Nullable: false},
+		{Name: "third_field", Nullable: true},
+	}
+	schema := SchemaTypeStruct{Fields: fields}
+	format := new(Format).Default()
+	config := make(map[string]string)
+	config["appendOnly"] = "true"
+	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
+	protocol := Protocol{MinReaderVersion: 2, MinWriterVersion: 6}
+	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
+	add := Add{
+		Path:             "part-123.snappy.parquet",
+		Size:             984,
+		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		Stats:            string(stats.Json()),
+	}
+	commitInfo := make(map[string]any)
+	commitInfo["test"] = 123
+	err := table.Create(*metadata, protocol, commitInfo, []Add{add})
+	if err != nil {
+		t.Error(err)
+	}
+
+	transaction, operation, appMetaData := setupTransaction(t, table, nil)
+	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = transaction.TryCommit(&commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	actions, err := table.ReadCommitVersion(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(actions) != 4 {
+		t.Error("Expected 3 actions")
+	}
+	_, ok := actions[0].(*CommitInfo)
+	if !ok {
+		t.Error("Expected CommitInfo for first action")
+	}
+	_, ok = actions[1].(*Protocol)
+	if !ok {
+		t.Error("Expected Protocol for second action")
+	}
+	_, ok = actions[2].(*MetaData)
+	if !ok {
+		t.Error("Expected MetaData for third action")
+	}
+	a, ok := actions[3].(*Add)
+	if !ok {
+		t.Error("Expected Add for fourth action")
+	}
+	if a.Path != "part-123.snappy.parquet" {
+		t.Error("Add path not deserialized properly")
+	}
+	var s Stats
+	err = json.Unmarshal([]byte(a.Stats), &s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.NumRecords != 1 {
+		t.Error("Add path stats NumRecords incorrect")
+	}
+	if s.MinValues["first_column"].(float64) != 1 {
+		t.Error("Add path stats MinValues incorrect")
 	}
 }
 
