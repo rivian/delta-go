@@ -184,6 +184,25 @@ func (table *DeltaTable) Exists() (bool, error) {
 	return true, nil
 }
 
+// / Read a commit log and return the actions from the log
+func (table *DeltaTable) ReadCommitVersion(version state.DeltaDataTypeVersion) ([]Action, error) {
+	path := table.CommitUriFromVersion(0)
+	return ReadCommitLog(table.Store, path)
+}
+
+func ReadCommitLog(store storage.ObjectStore, location *storage.Path) ([]Action, error) {
+	commitData, err := store.Get(location)
+	if err != nil {
+		return nil, err
+	}
+
+	actions, err := ActionsFromLogEntries(commitData)
+	if err != nil {
+		return nil, err
+	}
+	return actions, nil
+}
+
 // The URI of the underlying data
 // func (table *DeltaTable) TableUri() string {
 // 	return table.Store.RootURI()
