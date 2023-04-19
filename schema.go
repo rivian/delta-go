@@ -38,6 +38,23 @@ type DeltaDataTypeTimestamp int64
 // / Type alias for i32/Delta int
 type DeltaDataTypeInt int32
 
+// Type alias for date with custom JSON marshal/unmarshal to simplify use of dates as partitions
+type DeltaDataTypeDate time.Time
+
+func (date *DeltaDataTypeDate) UnmarshalJSON(b []byte) error {
+	trimmedDateString := strings.Trim(string(b), "\"")
+	t, err := time.Parse("2006-01-02", trimmedDateString)
+	if err != nil {
+		return err
+	}
+	*date = DeltaDataTypeDate(t)
+	return nil
+}
+
+func (date DeltaDataTypeDate) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Time(date))
+}
+
 const (
 	STRUCT_TAG = "struct"
 	ARRAY_TAG  = "array"
@@ -96,16 +113,16 @@ const (
 	Byte      SchemaDataType = "byte"      //  * byte: i8
 	Float     SchemaDataType = "float"     //  * float: f32
 	Double    SchemaDataType = "double"    //  * double: f64
-	Boolean   SchemaDataType = "boolean"   // * boolean: bool
+	Boolean   SchemaDataType = "boolean"   //  * boolean: bool
 	Binary    SchemaDataType = "binary"    //  * binary: a sequence of binary data
 	Date      SchemaDataType = "date"      //  * date: A calendar date, represented as a year-month-day triple without a timezone
-	Timestamp SchemaDataType = "timestamp" // * timestamp: Microsecond precision timestamp without a timezone
-	Struct    SchemaDataType = "struct"    // * timestamp: Microsecond precision timestamp without a timezone
+	Timestamp SchemaDataType = "timestamp" //  * timestamp: Microsecond precision timestamp without a timezone
+	Struct    SchemaDataType = "struct"    //  * struct:
 	Unknown   SchemaDataType = "unknown"
 )
 
 // GetSchema recursively walks over the given struct interface i and extracts SchemaTypeStruct StructFields using reflect
-// TODO: Handel error cases where types are not compatible with spark types.
+// TODO: Handle error cases where types are not compatible with spark types.
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#schema-serialization-format
 // i.e. Value int is not currently readable with spark.read.format("delta").load("...")
 func GetSchema(i any) SchemaTypeStruct {

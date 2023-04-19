@@ -67,6 +67,11 @@ func (s *FileObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path
 func (s *FileObjectStore) Get(location *storage.Path) ([]byte, error) {
 	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
 	data, err := os.ReadFile(filePath)
+	if os.IsNotExist(err) {
+		err = errors.Join(storage.ErrorObjectDoesNotExist, err)
+	} else if err != nil {
+		err = errors.Join(storage.ErrorGetObject, err)
+	}
 	return data, err
 }
 
