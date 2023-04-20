@@ -378,6 +378,25 @@ func TestDeltaTableExists(t *testing.T) {
 	if !tableExists {
 		t.Errorf("table should exist")
 	}
+
+	// Move the new version file to a backup folder that starts with _delta_log
+	commitPath = filepath.Join(tmpDir, table.CommitUriFromVersion(1).Raw)
+	os.MkdirAll(filepath.Join(tmpDir, "_delta_log.bak"), 0700)
+	fakeCommitPath := filepath.Join(tmpDir, "_delta_log.bak/00000000000000000000.json")
+	err = os.Rename(commitPath, fakeCommitPath)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// Exists() should return false
+	tableExists, err = table.Exists()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if tableExists {
+		t.Errorf("table should not exist")
+	}
 }
 
 func TestDeltaTableTryCommitLoop(t *testing.T) {

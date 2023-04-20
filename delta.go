@@ -84,7 +84,7 @@ func (table *DeltaTable) CommitUriFromVersion(version state.DeltaDataTypeVersion
 
 // The base path of commit uri's
 func (table *DeltaTable) BaseCommitUri() *storage.Path {
-	return storage.NewPath("_delta_log")
+	return storage.NewPath("_delta_log/")
 }
 
 func (table *DeltaTable) IsValidCommitUri(path *storage.Path) (bool, error) {
