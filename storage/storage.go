@@ -113,9 +113,10 @@ type ObjectMeta struct {
 // / 1,000 objects based on the underlying object storage's limitations.
 type ListResult struct {
 	/// Prefixes that are common (like directories)
-	CommonPrefixes []Path
+	// CommonPrefixes []Path
 	/// Object metadata for the listing
-	Objects []ObjectMeta
+	Objects   []ObjectMeta
+	NextToken string
 }
 
 // / Lock data which stores an attempt to rename `source` into `destination`
@@ -171,12 +172,23 @@ type ObjectStore interface {
 	// 	/// Delete the object at the specified location.
 	Delete(location *Path) error
 
-	/// List all the objects with the given prefix.  This may be limited to a certain number of objects (e.g. 1000)
+	/// List the objects with the given prefix.  This may be limited to a certain number of objects (e.g. 1000)
 	/// based on the underlying object storage's limitations.
+	/// If a previousResult is provided and the store supports paging, the next page of results will be returned.
 	///
 	/// Prefixes are evaluated on a path segment basis, i.e. `foo/bar/` is a prefix of `foo/bar/x` but not of
 	/// `foo/bar_baz/x`.
-	List(prefix *Path) ([]ObjectMeta, error)
+	List(prefix *Path, previousResult *ListResult) (ListResult, error)
+
+	/// List all objects with the given prefix. If the underlying object storage returns a limited number of objects,
+	/// this will perform paging as required to return all results
+	///
+	/// Prefixes are evaluated on a path segment basis, i.e. `foo/bar/` is a prefix of `foo/bar/x` but not of
+	/// `foo/bar_baz/x`.
+	ListAll(prefix *Path) (ListResult, error)
+
+	/// Returns true if this store returns list results sorted
+	IsListOrdered() bool
 
 	// 	/// List all the objects with the given prefix.
 	// 	///

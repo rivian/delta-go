@@ -170,7 +170,8 @@ func listFilesInDirRecursively(baseURI string, dir string, prefix string) ([]sto
 	return out, nil
 }
 
-func (s *FileObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, error) {
+func (s *FileObjectStore) ListAll(prefix *storage.Path) (storage.ListResult, error) {
+	var listResult storage.ListResult
 	dir, filePrefix := filepath.Split(prefix.Raw)
 
 	fullDir := filepath.Join(s.BaseURI.Raw, dir)
@@ -191,7 +192,7 @@ func (s *FileObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, erro
 
 	files, err := listFilesInDirRecursively(baseURI, fullDir, filePrefix)
 	if err != nil {
-		return nil, errors.Join(storage.ErrorListObjects, err)
+		return listResult, errors.Join(storage.ErrorListObjects, err)
 	}
 
 	// If the prefix passed in was a directory, add the root directory explicitly
@@ -199,15 +200,25 @@ func (s *FileObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, erro
 		info, err := os.Stat(filepath.Join(s.BaseURI.Raw, dir))
 		// If we get an error the directory doesn't exist, that's okay
 		if err != nil && !os.IsNotExist(err) {
-			return nil, errors.Join(storage.ErrorListObjects, err)
+			return listResult, errors.Join(storage.ErrorListObjects, err)
 		}
 		if err == nil {
 			meta, err := objectMetaFromFileInfo(info, dir, true, "", baseURI)
 			if err != nil {
-				return nil, errors.Join(storage.ErrorListObjects, err)
+				return listResult, errors.Join(storage.ErrorListObjects, err)
 			}
 			files = append(files, *meta)
 		}
 	}
-	return files, nil
+	listResult.Objects = files
+	listResult.NextToken = ""
+	return listResult, nil
+}
+
+func (s *FileObjectStore) List(prefix *storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
+	return s.ListAll(prefix)
+}
+
+func (s *FileObjectStore) IsListOrdered() bool {
+	return true
 }

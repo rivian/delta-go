@@ -22,3 +22,6 @@ go.work
 
 # Redis snapshot used in tests
 dump.rdb
+
+.DS_Store
+.vscode

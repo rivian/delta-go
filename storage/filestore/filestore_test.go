@@ -226,12 +226,19 @@ func TestList(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := store.List(tt.args.prefix)
+			got, err := store.List(tt.args.prefix, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FileObjectStore.List() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			compareExpectedPaths(t, tt.want, got)
+			compareExpectedPaths(t, tt.want, got.Objects)
+			got, err = store.ListAll(tt.args.prefix)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FileObjectStore.List() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			compareExpectedPaths(t, tt.want, got.Objects)
+
 		})
 	}
 }

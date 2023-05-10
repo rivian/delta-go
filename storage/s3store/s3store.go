@@ -195,18 +195,15 @@ func (s *S3ObjectStore) Head(location *storage.Path) (storage.ObjectMeta, error)
 	return m, nil
 }
 
-func (s *S3ObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, error) {
-	// We will need the store path with the leading and trailing /'s for trimming results
+func getListInputAndTrimPrefix(s *S3ObjectStore, prefix *storage.Path, previousResult *storage.ListResult) (s3.ListObjectsV2Input, string, error) {
+	// We will need the store path with the trailing / for trimming results
 	pathWithSeparators := s.path
-	if !strings.HasPrefix(pathWithSeparators, "/") {
-		pathWithSeparators = "/" + pathWithSeparators
-	}
 	if !strings.HasSuffix(pathWithSeparators, "/") {
 		pathWithSeparators = pathWithSeparators + "/"
 	}
 
-	// The prefix is used for pattern matching results. The fullPrefix prepends the
-	// store path.
+	// The fullPrefix prepends the store path so that AWS uses the entire path for
+	// pattern matching the key.
 	var fullPrefix string
 	var err error
 
@@ -218,27 +215,75 @@ func (s *S3ObjectStore) List(prefix *storage.Path) ([]storage.ObjectMeta, error)
 	} else {
 		fullPrefix, err = url.JoinPath(s.path, prefix.Raw)
 		if err != nil {
-			return nil, errors.Join(storage.ErrorURLJoinPath, err)
+			return s3.ListObjectsV2Input{}, "", errors.Join(storage.ErrorURLJoinPath, err)
 		}
 	}
 
-	results, err := s.Client.ListObjectsV2(context.Background(),
-		&s3.ListObjectsV2Input{
-			Bucket: aws.String(s.bucket),
-			Prefix: aws.String(fullPrefix),
-		})
-	if err != nil {
-		return nil, errors.Join(storage.ErrorListObjects, err)
+	listInput := s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(fullPrefix),
 	}
-	objectMetas := make([]storage.ObjectMeta, 0, results.KeyCount)
+
+	// Request the next page if a token is available
+	if previousResult != nil && previousResult.NextToken != "" {
+		listInput.ContinuationToken = &previousResult.NextToken
+	}
+	return listInput, pathWithSeparators, nil
+}
+
+func (s *S3ObjectStore) List(prefix *storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
+	listInput, resultsTrimPrefix, err := getListInputAndTrimPrefix(s, prefix, previousResult)
+	if err != nil {
+		return storage.ListResult{}, err
+	}
+	results, err := s.Client.ListObjectsV2(context.Background(), &listInput)
+	if err != nil {
+		return storage.ListResult{}, errors.Join(storage.ErrorListObjects, err)
+	}
+
+	listResult := storage.ListResult{Objects: make([]storage.ObjectMeta, 0, results.KeyCount)}
 
 	for _, result := range results.Contents {
-		location := strings.TrimPrefix(*result.Key, pathWithSeparators)
-		objectMetas = append(objectMetas, storage.ObjectMeta{
+		location := strings.TrimPrefix(*result.Key, resultsTrimPrefix)
+		listResult.Objects = append(listResult.Objects, storage.ObjectMeta{
 			Location:     *storage.NewPath(location),
 			LastModified: *result.LastModified,
 			Size:         result.Size,
 		})
 	}
-	return objectMetas, nil
+	if results.NextContinuationToken != nil {
+		listResult.NextToken = *results.NextContinuationToken
+	}
+	return listResult, nil
+}
+
+func (s *S3ObjectStore) ListAll(prefix *storage.Path) (storage.ListResult, error) {
+	var listResult storage.ListResult
+	listInput, resultsTrimPrefix, err := getListInputAndTrimPrefix(s, prefix, nil)
+	if err != nil {
+		return listResult, err
+	}
+	p := s3.NewListObjectsV2Paginator(s.Client, &listInput)
+
+	for p.HasMorePages() {
+		page, err := p.NextPage(context.TODO())
+		if err != nil {
+			return listResult, errors.Join(storage.ErrorListObjects, err)
+		}
+
+		for _, result := range page.Contents {
+			location := strings.TrimPrefix(*result.Key, resultsTrimPrefix)
+			listResult.Objects = append(listResult.Objects, storage.ObjectMeta{
+				Location:     *storage.NewPath(location),
+				LastModified: *result.LastModified,
+				Size:         result.Size,
+			})
+		}
+	}
+
+	return listResult, nil
+}
+
+func (s *S3ObjectStore) IsListOrdered() bool {
+	return true
 }
