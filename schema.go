@@ -69,6 +69,8 @@ type SchemaTypeStruct struct {
 	Fields []SchemaField //`json:"fields"`
 }
 
+// TODO this does not handle nested maps, arrays, or structs correctly
+// See TestMetadataGetSchema in action_test.go for example outputs for those cases
 func (s *SchemaTypeStruct) Json() []byte {
 
 	type constructorSchemaField struct {

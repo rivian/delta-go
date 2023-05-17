@@ -63,6 +63,8 @@ func TestGetSchema(t *testing.T) {
 	b := schema.Json()
 	schemaString := string(b)
 	fmt.Println(schemaString)
+	// TODO this is incorrect
+	// Nested struct should be formatted like this: "type":{"type":"struct","fields":[...]}
 	expectedStr := `{"type":"struct","fields":[{"name":"id","type":"integer","nullable":false,"metadata":{}},{"name":"label","type":"string","nullable":true,"metadata":{}},{"name":"value","type":"double","nullable":true,"metadata":{}},{"name":"sub_struct","type":"struct","nullable":false,"metadata":{},"fields":[{"name":"data","type":"string","nullable":true,"metadata":{}}]}]}`
 	if schemaString != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", schemaString, expectedStr)

@@ -123,7 +123,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	schema := SchemaTypeStruct{Fields: fields}
 	format := new(Format).Default()
 	config := make(map[string]string)
-	config["appendOnly"] = "true"
+	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := Protocol{MinReaderVersion: 2, MinWriterVersion: 6}
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
@@ -274,7 +274,7 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 
 	commitData, _ = state.Get()
 	if commitData.Version != 1 {
-		t.Errorf("Final Version in lock should be 1")
+		t.Errorf("Version is %d, final Version in lock should be 1", commitData.Version)
 	}
 }
 func TestDeltaTableCreate(t *testing.T) {
@@ -290,7 +290,7 @@ func TestDeltaTableCreate(t *testing.T) {
 	schema := SchemaTypeStruct{Fields: fields}
 	format := new(Format).Default()
 	config := make(map[string]string)
-	config["appendOnly"] = "true"
+	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := Protocol{MinReaderVersion: 2, MinWriterVersion: 7}
 	add := Add[testData, EmptyTestStruct]{
@@ -497,7 +497,7 @@ func TestCommitConcurrent(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.state", filelock.LockOptions{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.LockOptions{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable[testData, EmptyTestStruct](store, lock, state)
@@ -580,7 +580,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.state", filelock.LockOptions{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.LockOptions{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable[testData, EmptyTestStruct](store, lock, state)
@@ -677,68 +677,6 @@ func TestCreateWithParquet(t *testing.T) {
 	//	    `{"type":"struct","fields":[{"name":"letter","type":"string","nullable":true,"metadata":{}},{"name":"number","type":"long","nullable":true,"metadata":{}},{"name":"a_float","type":"double","nullable":true,"metadata":{}}]}"`
 }
 
-func TestMakeCheckpoint(t *testing.T) {
-	tmpDir := t.TempDir()
-	tmpPath := storage.NewPath(tmpDir)
-	store := filestore.New(tmpPath)
-	state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-	lock := filelock.New(tmpPath, "_delta_log/_commit.state", filelock.LockOptions{})
-	table := NewDeltaTable[testData, EmptyTestStruct](store, lock, state)
-	var allTestData = make([]testData, 50)
-
-	for i := 0; i < 10; i++ {
-		fileName := fmt.Sprintf("part-%s.snappy.parquet", uuid.New().String())
-		filePath := filepath.Join(tmpDir, fileName)
-
-		//Make some data
-		data := makeTestData(5)
-		allTestData = append(allTestData, data...)
-		stats := makeTestDataStats(data)
-		schema := data[0].getSchema()
-		p, err := writeParquet(data, filePath)
-		if err != nil {
-			t.Error(err)
-		}
-
-		add := Add[testData, EmptyTestStruct]{
-			Path:             fileName,
-			Size:             DeltaDataTypeLong(p.Size),
-			DataChange:       true,
-			ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-			Stats:            string(stats.Json()),
-			PartitionValues:  make(map[string]string),
-		}
-
-		if i == 0 {
-			metadata := NewDeltaTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
-			err = table.Create(*metadata, Protocol{}, CommitInfo{}, []Add[testData, EmptyTestStruct]{add})
-			if err != nil {
-				t.Error(err)
-			}
-		} else {
-			transaction := table.CreateTransaction(NewDeltaTransactionOptions())
-			transaction.AddAction(add)
-			operation := Write{Mode: Overwrite}
-			_, err = transaction.Commit(operation, make(map[string]any))
-			if err != nil {
-				t.Error(err)
-			}
-		}
-	}
-
-	table, err := OpenTable[testData, EmptyTestStruct](store, lock, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = table.CreateCheckpoint()
-	if err != nil {
-		t.Error(err)
-	}
-
-	// load checkpoint and validate
-
-}
-
 type testData struct {
 	Id     int64     `json:"id" parquet:"id,snappy"`
 	T1     int64     `json:"t1" parquet:"t1,timestamp(microsecond)"`
@@ -749,7 +687,7 @@ type testData struct {
 	Data   []byte    `json:"data" parquet:"data,plain,snappy" nullable:"true"`
 }
 
-func (this *testData) UnmarshalJSON(data []byte) error {
+func (t *testData) UnmarshalJSON(data []byte) error {
 	var f interface{}
 	err := json.Unmarshal(data, &f)
 	if err != nil {
@@ -759,20 +697,21 @@ func (this *testData) UnmarshalJSON(data []byte) error {
 	for k, v := range m {
 		switch k {
 		case "id":
-			this.Id = int64(v.(float64))
+			t.Id = int64(v.(float64))
 		case "t1":
-			this.T1 = int64(v.(float64))
+			t.T1 = int64(v.(float64))
 		case "t2":
-			this.T2 = time.Unix(int64(v.(float64)), 0)
+			micros := int64(v.(float64))
+			t.T2 = time.Unix(micros/1e6, micros%1e6)
 		case "label":
-			this.Label = v.(string)
+			t.Label = v.(string)
 		case "value1":
-			this.Value1 = v.(float64)
+			t.Value1 = v.(float64)
 		case "value2":
 			val := v.(float64)
-			this.Value2 = &val
+			t.Value2 = &val
 		case "data":
-			this.Data = v.([]byte)
+			t.Data = v.([]byte)
 		}
 	}
 	return nil
@@ -878,7 +817,7 @@ func setupTest(t *testing.T) (table *DeltaTable[testData, EmptyTestStruct], stat
 	tmpPath := storage.NewPath(tmpDir)
 	store := filestore.New(tmpPath)
 	state = filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-	lock := filelock.New(tmpPath, "_delta_log/_commit.state", filelock.LockOptions{})
+	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
 	table = NewDeltaTable[testData, EmptyTestStruct](store, lock, state)
 	return
 }

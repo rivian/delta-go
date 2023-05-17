@@ -1,0 +1,4 @@
+{"remove":{"path":"4a85cba9-b73c-4a98-945f-76a856688db3","deletionTimestamp":1682115124845,"dataChange":false,"extendedFileMetadata":null,"partitionValues":null,"size":null,"tags":null}}
+{"remove":{"path":"e2b40cbf-56b9-4215-b955-438cd0069205","deletionTimestamp":1682115124845,"dataChange":false,"extendedFileMetadata":null,"partitionValues":null,"size":null,"tags":null}}
+{"add":{"path":"f8d440ca-2d63-4cd5-a507-77f0b030afdf","size":100,"partitionValues":{},"modificationTime":1682115124845,"dataChange":false,"stats":null,"tags":null}}
+{"commitInfo":{"timestamp":1682115419845,"clientVersion":"delta-rs.0.9.0"}}

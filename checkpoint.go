@@ -14,6 +14,7 @@ package delta
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/rivian/delta-go/state"
@@ -39,6 +40,10 @@ type CheckpointEntry[RowType any, PartitionType any] struct {
 	Cdc      *Cdc                         `parquet:"-"`
 }
 
+var (
+	ErrorCheckpointAlreadyExists error = errors.New("checkpoint already exists")
+)
+
 func CheckpointFromBytes(bytes []byte) (*CheckPoint, error) {
 	checkpoint := new(CheckPoint)
 	err := json.Unmarshal(bytes, checkpoint)
@@ -53,16 +58,22 @@ func LastCheckpointPath() *storage.Path {
 	return &path
 }
 
+// / Create a checkpoint for the given state in the given store
+// / Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
 func CreateCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore) error {
 	lastCheckpointPath := LastCheckpointPath()
-	parquetBytes, err := tableState.GetCheckpointBytes()
+	parquetBytes, err := tableState.CheckpointParquetBytes()
 	if err != nil {
 		return err
 	}
-	// TODO multipart
+	// TODO - multipart if over a configurable size
 	checkpoint := CheckPoint{Version: tableState.Version, Size: DeltaDataTypeLong(len(parquetBytes)), Parts: 0}
 	checkpointFileName := fmt.Sprintf("%020d.checkpoint.parquet", checkpoint.Version)
 	checkpointPath := storage.PathFromIter([]string{"_delta_log", checkpointFileName})
+	_, err = store.Head(&checkpointPath)
+	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+		return ErrorCheckpointAlreadyExists
+	}
 	err = store.Put(&checkpointPath, parquetBytes)
 	if err != nil {
 		return err

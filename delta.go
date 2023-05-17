@@ -46,8 +46,6 @@ type DeltaTable[RowType any, PartitionType any] struct {
 	State DeltaTableState[RowType, PartitionType]
 	// The remote store of the state of the table as of the most recent loaded Delta log entry.
 	StateStore state.StateStore
-	// the load options used during load
-	Config DeltaTableConfig
 	// object store to access log and data files
 	Store storage.ObjectStore
 	// Locking client to ensure optimistic locked commits from distributed workers
@@ -68,7 +66,7 @@ func NewDeltaTable[RowType any, PartitionType any](store storage.ObjectStore, lo
 	table.StateStore = stateStore
 	table.LockClient = lock
 	table.LastCheckPoint = nil
-	table.State = DeltaTableState[RowType, PartitionType]{Version: -1}
+	table.State = *NewDeltaTableState[RowType, PartitionType](-1)
 	return table
 }
 
@@ -143,20 +141,13 @@ func (table *DeltaTable[RowType, PartitionType]) Create(metadata DeltaTableMetaD
 	if err != nil {
 		return err
 	}
-	// err = table.TryCommitTransaction(&preparedCommit, 0)
-	// if err != nil {
-	// 	return err
-	// }
 
-	//TODO: merge state from 0 commit version
-	// let new_state = DeltaTableState::from_commit(self, committed_version).await?;
-	// self.state.merge(
-	//     new_state,
-	//     self.config.require_tombstones,
-	//     self.config.require_files,
-	// );
-
-	// Ok(())
+	// Merge state from new commit version
+	newState, err := NewDeltaTableStateFromCommit(table, table.State.Version)
+	if err != nil {
+		return err
+	}
+	table.State.Merge(newState)
 	return nil
 }
 
@@ -210,9 +201,7 @@ func (table *DeltaTable[RowType, PartitionType]) ReadCommitVersion(version state
 
 func (table *DeltaTable[RowType, PartitionType]) Load() error {
 	table.LastCheckPoint = nil
-	state := new(DeltaTableState[RowType, PartitionType])
-	state.WithVersion(-1)
-	table.State = *state
+	table.State = *NewDeltaTableState[RowType, PartitionType](-1)
 	return table.UpdateTable()
 }
 
@@ -225,12 +214,12 @@ func (table *DeltaTable[RowType, PartitionType]) LoadVersion(version state.Delta
 	if err != nil {
 		return err
 	}
-	lastCheckpoint, err := table.FindLatestCheckpointForVersion(version)
+	latestCheckpoint, err := table.FindLatestCheckpointForVersion(version)
 	if err != nil {
 		return err
 	}
-	if lastCheckpoint != nil {
-		table.RestoreCheckpoint(lastCheckpoint)
+	if latestCheckpoint != nil && latestCheckpoint.Version > table.State.Version {
+		table.RestoreCheckpoint(latestCheckpoint)
 	}
 
 	return table.UpdateIncremental(&version)
@@ -258,27 +247,38 @@ func (table *DeltaTable[RowType, PartitionType]) UpdateTable() error {
 }
 
 func (table *DeltaTable[RowType, PartitionType]) GetLastCheckpoint() (*CheckPoint, error) {
-	path := LastCheckpointPath()
-	lastCheckpointBytes, err := table.Store.Get(path)
-	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
-		// no "last checkpoint" file
-		return table.FindLatestCheckpointForVersion(math.MaxInt64)
-	} else if err != nil {
-		return nil, err
-	} else {
-		return CheckpointFromBytes(lastCheckpointBytes)
-	}
+	return table.FindLatestCheckpointForVersion(math.MaxInt64)
 }
 
 func (table *DeltaTable[RowType, PartitionType]) FindLatestCheckpointForVersion(version state.DeltaDataTypeVersion) (*CheckPoint, error) {
+	// First check if _last_checkpoint exists and is prior to the desired version
+	var errReadingLastCheckpoint error
+	path := LastCheckpointPath()
+	lastCheckpointBytes, err := table.Store.Get(path)
+	if err == nil {
+		checkpoint, err := CheckpointFromBytes(lastCheckpointBytes)
+		if err != nil {
+			errReadingLastCheckpoint = err
+			// If we were unable to read the _last_checkpoint file, do not return immediately - search for any checkpoint file to try to recover
+		} else {
+			if checkpoint.Version <= version {
+				return checkpoint, nil
+			}
+		}
+	} else if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+		return nil, err
+	}
+
 	checkpointRE := regexp.MustCompile(`_delta_log/(?P<Version>\d{20})\.checkpoint\.parquet$`)
 	checkpointPartsRE := regexp.MustCompile(`_delta_log/(?P<Version>\d{20})\.checkpoint\.\d{10}\.(?P<Parts>\d{10})\.parquet$`)
 
 	var previousListResult *storage.ListResult
 	var lastFoundCheckpoint *CheckPoint
 	done := false
+	listResultsAreOrdered := table.Store.IsListOrdered()
 
 	for !done {
+		// Use paged results because once we reach the intended version we can stop
 		listResult, err := table.Store.List(table.BaseCommitUri(), previousListResult)
 		if err != nil {
 			return nil, err
@@ -294,13 +294,16 @@ func (table *DeltaTable[RowType, PartitionType]) FindLatestCheckpointForVersion(
 				checkpointVersion := state.DeltaDataTypeVersion(checkpointVersionInt)
 				if checkpointVersion > version {
 					// If list results are returned in order, stop here
-					if table.Store.IsListOrdered() {
+					if listResultsAreOrdered {
 						done = true
 						break
 					}
 					continue
 				}
 				if lastFoundCheckpoint == nil || checkpointVersion > lastFoundCheckpoint.Version {
+					if lastFoundCheckpoint == nil {
+						lastFoundCheckpoint = new(CheckPoint)
+					}
 					lastFoundCheckpoint.Version = checkpointVersion
 					lastFoundCheckpoint.Size = 0
 					lastFoundCheckpoint.Parts = 0
@@ -318,7 +321,7 @@ func (table *DeltaTable[RowType, PartitionType]) FindLatestCheckpointForVersion(
 				checkpointVersion := state.DeltaDataTypeVersion(checkpointVersionInt)
 				if checkpointVersion > version {
 					// If list results are returned in order, stop here
-					if table.Store.IsListOrdered() {
+					if listResultsAreOrdered {
 						done = true
 						break
 					}
@@ -329,10 +332,23 @@ func (table *DeltaTable[RowType, PartitionType]) FindLatestCheckpointForVersion(
 					if err != nil {
 						return nil, err
 					}
+					if lastFoundCheckpoint == nil {
+						lastFoundCheckpoint = new(CheckPoint)
+					}
 					lastFoundCheckpoint.Version = checkpointVersion
 					lastFoundCheckpoint.Size = 0
 					lastFoundCheckpoint.Parts = uint32(partsInt)
 					continue
+				}
+			}
+
+			// Finally, if list results are ordered, check if this is a regular commit and the version is greater
+			// than what we're looking for
+			if listResultsAreOrdered {
+				isCommit, checkpointVersion := table.CommitVersionFromUri(&meta.Location)
+				if isCommit && checkpointVersion > version {
+					done = true
+					break
 				}
 			}
 		}
@@ -341,6 +357,11 @@ func (table *DeltaTable[RowType, PartitionType]) FindLatestCheckpointForVersion(
 			break
 		}
 		previousListResult = &listResult
+	}
+	if lastFoundCheckpoint == nil && errReadingLastCheckpoint != nil {
+		// Here, if we had an error reading the _last_checkpoint file and we did not subsequently find an appropriate
+		// checkpoint file, return the earlier error
+		return nil, errReadingLastCheckpoint
 	}
 	return lastFoundCheckpoint, nil
 }
@@ -360,7 +381,7 @@ func (table *DeltaTable[RowType, PartitionType]) GetCheckpointDataPaths(checkpoi
 }
 
 func (table *DeltaTable[RowType, PartitionType]) RestoreCheckpoint(checkpoint *CheckPoint) error {
-	state, err := StateFromCheckpoint[RowType, PartitionType](table, checkpoint)
+	state, err := StateFromCheckpoint(table, checkpoint)
 	if err != nil {
 		return err
 	}
@@ -372,6 +393,10 @@ func (table *DeltaTable[RowType, PartitionType]) RestoreCheckpoint(checkpoint *C
 // / It assumes that the table is already updated to the current version `self.version`.
 func (table *DeltaTable[RowType, PartitionType]) UpdateIncremental(maxVersion *state.DeltaDataTypeVersion) error {
 	for {
+		if maxVersion != nil && table.State.Version == *maxVersion {
+			return nil
+		}
+
 		nextCommitVersion, nextCommitActions, noMoreCommits, err := table.NextCommitDetails()
 		if err != nil {
 			return err
@@ -379,11 +404,11 @@ func (table *DeltaTable[RowType, PartitionType]) UpdateIncremental(maxVersion *s
 		if noMoreCommits {
 			break
 		}
-		newState, err := DeltaTableStateFromActions[RowType, PartitionType](nextCommitActions, nextCommitVersion)
+		newState, err := NewDeltaTableStateFromActions[RowType, PartitionType](nextCommitActions, nextCommitVersion)
 		if err != nil {
 			return err
 		}
-		err = table.State.Merge(newState, table.Config.RequireTombstones)
+		err = table.State.Merge(newState)
 		if err != nil {
 			return err
 		}
@@ -407,8 +432,27 @@ func (table *DeltaTable[RowType, PartitionType]) NextCommitDetails() (state.Delt
 	return nextVersion, actions, noMoreCommits, err
 }
 
-func (table *DeltaTable[RowType, PartitionType]) CreateCheckpoint() error {
-	return CreateCheckpointFor(&table.State, table.Store)
+// / Create a checkpoint for a table located at the store for the given version
+// / Returns whether the checkpoint was created and any error
+// / If the lock cannot obtained, do not retry - if other processes are checkpointing there's no need to duplicate the effort
+func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore, checkpointLock lock.Locker, version state.DeltaDataTypeVersion) (bool, error) {
+	table, err := OpenTableWithVersion[RowType, PartitionType](store, nil, nil, version)
+	if err != nil {
+		return false, err
+	}
+	locked, err := checkpointLock.TryLock()
+	if err != nil {
+		return false, err
+	}
+	if !locked {
+		return false, nil
+	}
+	defer checkpointLock.Unlock()
+	err = CreateCheckpointFor(&table.State, table.Store)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func ReadCommitLog[RowType any, PartitionType any](store storage.ObjectStore, location *storage.Path) ([]Action, error) {
@@ -492,16 +536,6 @@ func (dtmd *DeltaTableMetaData) GetPartitionColDataTypes() map[string]SchemaData
 		}
 	}
 	return partitionColumnsWithType
-}
-
-// configuration options for delta table
-type DeltaTableConfig struct {
-	/// indicates whether our use case requires tracking tombstones.
-	/// read-only applications never require tombstones. Tombstones
-	/// are only required when writing checkpoints, so even many writers
-	/// may want to skip them.
-	/// defaults to true as a safe default.
-	RequireTombstones bool
 }
 
 // / Object representing a delta transaction.
@@ -590,8 +624,12 @@ func (transaction *DeltaTransaction[RowType, PartitionType]) PrepareCommit(opera
 		commitInfo := make(CommitInfo)
 		commitInfo["timestamp"] = time.Now().UnixMilli()
 		commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", DELTA_CLIENT_VERSION)
-		maps.Copy(commitInfo, operation.GetCommitInfo())
-		maps.Copy(commitInfo, appMetadata)
+		if operation != nil {
+			maps.Copy(commitInfo, operation.GetCommitInfo())
+		}
+		if appMetadata != nil {
+			maps.Copy(commitInfo, appMetadata)
+		}
 		transaction.AddAction(commitInfo)
 	}
 
@@ -682,7 +720,7 @@ func (transaction *DeltaTransaction[RowType, PartitionType]) TryCommit(commit *P
 		// RenameNotExists was unsuccessful, this ensures that the next try increments the version
 		// Take the max of the local state and remote state version in the case that the remote state is not accessible.
 		version := max(priorState.Version, transaction.DeltaTable.State.Version) + 1
-		transaction.DeltaTable.State.WithVersion(version)
+		transaction.DeltaTable.State.Version = version
 		newState := state.CommitState{
 			Version: version,
 		}

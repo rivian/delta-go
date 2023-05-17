@@ -54,10 +54,13 @@ var (
 	ErrorGeneratingCheckpoint     error = errors.New("unable to write checkpoint to buffer")
 )
 
-func (tableState *DeltaTableState[RowType, PartitionType]) WithVersion(version state.DeltaDataTypeVersion) {
+func NewDeltaTableState[RowType any, PartitionType any](version state.DeltaDataTypeVersion) *DeltaTableState[RowType, PartitionType] {
+	tableState := new(DeltaTableState[RowType, PartitionType])
 	tableState.Version = version
 	tableState.Files = make(map[string]Add[RowType, PartitionType])
 	tableState.Tombstones = make(map[string]Remove)
+	tableState.AppTransactionVersion = make(map[string]state.DeltaDataTypeVersion)
+	return tableState
 }
 
 func (tableState *DeltaTableState[RowType, PartitionType]) UnexpiredTombstones() map[string]Remove {
@@ -71,19 +74,18 @@ func (tableState *DeltaTableState[RowType, PartitionType]) UnexpiredTombstones()
 	return unexpiredTombstones
 }
 
-func DeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
 	actions, err := table.ReadCommitVersion(version)
 	if err != nil {
 		return nil, err
 	}
-	return DeltaTableStateFromActions[RowType, PartitionType](actions, version)
+	return NewDeltaTableStateFromActions[RowType, PartitionType](actions, version)
 }
 
-func DeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
-	tableState := new(DeltaTableState[RowType, PartitionType])
-	tableState.WithVersion(version)
+func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+	tableState := NewDeltaTableState[RowType, PartitionType](version)
 	for _, action := range actions {
-		err := tableState.ProcessAction(action, true)
+		err := tableState.ProcessAction(action)
 		if err != nil {
 			return nil, err
 		}
@@ -91,15 +93,13 @@ func DeltaTableStateFromActions[RowType any, PartitionType any](actions []Action
 	return tableState, nil
 }
 
-func (tableState *DeltaTableState[RowType, PartitionType]) ProcessAction(actionInterface Action, requireTombstones bool) error {
+func (tableState *DeltaTableState[RowType, PartitionType]) ProcessAction(actionInterface Action) error {
 	switch action := actionInterface.(type) {
 	case *Add[RowType, PartitionType]:
 		tableState.Files[action.Path] = *action
 	case *Remove:
-		if requireTombstones {
-			// TODO - do we need to decode as in delta-rs?
-			tableState.Tombstones[action.Path] = *action
-		}
+		// TODO - do we need to decode as in delta-rs?
+		tableState.Tombstones[action.Path] = *action
 	case *MetaData:
 		option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]
 		if ok {
@@ -146,22 +146,20 @@ func (tableState *DeltaTableState[RowType, PartitionType]) ProcessAction(actionI
 }
 
 // / Merges new state information into our state
-func (tableState *DeltaTableState[RowType, PartitionType]) Merge(newTableState *DeltaTableState[RowType, PartitionType], requireTombstones bool) error {
+func (tableState *DeltaTableState[RowType, PartitionType]) Merge(newTableState *DeltaTableState[RowType, PartitionType]) error {
 	// Remove deleted files from existing added files
 	for k := range newTableState.Tombstones {
 		delete(tableState.Files, k)
 	}
 
-	if requireTombstones {
-		// Add deleted file tombstones to state so they're available for vacuum
-		for k, v := range newTableState.Tombstones {
-			tableState.Tombstones[k] = v
-		}
+	// Add deleted file tombstones to state so they're available for vacuum
+	for k, v := range newTableState.Tombstones {
+		tableState.Tombstones[k] = v
+	}
 
-		// If files were deleted and then re-added, remove from updated tombstones
-		for k := range newTableState.Files {
-			delete(tableState.Tombstones, k)
-		}
+	// If files were deleted and then re-added, remove from updated tombstones
+	for k := range newTableState.Files {
+		delete(tableState.Tombstones, k)
 	}
 
 	for k, v := range newTableState.Files {
@@ -194,15 +192,14 @@ func (tableState *DeltaTableState[RowType, PartitionType]) Merge(newTableState *
 }
 
 func StateFromCheckpoint[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], checkpoint *CheckPoint) (*DeltaTableState[RowType, PartitionType], error) {
-	newState := new(DeltaTableState[RowType, PartitionType])
-	newState.Version = checkpoint.Version
+	newState := NewDeltaTableState[RowType, PartitionType](checkpoint.Version)
 	checkpointDataPaths := table.GetCheckpointDataPaths(checkpoint)
 	for _, location := range checkpointDataPaths {
 		checkpointBytes, err := table.Store.Get(&location)
 		if err != nil {
 			return nil, err
 		}
-		if len(checkpointBytes) == 0 {
+		if len(checkpointBytes) > 0 {
 			err = ProcessCheckpointBytes(checkpointBytes, newState, table)
 			if err != nil {
 				return nil, err
@@ -219,10 +216,8 @@ func ProcessCheckpointBytes[RowType any, PartitionType any](checkpointBytes []by
 	for {
 		rowBuffer := make([]CheckpointEntry[RowType, PartitionType], 10)
 		count, err := parquetReader.Read(rowBuffer)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
+		doneReading := errors.Is(err, io.EOF)
+		if err != nil && !doneReading {
 			return err
 		}
 		var action Action
@@ -240,19 +235,25 @@ func ProcessCheckpointBytes[RowType any, PartitionType any](checkpointBytes []by
 			if row.Txn != nil {
 				action = row.Txn
 			}
+			if row.Protocol != nil {
+				action = row.Protocol
+			}
 			if row.Cdc != nil {
 				return ErrorCDCNotSupported
 			}
-			err = tableState.ProcessAction(action, table.Config.RequireTombstones)
+			err = tableState.ProcessAction(action)
 			if err != nil {
 				return err
 			}
+		}
+		if doneReading {
+			break
 		}
 	}
 	return nil
 }
 
-func (tableState *DeltaTableState[RowType, PartitionType]) GetCheckpointBytes() ([]byte, error) {
+func (tableState *DeltaTableState[RowType, PartitionType]) CheckpointParquetBytes() ([]byte, error) {
 	if tableState.CurrentMetadata == nil {
 		return nil, ErrorMissingMetadata
 	}
@@ -293,7 +294,9 @@ func (tableState *DeltaTableState[RowType, PartitionType]) GetCheckpointBytes() 
 	}
 
 	for _, remove := range tombstones {
-		checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType]{Remove: &remove})
+		checkpointRemove := new(Remove)
+		*checkpointRemove = remove
+		checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType]{Remove: checkpointRemove})
 	}
 
 	// Adds need some additional processing to get the parsed versions of partition values and stats
@@ -305,14 +308,14 @@ func (tableState *DeltaTableState[RowType, PartitionType]) GetCheckpointBytes() 
 		checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType]{Add: checkpointAdd})
 	}
 
-	// TODO configuration option
+	// TODO configuration option for batch size
 	batchSize := 5000
 	startRecord := 0
 	totalRecords := len(checkpointRows)
 	totalWritten := 0
 
 	buf := new(bytes.Buffer)
-	// TODO compression configuration option
+	// TODO configuration option for compression type
 	writer := parquet.NewGenericWriter[CheckpointEntry[RowType, PartitionType]](buf, parquet.Compression(&parquet.Snappy))
 
 	for totalWritten < totalRecords {

@@ -113,7 +113,7 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 		Options:  make(map[string]string),
 	}
 	config := make(map[string]string)
-	config["appendOnly"] = "true"
+	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	id, _ := uuid.Parse("af23c9d7-fff1-4a5a-a2c8-55c59bd782aa")
 	action := MetaData{
 		Id:               id,
@@ -510,5 +510,43 @@ func TestPartitionValuesAsGenericPartitions(t *testing.T) {
 	// 	if !reflect.DeepEqual(expectedPartitions2, *results2) {
 	// 		t.Errorf("StatsAsGenericStats results did not match expected.  Got %v expected %v", *results2, expectedPartitions2)
 	// 	}
+	// }
+}
+
+func TestMetadataGetSchema(t *testing.T) {
+	// Simple
+	schemaString := "{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}},{\"name\":\"date\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"
+	md := new(MetaData)
+	md.SchemaString = schemaString
+	schema, err := md.GetSchema()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(schema.Fields) != 3 {
+		t.Errorf("Expected 3 fields in schema, found %d", len(schema.Fields))
+	}
+
+	// TODO cannot handle nested struct
+	// schemaString = `{"type":"struct","fields":[{"name":"some_struct","type":{"type":"struct","fields":[{"name":"some_struct_member","type":"string","nullable":true,"metadata":{}},{"name":"some_struct_timestamp","type":"timestamp","nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}`
+	// md.SchemaString = schemaString
+	// schema, err = md.GetSchema()
+	// if err != nil {
+	// 	t.Error(err)
+	// }
+
+	// TODO handle array
+	// schemaString = `{"type":"struct","fields":[{"name":"type","type":"string","nullable":true,"metadata":{}},{"name":"names","type":{"type":"array","elementType":"string","containsNull":true},"nullable":true,"metadata":{}}]}`
+	// md.SchemaString = schemaString
+	// schema, err = md.GetSchema()
+	// if err != nil {
+	// 	t.Error(err)
+	// }
+
+	// TODO handle map
+	// schemaString = `{"type":"struct","fields":[{"name":"key","type":"string","nullable":true,"metadata":{}},{"name":"metric","type":{"type":"map","keyType":"string","valueType":"float","valueContainsNull":true},"nullable":true,"metadata":{}}]}`
+	// md.SchemaString = schemaString
+	// schema, err = md.GetSchema()
+	// if err != nil {
+	// 	t.Error(err)
 	// }
 }

@@ -36,7 +36,7 @@ type Add[RowType any, PartitionType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
 	Path string `json:"path" parquet:"path"`
 	// A map from partition column to value for this file
-	PartitionValues map[string]string `json:"partitionValues" parquet:"-"`
+	PartitionValues map[string]string `json:"partitionValues" parquet:"partitionValues"`
 	// The size of this file in bytes
 	Size DeltaDataTypeLong `json:"size" parquet:"size"`
 	// The time this file was created, as milliseconds since the epoch
@@ -48,9 +48,9 @@ type Add[RowType any, PartitionType any] struct {
 	// that would not affect the final results.
 	DataChange bool `json:"dataChange" parquet:"dataChange"`
 	// Map containing metadata about this file
-	Tags map[string]string `json:"tags,omitempty" parquet:"-"`
+	Tags map[string]string `json:"tags,omitempty" parquet:"tags"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats string `json:"stats" parquet:"stats"`
+	Stats string `json:"stats" parquet:"stats,optional"`
 	// Partition values stored in raw parquet struct format. In this struct, the column names
 	// correspond to the partition columns and the values are stored in their corresponding data
 	// type. This is a required field when the table is partitioned and the table property
@@ -128,7 +128,7 @@ type MetaData struct {
 	/// An array containing the names of columns by which the data should be partitioned
 	PartitionColumns []string `json:"partitionColumns" parquet:"partitionColumns,list"`
 	/// A map containing configuration options for the table
-	Configuration map[string]string `json:"configuration" parquet:"-"`
+	Configuration map[string]string `json:"configuration" parquet:"configuration"`
 	/// The time when this metadata action is created, in milliseconds since the Unix epoch
 	CreatedTime DeltaDataTypeTimestamp `json:"createdTime" parquet:"createdTime"`
 }
@@ -179,7 +179,7 @@ type Cdc struct {
 	/// The size of this file in bytes
 	Size DeltaDataTypeLong `json:"size" parquet:"size"`
 	/// A map from partition column to value for this file
-	PartitionValues map[string]string `json:"partitionValues`
+	PartitionValues map[string]string `json:"partitionValues"`
 	/// Should always be set to false because they do not change the underlying data of the table
 	DataChange bool `json:"dataChange" parquet:"dataChange"`
 	/// Map containing metadata about this file
@@ -445,7 +445,10 @@ func (s *Stats) Json() []byte {
 
 func StatsFromJson(b []byte) (*Stats, error) {
 	s := new(Stats)
-	err := json.Unmarshal(b, s)
+	var err error
+	if len(b) > 0 {
+		err = json.Unmarshal(b, s)
+	}
 	return s, err
 }
 
