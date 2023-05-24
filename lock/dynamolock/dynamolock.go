@@ -14,7 +14,6 @@ package dynamolock
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"cirello.io/dynamolock"
@@ -85,7 +84,7 @@ func (l *DynamoLock) TryLock() (bool, error) {
 func (l *DynamoLock) Unlock() error {
 	success, err := l.LockClient.ReleaseLock(l.LockedItem)
 	if !success {
-		return fmt.Errorf("%w", lock.ErrorUnableToUnlock)
+		return lock.ErrorUnableToUnlock
 	}
 	l.LockClient.Close()
 	if err != nil {

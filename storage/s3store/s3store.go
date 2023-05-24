@@ -129,7 +129,7 @@ func (s *S3ObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path) 
 	// return ErrorObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
 	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
-		return fmt.Errorf("error %w: Object at location %s already exists", storage.ErrorObjectAlreadyExists, to.Raw)
+		return errors.Join(storage.ErrorObjectAlreadyExists, fmt.Errorf("object at location %s already exists", to.Raw))
 	}
 
 	err = s.Rename(from, to)

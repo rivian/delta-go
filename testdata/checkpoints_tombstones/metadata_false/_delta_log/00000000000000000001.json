@@ -1,3 +1,0 @@
-{"remove":{"path":"f98351ae-ae0c-4eec-88af-c8dd121ee1d1","deletionTimestamp":1682115419833,"dataChange":false,"extendedFileMetadata":true,"partitionValues":null,"size":100,"tags":null}}
-{"remove":{"path":"bb436311-5545-4e3d-b962-8fe6c70e618d","deletionTimestamp":1682115419833,"dataChange":false,"extendedFileMetadata":false,"partitionValues":null,"size":null,"tags":null}}
-{"commitInfo":{"timestamp":1682115419833,"clientVersion":"delta-rs.0.9.0"}}

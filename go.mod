@@ -51,4 +51,4 @@ require (
 	golang.org/x/sys v0.5.0 // indirect
 )
 
-replace github.com/segmentio/parquet-go v0.0.0-20230427215636-d483faba23a5 => github.com/chelseajonesr/parquet-go v0.0.1
+replace github.com/segmentio/parquet-go v0.0.0-20230427215636-d483faba23a5 => github.com/chelseajonesr/parquet-go v0.0.3

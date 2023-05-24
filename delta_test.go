@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock/filelock"
+	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/segmentio/parquet-go"
 
@@ -845,4 +847,159 @@ func fileExists(filename string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+func TestCommitUriFromVersion(t *testing.T) {
+	type test struct {
+		input state.DeltaDataTypeVersion
+		want  string
+	}
+
+	tests := []test{
+		{input: 0, want: "_delta_log/00000000000000000000.json"},
+		{input: 1, want: "_delta_log/00000000000000000001.json"},
+		{input: 10, want: "_delta_log/00000000000000000010.json"},
+		{input: 999999, want: "_delta_log/00000000000000999999.json"},
+		{input: 1234567890123456789, want: "_delta_log/01234567890123456789.json"},
+	}
+
+	table, _, _ := setupTest(t)
+
+	for _, tc := range tests {
+		got := table.CommitUriFromVersion(state.DeltaDataTypeVersion(tc.input))
+		if got.Raw != tc.want {
+			t.Errorf("expected %s, got %s", tc.want, got)
+		}
+	}
+}
+
+func TestIsValidCommitUri(t *testing.T) {
+	type test struct {
+		input string
+		want  bool
+	}
+
+	tests := []test{
+		{input: "_delta_log/00000000000000000000.json", want: true},
+		{input: "_delta_log/00000000000000000001.json", want: true},
+		{input: "_delta_log/01234567890123456789.json", want: true},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", want: false},
+		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", want: false},
+	}
+
+	for _, tc := range tests {
+		got := IsValidCommitUri(storage.NewPath(tc.input))
+		if got != tc.want {
+			t.Errorf("expected %t, got %t", tc.want, got)
+		}
+	}
+}
+
+func TestCommitVersionFromUri(t *testing.T) {
+	type test struct {
+		input       string
+		wantMatch   bool
+		wantVersion state.DeltaDataTypeVersion
+	}
+
+	tests := []test{
+		{input: "_delta_log/00000000000000000000.json", wantMatch: true, wantVersion: 0},
+		{input: "_delta_log/00000000000000000001.json", wantMatch: true, wantVersion: 1},
+		{input: "_delta_log/01234567890123456789.json", wantMatch: true, wantVersion: 1234567890123456789},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantMatch: false},
+		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantMatch: false},
+	}
+
+	for _, tc := range tests {
+		match, got := CommitVersionFromUri(storage.NewPath(tc.input))
+		if match != tc.wantMatch {
+			t.Errorf("expected %t, got %t", tc.wantMatch, match)
+		}
+		if match == tc.wantMatch && match {
+			if got != tc.wantVersion {
+				t.Errorf("expected %d, got %d", tc.wantVersion, got)
+			}
+		}
+	}
+}
+
+func TestLoadVersion(t *testing.T) {
+	// Use setupCheckpointTest() to copy testdata commits
+	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
+
+	// Load version 2
+	table := NewDeltaTable[SimpleCheckpointTestData, SimpleCheckpointTestPartition](store, lock, stateStore)
+	var version state.DeltaDataTypeVersion = 2
+	err := table.LoadVersion(&version)
+	if err != nil {
+		t.Error(err)
+	}
+	// Check contents
+	// Set up the expected state based on the commits we are reading
+	expectedState := NewDeltaTableState[SimpleCheckpointTestData, SimpleCheckpointTestPartition](version)
+	operationParams := make(map[string]interface{}, 4)
+	operationParams["isManaged"] = "false"
+	operationParams["description"] = nil
+	operationParams["partitionBy"] = "[\"date\"]"
+	operationParams["properties"] = "{}"
+	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668675695), "operation": "CREATE TABLE", "operationParameters": operationParams, "isolationLevel": "SnapshotIsolation", "isBlindAppend": true, "operationMetrics": make(map[string]interface{})})
+	operationParams = make(map[string]interface{}, 2)
+	operationParams["mode"] = "Append"
+	operationParams["partitionBy"] = "[]"
+	operationMetrics := make(map[string]interface{}, 3)
+	operationMetrics["numFiles"] = "1"
+	operationMetrics["numOutputBytes"] = "1502"
+	operationMetrics["numOutputRows"] = "1"
+	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668685528), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(0), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
+	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668687609), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(1), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
+	expectedState.MinReaderVersion = 1
+	expectedState.MinWriterVersion = 2
+	add := new(Add[SimpleCheckpointTestData, SimpleCheckpointTestPartition])
+	add.Path = "date=2020-06-01/part-00000-b207ef5f-4458-4969-bd34-46439cdeb6a6.c000.snappy.parquet"
+	add.PartitionValues = make(map[string]string)
+	add.PartitionValues["date"] = "2020-06-01"
+	add.Size = 1502
+	add.ModificationTime = 1627668686000
+	add.DataChange = true
+	add.Stats = "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	expectedState.Files[add.Path] = *add
+	add = new(Add[SimpleCheckpointTestData, SimpleCheckpointTestPartition])
+	add.Path = "date=2020-06-01/part-00000-762e2b03-6a04-4707-b676-5d38d1ef9fca.c000.snappy.parquet"
+	add.PartitionValues = make(map[string]string)
+	add.PartitionValues["date"] = "2020-06-01"
+	add.Size = 1502
+	add.ModificationTime = 1627668688000
+	add.DataChange = true
+	add.Stats = "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	expectedState.Files[add.Path] = *add
+	var schema SchemaTypeStruct = SchemaTypeStruct{
+		Fields: []SchemaField{
+			{Name: "value", Type: String, Nullable: true, Metadata: make(map[string]any)},
+			{Name: "ts", Type: Timestamp, Nullable: true, Metadata: make(map[string]any)},
+			{Name: "date", Type: String, Nullable: true, Metadata: make(map[string]any)},
+		},
+	}
+	expectedState.CurrentMetadata = NewDeltaTableMetaData("", "", Format{Provider: "parquet", Options: map[string]string{}}, schema, []string{"date"}, make(map[string]string))
+	expectedState.CurrentMetadata.CreatedTime = time.Unix(1627668675, 432000000)
+	expectedState.CurrentMetadata.Id = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
+
+	if !reflect.DeepEqual(*expectedState, table.State) {
+		t.Errorf("table state expected %v, found %v", *expectedState, table.State)
+	}
+
+	// Invalid version should return error
+	version = 20
+	err = table.LoadVersion(&version)
+	if !errors.Is(err, ErrorInvalidVersion) {
+		t.Error("loading an invalid version did not return correct error")
+	}
+
+	// Calling with no version should load latest version
+	err = table.LoadVersion(nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if table.State.Version != 12 {
+		t.Errorf("expected version %d, found %d", 12, table.State.Version)
+	}
 }

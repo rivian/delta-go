@@ -244,10 +244,9 @@ df.show()
 Limitations / TODO
 
 Checkpoints:
-- The checkpoint checksum is not being written or validated - TODO #1
+- The checkpoint checksum is not being written or validated
 - Checkpoints without partitions are not supported
 - Checkpoints with non-string-type partitions require custom JSON marshal/unmarshal code
-- Multi-part checkpoints can be read but are not written - TODO #2
 
 Other:
 - Nested schemas (containing nested structs, arrays, or maps) are not supported
@@ -255,4 +254,4 @@ Other:
 - Table features are not supported
 - Change data files are not supported
 - CDC files are not supported
-- Add stats need to be manually generated instead of being read from the parquet file - TODO #3
+- Add stats need to be manually generated instead of being read from the parquet file
