@@ -266,6 +266,9 @@ func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 	lines := bytes.Split(logEntries, []byte("\n"))
 	actions := make([]Action, 0, len(lines))
 	for _, currentLine := range lines {
+		if len(currentLine) == 0 {
+			continue
+		}
 		var unstructuredResult map[string]json.RawMessage
 		err := json.Unmarshal(currentLine, &unstructuredResult)
 		if err != nil {

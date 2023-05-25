@@ -152,11 +152,13 @@ func (table *DeltaTable) Exists() (bool, error) {
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 		// Fallback: check for other variants of the version
 		basePath := table.BaseCommitUri()
-		results, err := table.Store.List(basePath)
+		// Do not use paged result; if we aren't seeing a version file in the
+		// first page of results, it's very unlikely that this is a commit log folder
+		results, err := table.Store.List(basePath, nil)
 		if err != nil {
 			return false, err
 		}
-		for _, result := range results {
+		for _, result := range results.Objects {
 			// Check each result to see if it is a version file
 			isValidCommitUri, err := table.IsValidCommitUri(&result.Location)
 			if err != nil {

@@ -176,16 +176,17 @@ func (m *S3MockClient) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV
 		return nil, err
 	}
 
-	output, err := m.fileStore.List(prefix)
+	output, err := m.fileStore.List(prefix, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	listObjectsOutput := new(s3.ListObjectsV2Output)
-	listObjectsOutput.Contents = make([]types.Object, 0, len(output))
-	for _, r := range output {
-		key := strings.TrimPrefix(r.Location.Raw, *input.Bucket)
-		if key != m.s3StorePath {
+	listObjectsOutput.Contents = make([]types.Object, 0, len(output.Objects))
+	trimmedStorePath := strings.TrimPrefix(m.s3StorePath, "/")
+	for _, r := range output.Objects {
+		key := strings.TrimPrefix(r.Location.Raw, *input.Bucket+"/")
+		if key != trimmedStorePath {
 			lastModified := r.LastModified
 			listObjectsOutput.Contents = append(listObjectsOutput.Contents, types.Object{
 				Key:          &key,

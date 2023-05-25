@@ -449,12 +449,20 @@ func TestList(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := store.List(tt.args.prefix)
+			got, err := store.List(tt.args.prefix, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FileObjectStore.List() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			compareExpectedPaths(t, tt.want, got)
+			compareExpectedPaths(t, tt.want, got.Objects)
+		})
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := store.ListAll(tt.args.prefix)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FileObjectStore.ListAll() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			compareExpectedPaths(t, tt.want, got.Objects)
 		})
 	}
 }
@@ -465,7 +473,11 @@ func TestListErrorHandling(t *testing.T) {
 	// Test client returning an error
 	mockClient.MockError = errors.New("Something went wrong")
 	path := storage.NewPath("data.txt")
-	_, err := store.List(path)
+	_, err := store.List(path, nil)
+	if !errors.Is(err, storage.ErrorListObjects) {
+		t.Errorf("Delete did not return an expected error")
+	}
+	_, err = store.ListAll(path)
 	if !errors.Is(err, storage.ErrorListObjects) {
 		t.Errorf("Delete did not return an expected error")
 	}
