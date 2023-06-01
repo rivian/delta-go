@@ -469,21 +469,6 @@ func TestStatsAsGenericStats(t *testing.T) {
 	}
 }
 
-type TestPartitionType2 struct {
-	Field1 int    `json:"field1"`
-	Field2 string `json:"field2"`
-}
-
-func (partition *TestPartitionType2) UnmarshalJSON(b []byte) error {
-	// TODO
-	return nil
-}
-
-func (partition TestPartitionType2) MarshalJSON() ([]byte, error) {
-	// TODO
-	return nil, nil
-}
-
 func TestPartitionValuesAsGenericPartitions(t *testing.T) {
 	type TestPartitionType1 struct {
 		Date DeltaDataTypeDate `json:"date"`
@@ -503,21 +488,7 @@ func TestPartitionValuesAsGenericPartitions(t *testing.T) {
 		}
 	}
 
-	// // TODO custom JSON marshal/unmarshal for all non-string types for partitions?
-	// input2 := make(map[string]string)
-	// input2["field1"] = "25"
-	// input2["field2"] = "hello"
-
-	// expectedPartitions2 := TestPartitionType2{Field1: 25, Field2: "hello"}
-
-	// results2, err := PartitionValuesAsGeneric[TestPartitionType2](input2)
-	// if err != nil {
-	// 	t.Error(err)
-	// } else {
-	// 	if !reflect.DeepEqual(expectedPartitions2, *results2) {
-	// 		t.Errorf("StatsAsGenericStats results did not match expected.  Got %v expected %v", *results2, expectedPartitions2)
-	// 	}
-	// }
+	// TODO non-string type partitions
 }
 
 func TestMetadataGetSchema(t *testing.T) {
@@ -533,7 +504,7 @@ func TestMetadataGetSchema(t *testing.T) {
 		t.Errorf("Expected 3 fields in schema, found %d", len(schema.Fields))
 	}
 
-	// TODO cannot handle nested struct
+	// TODO nested struct
 	// schemaString = `{"type":"struct","fields":[{"name":"some_struct","type":{"type":"struct","fields":[{"name":"some_struct_member","type":"string","nullable":true,"metadata":{}},{"name":"some_struct_timestamp","type":"timestamp","nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}`
 	// md.SchemaString = schemaString
 	// schema, err = md.GetSchema()
@@ -541,7 +512,7 @@ func TestMetadataGetSchema(t *testing.T) {
 	// 	t.Error(err)
 	// }
 
-	// TODO handle array
+	// TODO array
 	// schemaString = `{"type":"struct","fields":[{"name":"type","type":"string","nullable":true,"metadata":{}},{"name":"names","type":{"type":"array","elementType":"string","containsNull":true},"nullable":true,"metadata":{}}]}`
 	// md.SchemaString = schemaString
 	// schema, err = md.GetSchema()
@@ -549,7 +520,7 @@ func TestMetadataGetSchema(t *testing.T) {
 	// 	t.Error(err)
 	// }
 
-	// TODO handle map
+	// TODO map
 	// schemaString = `{"type":"struct","fields":[{"name":"key","type":"string","nullable":true,"metadata":{}},{"name":"metric","type":{"type":"map","keyType":"string","valueType":"float","valueContainsNull":true},"nullable":true,"metadata":{}}]}`
 	// md.SchemaString = schemaString
 	// schema, err = md.GetSchema()
