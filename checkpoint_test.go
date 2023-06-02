@@ -765,3 +765,9 @@ func TestInvalidCheckpointFallback(t *testing.T) {
 		t.Errorf("expected version %d, found %d", 12, table.State.Version)
 	}
 }
+
+// func TestCheckpointCleanupExpiredLogs(t *testing.T) {
+// 	store, state, lock, checkpointLock := setupCheckpointTest(t, "testdata/checkpoints", false)
+// 	checkpointConfiguration := NewCheckpointConfiguration()
+// 	checkpointConfiguration.CleanupExpiredLogs = true
+// }

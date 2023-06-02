@@ -923,6 +923,35 @@ func TestCommitVersionFromUri(t *testing.T) {
 	}
 }
 
+func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
+	type test struct {
+		input       string
+		wantMatch   bool
+		wantVersion state.DeltaDataTypeVersion
+	}
+
+	tests := []test{
+		{input: "_delta_log/00000000000000000000.json", wantMatch: true, wantVersion: 0},
+		{input: "_delta_log/00000000000000000001.json", wantMatch: true, wantVersion: 1},
+		{input: "_delta_log/01234567890123456789.json", wantMatch: true, wantVersion: 1234567890123456789},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantMatch: true, wantVersion: 1},
+		{input: "_delta_log/00000000000000094451.checkpoint.0000000002.0000000061.parquet", wantMatch: true, wantVersion: 94451},
+		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantMatch: false},
+	}
+
+	for _, tc := range tests {
+		match, got := CommitOrCheckpointVersionFromUri(storage.NewPath(tc.input))
+		if match != tc.wantMatch {
+			t.Errorf("expected %t, got %t", tc.wantMatch, match)
+		}
+		if match == tc.wantMatch && match {
+			if got != tc.wantVersion {
+				t.Errorf("expected %d, got %d", tc.wantVersion, got)
+			}
+		}
+	}
+}
+
 func TestLoadVersion(t *testing.T) {
 	// Use setupCheckpointTest() to copy testdata commits
 	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints", false)

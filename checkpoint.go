@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/storage"
@@ -45,13 +46,19 @@ type CheckpointEntry[RowType any, PartitionType any] struct {
 
 // / Additional configuration for checkpointing
 type CheckpointConfiguration struct {
+	// Maximum numbers of rows to include in each multi-part checkpoint part
+	// Current default 50k
 	MaxRowsPerPart int
+	// Whether to clean up expired logs after successfully creating a checkpoint
+	// If set, this overrides the table state delta.enableExpiredLogCleanup
+	CleanupExpiredLogs *bool
 }
 
 func NewCheckpointConfiguration() *CheckpointConfiguration {
 	checkpointConfiguration := new(CheckpointConfiguration)
 	// TODO try to find what Spark uses
 	checkpointConfiguration.MaxRowsPerPart = 50000
+	checkpointConfiguration.CleanupExpiredLogs = nil
 	return checkpointConfiguration
 }
 
@@ -81,7 +88,7 @@ func lastCheckpointPath() *storage.Path {
 // / If the URI is not a valid checkpoint filename then checkpoint will be nil
 func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part DeltaDataTypeInt, parseErr error) {
 	// Check for a single-part checkpoint
-	groups := checkpointRegex.FindStringSubmatch(path.Raw)
+	groups := checkpointRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 2 {
 		checkpointVersionInt, err := strconv.ParseInt(groups[1], 10, 64)
 		if err != nil {
@@ -97,7 +104,7 @@ func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part Del
 	}
 
 	// Check for a multi part checkpoint
-	groups = checkpointPartsRegex.FindStringSubmatch(path.Raw)
+	groups = checkpointPartsRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 4 {
 		checkpointVersionInt, err := strconv.ParseInt(groups[1], 10, 64)
 		if err != nil {
@@ -269,4 +276,110 @@ func checkpointAdd[RowType any, PartitionType any](add *Add[RowType, PartitionTy
 	checkpointAdd.PartitionValuesParsed = *partitionValuesParsed
 
 	return checkpointAdd, nil
+}
+
+type DeletionCandidate struct {
+	Version state.DeltaDataTypeVersion
+	Meta    storage.ObjectMeta
+}
+
+// / If the maybeToDelete files are safe to delete, delete them.  Otherwise, clear them
+// / "Safe to delete" is determined by the version and timestamp of the last file in the maybeToDelete list.
+// / For more details see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/core/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
+// / Returns the number of files deleted.
+func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandidate, beforeVersion state.DeltaDataTypeVersion, maxTimestamp time.Time) (int, error) {
+	deleted := 0
+
+	if len(maybeToDelete) > 0 {
+		lastMaybeToDelete := maybeToDelete[len(maybeToDelete)-1]
+		if lastMaybeToDelete.Version < beforeVersion && lastMaybeToDelete.Meta.LastModified.UnixMilli() <= maxTimestamp.UnixMilli() {
+			for _, deleteFile := range maybeToDelete {
+				err := store.Delete(&deleteFile.Meta.Location)
+				if err != nil {
+					return deleted, err
+				}
+				deleted++
+			}
+			maybeToDelete = maybeToDelete[:0]
+		}
+	}
+
+	return deleted, nil
+}
+
+// / *** The caller MUST validate that there is a checkpoint at or after beforeVersion before calling this ***
+// / Remove any logs and checkpoints that have a last updated date before maxTimestamp and a version before beforeVersion
+// / Last updated timestamps are required to be monotonically increasing, so there may be some time adjustment required
+// / For more detail see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/core/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
+func removeExpiredLogsAndCheckpoints(beforeVersion state.DeltaDataTypeVersion, maxTimestamp time.Time, store storage.ObjectStore) (int, error) {
+	if !store.IsListOrdered() {
+		// Currently all object stores return list results sorted
+		return 0, errors.Join(ErrorNotImplemented, errors.New("removing expired logs is not implemented for this object store"))
+	}
+
+	candidatesForDeletion := make([]DeletionCandidate, 0, 200)
+
+	logIterator := storage.NewListIterator(BaseCommitUri(), store)
+
+	// First collect all the logs/checkpoints that might be eligible for deletion
+	for {
+		meta, err := logIterator.Next()
+		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+			break
+		}
+		isValid, version := CommitOrCheckpointVersionFromUri(&meta.Location)
+		if isValid && version < beforeVersion && meta.LastModified.Before(maxTimestamp) {
+			candidatesForDeletion = append(candidatesForDeletion, DeletionCandidate{Version: version, Meta: *meta})
+		}
+		if version >= beforeVersion {
+			break
+		}
+	}
+
+	// Now look for actually deletable ones based on adjusted timestamp
+	maybeToDelete := make([]DeletionCandidate, 0, len(candidatesForDeletion))
+	deletedCount := 0
+
+	var lastFile, currentFile DeletionCandidate
+
+	if len(candidatesForDeletion) > 0 {
+		lastFile = candidatesForDeletion[0]
+		candidatesForDeletion = candidatesForDeletion[1:]
+		maybeToDelete = append(maybeToDelete, lastFile)
+	}
+
+	for {
+		if len(candidatesForDeletion) == 0 {
+			deleted, err := flushDeleteFiles(store, maybeToDelete, beforeVersion, maxTimestamp)
+			deletedCount += deleted
+			return deletedCount, err
+		}
+
+		currentFile = candidatesForDeletion[0]
+		candidatesForDeletion = candidatesForDeletion[1:]
+
+		if lastFile.Version < currentFile.Version && lastFile.Meta.LastModified.UnixMilli() >= currentFile.Meta.LastModified.UnixMilli() {
+			// The last version is earlier than the current, but the last timestamp is >= current: current needs time adjustment
+			currentFile = DeletionCandidate{Version: currentFile.Version, Meta: storage.ObjectMeta{
+				Location:     currentFile.Meta.Location,
+				Size:         currentFile.Meta.Size,
+				LastModified: currentFile.Meta.LastModified.Add(1 * time.Millisecond)}}
+			// Then stick it on the end of the "maybe" list
+			maybeToDelete = append(maybeToDelete, currentFile)
+		} else {
+			// No time adjustment needed.  Delete the contents of maybeToDelete if we can.
+			// There is always at least one file in maybeToDelete here.
+			deleted, err := flushDeleteFiles(store, maybeToDelete, beforeVersion, maxTimestamp)
+			deletedCount += deleted
+			if err != nil {
+				return deletedCount, err
+			}
+			// If we were not able to delete the contents of maybeToDelete then we are done
+			if deleted == 0 {
+				return deletedCount, nil
+			}
+			maybeToDelete = append(maybeToDelete, currentFile)
+		}
+		lastFile = currentFile
+	}
 }

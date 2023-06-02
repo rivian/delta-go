@@ -15,7 +15,6 @@ package delta
 import (
 	"errors"
 	"fmt"
-	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -41,12 +40,14 @@ var (
 	ErrorNotATable                   error = errors.New("not a Delta table")
 	ErrorInvalidVersion              error = errors.New("invalid version")
 	ErrorLockFailed                  error = errors.New("lock failed unexpectedly")
+	ErrorNotImplemented              error = errors.New("not implemented")
 )
 
 var (
-	commitFileRegex      *regexp.Regexp = regexp.MustCompile(`(?P<Version>\d{20}).json`)
-	checkpointRegex      *regexp.Regexp = regexp.MustCompile(`_delta_log/(?P<Version>\d{20})\.checkpoint\.parquet$`)
-	checkpointPartsRegex *regexp.Regexp = regexp.MustCompile(`_delta_log/(?P<Version>\d{20})\.checkpoint\.(?P<CurrentPart>\d{10})\.(?P<Parts>\d{10})\.parquet$`)
+	commitFileRegex         *regexp.Regexp = regexp.MustCompile(`(?P<Version>\d{20}).json`)
+	checkpointRegex         *regexp.Regexp = regexp.MustCompile(`(?P<Version>\d{20})\.checkpoint\.parquet$`)
+	checkpointPartsRegex    *regexp.Regexp = regexp.MustCompile(`(?P<Version>\d{20})\.checkpoint\.(?P<CurrentPart>\d{10})\.(?P<Parts>\d{10})\.parquet$`)
+	commitOrCheckpointRegex *regexp.Regexp = regexp.MustCompile(`(\d{20})\.((json)|(checkpoint))`)
 )
 
 type DeltaTable[RowType any, PartitionType any] struct {
@@ -107,6 +108,18 @@ func IsValidCommitUri(path *storage.Path) bool {
 func CommitVersionFromUri(path *storage.Path) (bool, state.DeltaDataTypeVersion) {
 	groups := commitFileRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 2 {
+		version, err := strconv.ParseInt(groups[1], 10, 64)
+		if err == nil {
+			return true, state.DeltaDataTypeVersion(version)
+		}
+	}
+	return false, 0
+}
+
+// / Return true plus the version if the URI is a valid commit or checkpoint filename
+func CommitOrCheckpointVersionFromUri(path *storage.Path) (bool, state.DeltaDataTypeVersion) {
+	groups := commitOrCheckpointRegex.FindStringSubmatch(path.Base())
+	if len(groups) == 5 {
 		version, err := strconv.ParseInt(groups[1], 10, 64)
 		if err == nil {
 			return true, state.DeltaDataTypeVersion(version)
@@ -267,11 +280,6 @@ func (table *DeltaTable[RowType, PartitionType]) LoadVersion(version *state.Delt
 // / If we are able to use the _last_checkpoint to retrieve the checkpoint then we will just return that one, and set allReturned to false
 // / If we need to search through the directory for checkpoints, then allReturned will be true if the listing is ordered and false otherwise
 func (table *DeltaTable[RowType, PartitionType]) findLatestCheckpointsForVersion(version *state.DeltaDataTypeVersion) (checkpoints []CheckPoint, allReturned bool, err error) {
-	if version == nil {
-		var lastPossibleVersion = state.DeltaDataTypeVersion(math.MaxInt64)
-		version = &lastPossibleVersion
-	}
-
 	// First check if _last_checkpoint exists and is prior to the desired version
 	var errReadingLastCheckpoint error
 	path := lastCheckpointPath()
@@ -279,10 +287,11 @@ func (table *DeltaTable[RowType, PartitionType]) findLatestCheckpointsForVersion
 	if err == nil {
 		checkpoint, err := checkpointFromBytes(lastCheckpointBytes)
 		if err != nil {
-			errReadingLastCheckpoint = err
 			// If we were unable to read the _last_checkpoint file, do not return immediately - search for any checkpoint file to try to recover
+			// Save the error to return if we don't find a fallback checkpoint
+			errReadingLastCheckpoint = err
 		} else {
-			if checkpoint.Version <= *version {
+			if version == nil || checkpoint.Version <= *version {
 				return []CheckPoint{*checkpoint}, false, nil
 			}
 		}
@@ -290,59 +299,56 @@ func (table *DeltaTable[RowType, PartitionType]) findLatestCheckpointsForVersion
 		return nil, false, err
 	}
 
-	var previousListResult *storage.ListResult
+	logIterator := storage.NewListIterator(BaseCommitUri(), table.Store)
+
 	foundCheckpoints := make([]CheckPoint, 0, 20)
 	listResultsAreOrdered := table.Store.IsListOrdered()
 
-ListPageLoop:
 	for {
-		// Use paged results because once we reach the intended version we can stop
-		listResult, err := table.Store.List(BaseCommitUri(), previousListResult)
+		meta, err := logIterator.Next()
 
+		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+			break
+		}
 		if err != nil {
 			return nil, false, err
 		}
-		for _, meta := range listResult.Objects {
-			checkpoint, _, err := checkpointInfoFromURI(storage.NewPath(meta.Location.Raw))
-			if err != nil {
-				return nil, false, err
+		checkpoint, _, err := checkpointInfoFromURI(storage.NewPath(meta.Location.Raw))
+		if err != nil {
+			return nil, false, err
+		}
+		if checkpoint != nil {
+			if version != nil && checkpoint.Version > *version {
+				// If list results are returned in order, and our search has passed the max version, stop looking
+				if listResultsAreOrdered {
+					break
+				}
+				continue
 			}
-			if checkpoint != nil {
-				if checkpoint.Version > *version {
-					// If list results are returned in order, and our search has passed the max version, stop looking
-					if listResultsAreOrdered {
-						break ListPageLoop
-					}
-					continue
+			// For multi-part checkpoint, verify that all parts are present before using it
+			isCompleteCheckpoint := true
+			if checkpoint.Parts > 0 {
+				isCompleteCheckpoint, err = doesCheckpointVersionExist(table.Store, DeltaDataTypeVersion(checkpoint.Version), true)
+				if err != nil {
+					return nil, false, err
 				}
-				// For multi-part checkpoint, verify that all parts are present before using it
-				isCompleteCheckpoint := true
-				if checkpoint.Parts > 0 {
-					isCompleteCheckpoint, err = doesCheckpointVersionExist(table.Store, DeltaDataTypeVersion(checkpoint.Version), true)
-					if err != nil {
-						return nil, false, err
-					}
-				}
-				if !isCompleteCheckpoint {
-					continue
-				}
-				// This checkpoint is valid so save it
-				foundCheckpoints = append(foundCheckpoints, *checkpoint)
 			}
+			if !isCompleteCheckpoint {
+				continue
+			}
+			// This checkpoint is valid so save it
+			foundCheckpoints = append(foundCheckpoints, *checkpoint)
+		}
 
-			// Finally, if list results are ordered, check if this is a regular commit and the version is greater
-			// than the max version
-			if listResultsAreOrdered {
-				isCommit, checkpointVersion := CommitVersionFromUri(&meta.Location)
-				if isCommit && checkpointVersion > *version {
-					break ListPageLoop
-				}
+		// Finally, if list results are ordered, check if this is a regular commit and the version is greater
+		// than the max version
+		if listResultsAreOrdered && version != nil {
+			isCommit, checkpointVersion := CommitVersionFromUri(&meta.Location)
+			if isCommit && checkpointVersion > *version {
+				break
 			}
 		}
-		if listResult.NextToken == "" {
-			break ListPageLoop
-		}
-		previousListResult = &listResult
+
 	}
 
 	if len(foundCheckpoints) == 0 && errReadingLastCheckpoint != nil {

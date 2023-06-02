@@ -34,8 +34,7 @@ type DeltaTableState[RowType any, PartitionType any] struct {
 	// active files for table state
 	Files map[string]Add[RowType, PartitionType]
 	// Information added to individual commits
-	CommitInfos []CommitInfo
-	// TODO remove state.
+	CommitInfos           []CommitInfo
 	AppTransactionVersion map[string]state.DeltaDataTypeVersion
 	MinReaderVersion      DeltaDataTypeInt
 	MinWriterVersion      DeltaDataTypeInt
@@ -65,7 +64,10 @@ func NewDeltaTableState[RowType any, PartitionType any](version state.DeltaDataT
 	tableState.Tombstones = make(map[string]Remove)
 	tableState.AppTransactionVersion = make(map[string]state.DeltaDataTypeVersion)
 	// Default 7 days
-	tableState.TombstoneRetention = time.Hour * 7 * 24
+	tableState.TombstoneRetention = time.Hour * 24 * 7
+	// Default 30 days
+	tableState.LogRetention = time.Hour * 24 * 30
+	tableState.EnableExpiredLogCleanup = false
 	return tableState
 }
 
@@ -194,6 +196,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) merge(newTableState *
 
 	tableState.CommitInfos = append(tableState.CommitInfos, newTableState.CommitInfos...)
 
+	// throw error if newer version is lower
 	if tableState.Version < newTableState.Version {
 		tableState.Version = newTableState.Version
 	}
