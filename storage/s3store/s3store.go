@@ -99,6 +99,11 @@ func (s *S3ObjectStore) Get(location *storage.Path) ([]byte, error) {
 			Bucket: aws.String(s.bucket),
 			Key:    aws.String(key),
 		})
+	// Check for a 404 response, indicating that the object does not exist
+	var re *awshttp.ResponseError
+	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
+		return nil, errors.Join(storage.ErrorObjectDoesNotExist, err)
+	}
 	if err != nil {
 		return nil, errors.Join(storage.ErrorGetObject, err)
 	}

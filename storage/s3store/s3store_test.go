@@ -143,6 +143,21 @@ func TestGetErrorHandling(t *testing.T) {
 	if !errors.Is(err, storage.ErrorGetObject) {
 		t.Errorf("Calling Get did not return an appropriate error")
 	}
+
+	// Test client returning an AWS 404 error should cause an ErrorObjectDoesNotExist
+	response := new(http.Response)
+	response.StatusCode = http.StatusNotFound
+	smithyResponse := new(smithyhttp.Response)
+	smithyResponse.Response = response
+	smithyResponseError := new(smithyhttp.ResponseError)
+	smithyResponseError.Response = smithyResponse
+	responseError := new(awshttp.ResponseError)
+	responseError.ResponseError = smithyResponseError
+	mockClient.MockError = responseError
+	_, err = s3Store.Get(path)
+	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+		t.Errorf("Head did not return an appropriate error")
+	}
 }
 
 func TestRename(t *testing.T) {
