@@ -49,16 +49,12 @@ type CheckpointConfiguration struct {
 	// Maximum numbers of rows to include in each multi-part checkpoint part
 	// Current default 50k
 	MaxRowsPerPart int
-	// Whether to clean up expired logs after successfully creating a checkpoint
-	// If set, this overrides the table state delta.enableExpiredLogCleanup
-	CleanupExpiredLogs *bool
 }
 
 func NewCheckpointConfiguration() *CheckpointConfiguration {
 	checkpointConfiguration := new(CheckpointConfiguration)
 	// TODO try to find what Spark uses
 	checkpointConfiguration.MaxRowsPerPart = 50000
-	checkpointConfiguration.CleanupExpiredLogs = nil
 	return checkpointConfiguration
 }
 
@@ -300,7 +296,6 @@ func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandida
 				}
 				deleted++
 			}
-			maybeToDelete = maybeToDelete[:0]
 		}
 	}
 
@@ -378,6 +373,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion state.DeltaDataTypeVersion, m
 			if deleted == 0 {
 				return deletedCount, nil
 			}
+			maybeToDelete = maybeToDelete[:0]
 			maybeToDelete = append(maybeToDelete, currentFile)
 		}
 		lastFile = currentFile

@@ -417,7 +417,7 @@ func (table *DeltaTable[RowType, PartitionType]) updateIncremental(maxVersion *s
 	}
 
 	if table.State.Version == -1 {
-		return ErrorNotATable
+		return ErrorInvalidVersion
 	}
 	return nil
 }
@@ -445,6 +445,7 @@ func (table *DeltaTable[RowType, PartitionType]) CreateCheckpoint(checkpointLock
 }
 
 // / Create a checkpoint for a table located at the store for the given version
+// / If expired log cleanup is enabled on this table, then after a successful checkpoint, run the cleanup to delete expired logs
 // / Returns whether the checkpoint was created and any error
 // / If the lock cannot be obtained, does not retry - if other processes are checkpointing there's no need to duplicate the effort
 func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore, checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version state.DeltaDataTypeVersion) (bool, error) {
@@ -465,7 +466,37 @@ func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore,
 	if err != nil {
 		return false, err
 	}
+	if table.State.EnableExpiredLogCleanup {
+		err = validateCheckpointAndCleanup(table, table.Store, version)
+		if err != nil {
+			return true, err
+		}
+	}
 	return true, nil
+}
+
+// / Cleanup expired logs before the given checkpoint version, after confirming there is a readable checkpoint
+func validateCheckpointAndCleanup[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], store storage.ObjectStore, checkpointVersion state.DeltaDataTypeVersion) error {
+	// First confirm there is a valid checkpoint at the given version
+	checkpoints, _, err := table.findLatestCheckpointsForVersion(&checkpointVersion)
+	if err != nil {
+		return err
+	}
+	if len(checkpoints) == 0 || checkpoints[len(checkpoints)-1].Version != checkpointVersion {
+		return ErrorReadingCheckpoint
+	}
+	checkpoint := checkpoints[len(checkpoints)-1]
+	err = table.restoreCheckpoint(&checkpoint)
+	if err != nil {
+		return err
+	}
+	if table.State.Version != checkpointVersion {
+		return ErrorReadingCheckpoint
+	}
+
+	// Now remove expired logs before the checkpoint
+	_, err = removeExpiredLogsAndCheckpoints(checkpointVersion, time.Now().Add(-table.State.LogRetention), store)
+	return err
 }
 
 // / Read a commit log and return the actions inside it
