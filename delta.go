@@ -39,7 +39,7 @@ var (
 	ErrorExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
 	ErrorNotATable                   error = errors.New("not a Delta table")
 	ErrorInvalidVersion              error = errors.New("invalid version")
-	ErrorLockFailed                  error = errors.New("lock failed unexpectedly")
+	ErrorLockFailed                  error = errors.New("lock failed unexpectedly without an error")
 	ErrorNotImplemented              error = errors.New("not implemented")
 )
 
@@ -448,7 +448,7 @@ func (table *DeltaTable[RowType, PartitionType]) CreateCheckpoint(checkpointLock
 // / If expired log cleanup is enabled on this table, then after a successful checkpoint, run the cleanup to delete expired logs
 // / Returns whether the checkpoint was created and any error
 // / If the lock cannot be obtained, does not retry - if other processes are checkpointing there's no need to duplicate the effort
-func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore, checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version state.DeltaDataTypeVersion) (bool, error) {
+func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore, checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version state.DeltaDataTypeVersion) (checkpointed bool, err error) {
 	// The table doesn't need a commit lock or state store as we are not going to perform any commits
 	table, err := OpenTableWithVersion[RowType, PartitionType](store, nil, nil, version)
 	if err != nil {
@@ -459,9 +459,16 @@ func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore,
 		return false, err
 	}
 	if !locked {
+		// This is unexpected
 		return false, ErrorLockFailed
 	}
-	defer checkpointLock.Unlock()
+	defer func() {
+		// Defer the unlock and overwrite any errors if unlock fails
+		if unlockErr := checkpointLock.Unlock(); unlockErr != nil {
+			log.Debugf("delta-go: Unlock attempt failed. %v", unlockErr)
+			err = unlockErr
+		}
+	}()
 	err = createCheckpointFor(&table.State, table.Store, checkpointConfiguration)
 	if err != nil {
 		return false, err
@@ -472,7 +479,7 @@ func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore,
 			return true, err
 		}
 	}
-	return true, nil
+	return true, err
 }
 
 // / Cleanup expired logs before the given checkpoint version, after confirming there is a readable checkpoint
@@ -734,9 +741,7 @@ func (transaction *DeltaTransaction[RowType, PartitionType]) TryCommitLoop(commi
 }
 
 // TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
-func (transaction *DeltaTransaction[RowType, PartitionType]) TryCommit(commit *PreparedCommit) error {
-
-	var err error
+func (transaction *DeltaTransaction[RowType, PartitionType]) TryCommit(commit *PreparedCommit) (err error) {
 	// Step 1) Acquire Lock
 	locked, err := transaction.DeltaTable.LockClient.TryLock()
 	// Step 5) Always Release Lock

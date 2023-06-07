@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/state/filestate"
@@ -279,6 +280,36 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 		t.Errorf("Version is %d, final Version in lock should be 1", commitData.Version)
 	}
 }
+
+type TestBrokenUnlock struct {
+	filelock.FileLock
+}
+
+func (l *TestBrokenUnlock) Unlock() error {
+	return lock.ErrorUnableToUnlock
+}
+
+func TestCommitUnlockFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
+	os.MkdirAll(filepath.Dir(fileLockKey), 0700)
+
+	tmpPath := storage.NewPath(tmpDir)
+
+	lockClient := TestBrokenUnlock{*filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{TTL: 60 * time.Second})}
+
+	store := filestore.New(tmpPath)
+	state := filestate.New(tmpPath, "_delta_log/_commit.state")
+
+	table := NewDeltaTable[testData, EmptyTestStruct](store, &lockClient, state)
+
+	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 3})
+	_, err := transaction.Commit(operation, appMetaData)
+	if !errors.Is(err, lock.ErrorUnableToUnlock) {
+		t.Error(err)
+	}
+}
+
 func TestDeltaTableCreate(t *testing.T) {
 	table, state, _ := setupTest(t)
 	//schema

@@ -247,7 +247,6 @@ Checkpoints:
 - The checkpoint checksum is not being written or validated
 - Checkpoints without partitions are not supported
 - Checkpoints with non-string-type partitions require custom JSON marshal/unmarshal code
-- Log cleanup is not implemented yet
 
 Other:
 - Nested schemas (containing nested structs, arrays, or maps) are not supported

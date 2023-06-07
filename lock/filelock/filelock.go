@@ -81,7 +81,7 @@ func (l *FileLock) TryLock() (bool, error) {
 		locked, err = l.lock.TryLock()
 	}
 
-	if err != nil {
+	if err != nil || !locked {
 		return locked, errors.Join(lock.ErrorLockNotObtained, err)
 	}
 	return locked, err

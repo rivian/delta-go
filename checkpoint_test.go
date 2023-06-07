@@ -44,9 +44,6 @@ func setupCheckpointTest(t *testing.T, inputFolder string, overrideStore bool) (
 	} else {
 		store = filestore.New(tmpPath)
 	}
-	state = filestate.New(tmpPath, "_delta_log/_commit.state")
-	lock = filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
-	checkpointLock = filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.LockOptions{})
 
 	if len(inputFolder) > 0 {
 		// Copy input folder to temp folder
@@ -55,6 +52,11 @@ func setupCheckpointTest(t *testing.T, inputFolder string, overrideStore bool) (
 			t.Fatal(err)
 		}
 	}
+
+	os.MkdirAll(filepath.Join(tmpDir, "_delta_log"), 0777)
+	state = filestate.New(tmpPath, "_delta_log/_commit.state")
+	lock = filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
+	checkpointLock = filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.LockOptions{})
 	return
 }
 
@@ -996,5 +998,53 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCheckpointLocked(t *testing.T) {
+	store, _, _, checkpointLock := setupCheckpointTest(t, "testdata/checkpoints", false)
+
+	locked, err := checkpointLock.TryLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !locked {
+		t.Fatal("unable to obtain lock")
+	}
+
+	localLock := filelock.New(store.BaseURI, "_delta_log/_checkpoint.lock", filelock.LockOptions{})
+
+	checkpointed, err := CreateCheckpoint[SimpleCheckpointTestData, SimpleCheckpointTestPartition](store, localLock, NewCheckpointConfiguration(), 5)
+	if !errors.Is(err, lock.ErrorLockNotObtained) {
+		t.Fatalf("expected ErrorLockNotObtained when calling checkpoint with lock already in use, got %v", err)
+	}
+	if checkpointed {
+		t.Fatal("should not create checkpoint with lock in use")
+	}
+
+	err = checkpointLock.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkpointed, err = CreateCheckpoint[SimpleCheckpointTestData, SimpleCheckpointTestPartition](store, localLock, NewCheckpointConfiguration(), 5)
+	if err != nil {
+		t.Fatalf("unexpected error creating checkpoint %v", err)
+	}
+	if !checkpointed {
+		t.Fatal("did not create checkpoint")
+	}
+}
+
+func TestCheckpointUnlockFailure(t *testing.T) {
+	store, _, _, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
+	brokenLock := TestBrokenUnlock{*filelock.New(store.BaseURI, "_delta_log/_commit.lock", filelock.LockOptions{TTL: 60 * time.Second})}
+
+	checkpointed, err := CreateCheckpoint[SimpleCheckpointTestData, SimpleCheckpointTestPartition](store, &brokenLock, NewCheckpointConfiguration(), 5)
+	if !errors.Is(err, lock.ErrorUnableToUnlock) {
+		t.Fatalf("expected ErrorUnableToUnlock when calling checkpoint with broken test lock, got %v", err)
+	}
+	if !checkpointed {
+		t.Fatal("did not create checkpoint")
 	}
 }
