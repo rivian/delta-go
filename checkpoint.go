@@ -281,7 +281,7 @@ type DeletionCandidate struct {
 
 // / If the maybeToDelete files are safe to delete, delete them.  Otherwise, clear them
 // / "Safe to delete" is determined by the version and timestamp of the last file in the maybeToDelete list.
-// / For more details see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/core/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
+// / For more details see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
 // / Returns the number of files deleted.
 func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandidate, beforeVersion state.DeltaDataTypeVersion, maxTimestamp time.Time) (int, error) {
 	deleted := 0
@@ -305,7 +305,7 @@ func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandida
 // / *** The caller MUST validate that there is a checkpoint at or after beforeVersion before calling this ***
 // / Remove any logs and checkpoints that have a last updated date before maxTimestamp and a version before beforeVersion
 // / Last updated timestamps are required to be monotonically increasing, so there may be some time adjustment required
-// / For more detail see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/core/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
+// / For more detail see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
 func removeExpiredLogsAndCheckpoints(beforeVersion state.DeltaDataTypeVersion, maxTimestamp time.Time, store storage.ObjectStore) (int, error) {
 	if !store.IsListOrdered() {
 		// Currently all object stores return list results sorted
@@ -323,6 +323,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion state.DeltaDataTypeVersion, m
 			break
 		}
 		isValid, version := CommitOrCheckpointVersionFromUri(&meta.Location)
+		// Spark and Rust clients also use the file's last updated timestamp rather than opening the commit and using internal state
 		if isValid && version < beforeVersion && meta.LastModified.Before(maxTimestamp) {
 			candidatesForDeletion = append(candidatesForDeletion, DeletionCandidate{Version: version, Meta: *meta})
 		}
@@ -358,7 +359,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion state.DeltaDataTypeVersion, m
 			currentFile = DeletionCandidate{Version: currentFile.Version, Meta: storage.ObjectMeta{
 				Location:     currentFile.Meta.Location,
 				Size:         currentFile.Meta.Size,
-				LastModified: currentFile.Meta.LastModified.Add(1 * time.Millisecond)}}
+				LastModified: lastFile.Meta.LastModified.Add(1 * time.Millisecond)}}
 			// Then stick it on the end of the "maybe" list
 			maybeToDelete = append(maybeToDelete, currentFile)
 		} else {

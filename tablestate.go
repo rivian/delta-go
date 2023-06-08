@@ -54,6 +54,7 @@ var (
 	ErrorDeleteVectorNotSupported error = errors.New("delete vectors are not supported")
 	ErrorGeneratingCheckpoint     error = errors.New("unable to write checkpoint to buffer")
 	ErrorReadingCheckpoint        error = errors.New("unable to read checkpoint")
+	ErrorVersionOutOfOrder        error = errors.New("versions out of order during update")
 )
 
 // / Create an empty table state for the given version
@@ -196,10 +197,10 @@ func (tableState *DeltaTableState[RowType, PartitionType]) merge(newTableState *
 
 	tableState.CommitInfos = append(tableState.CommitInfos, newTableState.CommitInfos...)
 
-	// throw error if newer version is lower
-	if tableState.Version < newTableState.Version {
-		tableState.Version = newTableState.Version
+	if newTableState.Version <= tableState.Version {
+		return ErrorVersionOutOfOrder
 	}
+	tableState.Version = newTableState.Version
 
 	return nil
 }

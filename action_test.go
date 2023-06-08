@@ -25,16 +25,16 @@ import (
 
 // TODO Make more unit tests for commits
 
-type EmptyTestStruct struct {
+type emptyTestStruct struct {
 }
 
 func TestLogEntryFromActions(t *testing.T) {
-	add1 := Add[EmptyTestStruct, EmptyTestStruct]{
+	add1 := Add[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
 	}
-	add2 := &Add[EmptyTestStruct, EmptyTestStruct]{
+	add2 := &Add[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-2.snappy.parquet",
 		Size:             2,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
@@ -48,7 +48,7 @@ func TestLogEntryFromActions(t *testing.T) {
 	data = append(data, commit)
 	data = append(data, add1)
 	data = append(data, add2)
-	logs, err := LogEntryFromActions[EmptyTestStruct, EmptyTestStruct](data)
+	logs, err := LogEntryFromActions[emptyTestStruct, emptyTestStruct](data)
 	if err != nil {
 		t.Error(err)
 	}
@@ -82,7 +82,7 @@ func TestLogEntryFromAction(t *testing.T) {
 	commit["size"] = 1
 	commit["ModificationTime"] = DeltaDataTypeTimestamp(time.Now().UnixMilli())
 
-	abytes, err := logEntryFromAction[EmptyTestStruct, EmptyTestStruct](commit)
+	abytes, err := logEntryFromAction[emptyTestStruct, emptyTestStruct](commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -124,7 +124,7 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 		Configuration:    config,
 	}
 
-	b, err := logEntryFromAction[EmptyTestStruct, EmptyTestStruct](action)
+	b, err := logEntryFromAction[emptyTestStruct, emptyTestStruct](action)
 	if err != nil {
 		t.Error(err)
 	}
@@ -240,7 +240,7 @@ func TestWriteOperationParameters(t *testing.T) {
 
 	var data []Action
 	data = append(data, commit)
-	logs, err := LogEntryFromActions[EmptyTestStruct, EmptyTestStruct](data)
+	logs, err := LogEntryFromActions[emptyTestStruct, emptyTestStruct](data)
 	if err != nil {
 		t.Error(err)
 	}
@@ -331,7 +331,7 @@ func TestActionFromLogEntry(t *testing.T) {
 		wantErr error
 	}{
 		{name: "Add", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`{"path":"mypath.parquet","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true,"stats":"{\"numRecords\":155,\"tightBounds\":false,\"minValues\":{\"timestamp\":1615338375007003},\"maxValues\":{\"timestamp\":1615338377517216},\"nullCount\":null}"}`)}},
-			want: &Add[EmptyTestStruct, EmptyTestStruct]{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
+			want: &Add[emptyTestStruct, emptyTestStruct]{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
 				Stats: `{"numRecords":155,"tightBounds":false,"minValues":{"timestamp":1615338375007003},"maxValues":{"timestamp":1615338377517216},"nullCount":null}`}, wantErr: nil},
 		{name: "CommitInfo", args: args{unstructuredResult: map[string]json.RawMessage{"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
 			want: &CommitInfo{"clientVersion": "delta-go.alpha-0.0.0", "isBlindAppend": true, "operation": "delta-go.Write",
@@ -349,7 +349,7 @@ func TestActionFromLogEntry(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := actionFromLogEntry[EmptyTestStruct, EmptyTestStruct](tt.args.unstructuredResult)
+			got, err := actionFromLogEntry[emptyTestStruct, emptyTestStruct](tt.args.unstructuredResult)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("actionFromLogEntry() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -367,7 +367,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 		NumRecords: 123,
 	}
 
-	add := Add[EmptyTestStruct, EmptyTestStruct]{
+	add := Add[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
@@ -381,13 +381,13 @@ func TestActionsFromLogEntries(t *testing.T) {
 	var data []Action
 	data = append(data, commit)
 	data = append(data, add)
-	logs, err := LogEntryFromActions[EmptyTestStruct, EmptyTestStruct](data)
+	logs, err := LogEntryFromActions[emptyTestStruct, emptyTestStruct](data)
 	if err != nil {
 		t.Fatalf("LogEntryFromActions() error = %v", err)
 	}
 	logBytes := []byte(logs)
 
-	actions, err := ActionsFromLogEntries[EmptyTestStruct, EmptyTestStruct](logBytes)
+	actions, err := ActionsFromLogEntries[emptyTestStruct, emptyTestStruct](logBytes)
 	if err != nil {
 		t.Fatalf("ActionsFromLogEntries() error = %v", err)
 	}
@@ -408,7 +408,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 		t.Errorf("Commit did not match.  Got %v expected %v", *resultCommit, commit)
 	}
 
-	resultAdd, ok := actions[1].(*Add[EmptyTestStruct, EmptyTestStruct])
+	resultAdd, ok := actions[1].(*Add[emptyTestStruct, emptyTestStruct])
 	if !ok {
 		t.Error("Expected Add for second action")
 	}
