@@ -86,7 +86,7 @@ func main() {
 
 			store := filestore.New(tmpPath)
 			state := filestate.New(storage.NewPath(dir), "_delta_log/_commit.state")
-			lock := filelock.New(tmpPath, "_delta_log/_commit.state", filelock.LockOptions{})
+			lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := delta.NewDeltaTable(store, lock, state)
@@ -239,3 +239,24 @@ pyspark --packages io.delta:delta-core_2.12:2.2.0 --conf "spark.sql.extensions=i
 df = spark.read.format("delta").load("table")
 df.show()
 ```
+
+---
+Limitations / TODO
+
+Checkpoints:
+- The checkpoint checksum is not being written or validated
+- Checkpoints without partitions are not supported
+- Checkpoints with non-string-type partitions require custom JSON marshal/unmarshal code
+- Parsed stats does not include null counts
+
+Other:
+- Nested schemas (containing nested structs, arrays, or maps) are not supported
+- Deletion vectors are not supported
+- Table features are not supported
+- Change data files are not supported
+- CDC files are not supported
+- Add stats need to be manually generated instead of being read from the parquet file
+
+Immediate TODO:
+- Warning on min version too high (3/1)
+- Warn if opening a table with versions too high

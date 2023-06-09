@@ -231,3 +231,41 @@ type ObjectStore interface {
 	// Will return an error if the destination already has an object.
 	RenameIfNotExists(from *Path, to *Path) error
 }
+
+// / Wrapper around List that will perform paging if required
+type ListIterator struct {
+	store      ObjectStore
+	prefix     *Path
+	listResult *ListResult
+	nextIndex  int
+}
+
+func NewListIterator(prefix *Path, store ObjectStore) *ListIterator {
+	iterator := new(ListIterator)
+	iterator.listResult = nil
+	iterator.prefix = prefix
+	iterator.store = store
+	return iterator
+}
+
+// / Return the next object in the list
+// / When there are no more objects, return nil and the error ErrorObjectDoesNotExist
+func (listIterator *ListIterator) Next() (*ObjectMeta, error) {
+	// Fetch the first page, or the next page, if necessary
+	if listIterator.listResult == nil || (listIterator.nextIndex >= len(listIterator.listResult.Objects) && listIterator.listResult.NextToken != "") {
+		nextListResult, err := listIterator.store.List(listIterator.prefix, listIterator.listResult)
+		if err != nil {
+			return nil, err
+		}
+		listIterator.listResult = &nextListResult
+		listIterator.nextIndex = 0
+	}
+
+	if listIterator.nextIndex >= len(listIterator.listResult.Objects) {
+		return nil, ErrorObjectDoesNotExist
+	}
+
+	result := listIterator.listResult.Objects[listIterator.nextIndex]
+	listIterator.nextIndex++
+	return &result, nil
+}

@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,7 +28,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
+	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/segmentio/parquet-go"
 
@@ -37,12 +40,12 @@ import (
 
 func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	store := filestore.FileObjectStore{BaseURI: &storage.Path{Raw: "tmp/"}}
-	deltaTable := DeltaTable{Store: &store, LockClient: &filelock.FileLock{Key: "tmp/_delta_log/_commit.lock"}}
+	deltaTable := DeltaTable[emptyTestStruct, emptyTestStruct]{Store: &store, LockClient: &filelock.FileLock{Key: "tmp/_delta_log/_commit.lock"}}
 	options := DeltaTransactionOptions{MaxRetryCommitAttempts: 3}
 	os.MkdirAll("tmp/_delta_log/", 0700)
 	defer os.RemoveAll("tmp/_delta_log/")
 	transaction := NewDeltaTransaction(&deltaTable, &options)
-	add := Add{
+	add := Add[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
 		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
@@ -77,7 +80,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 
 func TestDeltaTableReadCommitVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add[testData, emptyTestStruct]{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -123,11 +126,11 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	schema := SchemaTypeStruct{Fields: fields}
 	format := new(Format).Default()
 	config := make(map[string]string)
-	config["appendOnly"] = "true"
+	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := Protocol{MinReaderVersion: 2, MinWriterVersion: 6}
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
-	add := Add{
+	add := Add[testData, emptyTestStruct]{
 		Path:             "part-123.snappy.parquet",
 		Size:             984,
 		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
@@ -135,7 +138,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
-	err := table.Create(*metadata, protocol, commitInfo, []Add{add})
+	err := table.Create(*metadata, protocol, commitInfo, []Add[testData, emptyTestStruct]{add})
 	if err != nil {
 		t.Error(err)
 	}
@@ -170,7 +173,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	if !ok {
 		t.Error("Expected MetaData for third action")
 	}
-	a, ok := actions[3].(*Add)
+	a, ok := actions[3].(*Add[testData, emptyTestStruct])
 	if !ok {
 		t.Error("Expected Add for fourth action")
 	}
@@ -192,7 +195,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 
 func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add[testData, emptyTestStruct]{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -244,7 +247,7 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 
-	table := NewDeltaTable(store, lockClient, state)
+	table := NewDeltaTable[testData, emptyTestStruct](store, lockClient, state)
 
 	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 3})
 	version, err := transaction.Commit(operation, appMetaData)
@@ -274,9 +277,39 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 
 	commitData, _ = state.Get()
 	if commitData.Version != 1 {
-		t.Errorf("Final Version in lock should be 1")
+		t.Errorf("Version is %d, final Version in lock should be 1", commitData.Version)
 	}
 }
+
+type testBrokenUnlockLocker struct {
+	filelock.FileLock
+}
+
+func (l *testBrokenUnlockLocker) Unlock() error {
+	return lock.ErrorUnableToUnlock
+}
+
+func TestCommitUnlockFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
+	os.MkdirAll(filepath.Dir(fileLockKey), 0700)
+
+	tmpPath := storage.NewPath(tmpDir)
+
+	lockClient := testBrokenUnlockLocker{*filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{TTL: 60 * time.Second})}
+
+	store := filestore.New(tmpPath)
+	state := filestate.New(tmpPath, "_delta_log/_commit.state")
+
+	table := NewDeltaTable[testData, emptyTestStruct](store, &lockClient, state)
+
+	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 3})
+	_, err := transaction.Commit(operation, appMetaData)
+	if !errors.Is(err, lock.ErrorUnableToUnlock) {
+		t.Error(err)
+	}
+}
+
 func TestDeltaTableCreate(t *testing.T) {
 	table, state, _ := setupTest(t)
 	//schema
@@ -290,17 +323,17 @@ func TestDeltaTableCreate(t *testing.T) {
 	schema := SchemaTypeStruct{Fields: fields}
 	format := new(Format).Default()
 	config := make(map[string]string)
-	config["appendOnly"] = "true"
+	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := Protocol{MinReaderVersion: 2, MinWriterVersion: 7}
-	add := Add{
+	add := Add[testData, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
 		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
-	err := table.Create(*metadata, protocol, commitInfo, []Add{add})
+	err := table.Create(*metadata, protocol, commitInfo, []Add[testData, emptyTestStruct]{add})
 	if err != nil {
 		t.Error(err)
 	}
@@ -329,7 +362,7 @@ func TestDeltaTableExists(t *testing.T) {
 	}
 	metadata := NewDeltaTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 
-	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
+	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add[testData, emptyTestStruct]{})
 	if err != nil {
 		t.Error(err)
 	}
@@ -426,7 +459,7 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 
 func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add[testData, emptyTestStruct]{})
 	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -477,7 +510,7 @@ func TestCommitConcurrent(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 	table, state, tmpDir := setupTest(t)
 	metadata := NewDeltaTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
-	err := table.Create(*metadata, Protocol{}, CommitInfo{}, []Add{})
+	err := table.Create(*metadata, Protocol{}, CommitInfo{}, []Add[testData, emptyTestStruct]{})
 	if err != nil {
 		t.Error(err)
 	}
@@ -497,10 +530,10 @@ func TestCommitConcurrent(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.state", filelock.LockOptions{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.LockOptions{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
-			table := NewDeltaTable(store, lock, state)
+			table := NewDeltaTable[testData, emptyTestStruct](store, lock, state)
 			transaction, operation, appMetaData := setupTransaction(t, table, NewDeltaTransactionOptions())
 			_, err := transaction.Commit(operation, appMetaData)
 			if err != nil {
@@ -550,7 +583,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
-	add := Add{
+	add := Add[testData, emptyTestStruct]{
 		Path:             fileName,
 		Size:             DeltaDataTypeLong(p.Size),
 		DataChange:       true,
@@ -560,7 +593,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 	}
 
 	metadata := NewDeltaTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
-	err = table.Create(*metadata, Protocol{}, CommitInfo{}, []Add{add})
+	err = table.Create(*metadata, Protocol{}, CommitInfo{}, []Add[testData, emptyTestStruct]{add})
 	if err != nil {
 		t.Error(err)
 	}
@@ -580,10 +613,10 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.state", filelock.LockOptions{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.LockOptions{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
-			table := NewDeltaTable(store, lock, state)
+			table := NewDeltaTable[testData, emptyTestStruct](store, lock, state)
 			transaction := table.CreateTransaction(NewDeltaTransactionOptions())
 
 			//Make some data
@@ -596,7 +629,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 				t.Error(err)
 			}
 
-			add := Add{
+			add := Add[testData, emptyTestStruct]{
 				Path:             fileName,
 				Size:             DeltaDataTypeLong(p.Size),
 				DataChange:       true,
@@ -659,7 +692,7 @@ func TestCreateWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
-	add := Add{
+	add := Add[testData, emptyTestStruct]{
 		Path:             fileName,
 		Size:             DeltaDataTypeLong(p.Size),
 		DataChange:       true,
@@ -669,7 +702,7 @@ func TestCreateWithParquet(t *testing.T) {
 	}
 
 	metadata := NewDeltaTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
-	err = table.Create(*metadata, Protocol{}, CommitInfo{}, []Add{add})
+	err = table.Create(*metadata, Protocol{}, CommitInfo{}, []Add[testData, emptyTestStruct]{add})
 	if err != nil {
 		t.Error(err)
 	}
@@ -678,13 +711,43 @@ func TestCreateWithParquet(t *testing.T) {
 }
 
 type testData struct {
-	Id     int64     `parquet:"id,snappy"`
-	T1     int64     `parquet:"t1,timestamp(microsecond)"`
-	T2     time.Time `parquet:"t2,timestamp"`
-	Label  string    `parquet:"label,dict,snappy"`
-	Value1 float64   `parquet:"value1,snappy" nullable:"false"`
-	Value2 *float64  `parquet:"value2,snappy" nullable:"true"`
-	Data   []byte    `parquet:"data,plain,snappy" nullable:"true"`
+	Id     int64     `json:"id" parquet:"id,snappy"`
+	T1     int64     `json:"t1" parquet:"t1,timestamp(microsecond)"`
+	T2     time.Time `json:"t2" parquet:"t2,timestamp"`
+	Label  string    `json:"label" parquet:"label,dict,snappy"`
+	Value1 float64   `json:"value1" parquet:"value1,snappy" nullable:"false"`
+	Value2 *float64  `json:"value2" parquet:"value2,snappy" nullable:"true"`
+	Data   []byte    `json:"data" parquet:"data,plain,snappy" nullable:"true"`
+}
+
+func (t *testData) UnmarshalJSON(data []byte) error {
+	var f interface{}
+	err := json.Unmarshal(data, &f)
+	if err != nil {
+		return err
+	}
+	m := f.(map[string]interface{})
+	for k, v := range m {
+		switch k {
+		case "id":
+			t.Id = int64(v.(float64))
+		case "t1":
+			t.T1 = int64(v.(float64))
+		case "t2":
+			micros := int64(v.(float64))
+			t.T2 = time.Unix(micros/1e6, micros%1e6)
+		case "label":
+			t.Label = v.(string)
+		case "value1":
+			t.Value1 = v.(float64)
+		case "value2":
+			val := v.(float64)
+			t.Value2 = &val
+		case "data":
+			t.Data = v.([]byte)
+		}
+	}
+	return nil
 }
 
 func (data *testData) getSchema() SchemaTypeStruct {
@@ -780,24 +843,24 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 }
 
 // / Helper function to set up test state
-func setupTest(t *testing.T) (table *DeltaTable, state *filestate.FileStateStore, tmpDir string) {
+func setupTest(t *testing.T) (table *DeltaTable[testData, emptyTestStruct], state *filestate.FileStateStore, tmpDir string) {
 	t.Helper()
 
 	tmpDir = t.TempDir()
 	tmpPath := storage.NewPath(tmpDir)
 	store := filestore.New(tmpPath)
 	state = filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-	lock := filelock.New(tmpPath, "_delta_log/_commit.state", filelock.LockOptions{})
-	table = NewDeltaTable(store, lock, state)
+	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
+	table = NewDeltaTable[testData, emptyTestStruct](store, lock, state)
 	return
 }
 
 // / Helper function to set up a basic transaction
-func setupTransaction(t *testing.T, table *DeltaTable, options *DeltaTransactionOptions) (transaction *DeltaTransaction, operation DeltaOperation, appMetaData map[string]any) {
+func setupTransaction(t *testing.T, table *DeltaTable[testData, emptyTestStruct], options *DeltaTransactionOptions) (transaction *DeltaTransaction[testData, emptyTestStruct], operation DeltaOperation, appMetaData map[string]any) {
 	t.Helper()
 
 	transaction = table.CreateTransaction(options)
-	add := Add{
+	add := Add[testData, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
 		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
@@ -815,4 +878,188 @@ func fileExists(filename string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+func TestCommitUriFromVersion(t *testing.T) {
+	type test struct {
+		input state.DeltaDataTypeVersion
+		want  string
+	}
+
+	tests := []test{
+		{input: 0, want: "_delta_log/00000000000000000000.json"},
+		{input: 1, want: "_delta_log/00000000000000000001.json"},
+		{input: 10, want: "_delta_log/00000000000000000010.json"},
+		{input: 999999, want: "_delta_log/00000000000000999999.json"},
+		{input: 1234567890123456789, want: "_delta_log/01234567890123456789.json"},
+	}
+
+	table, _, _ := setupTest(t)
+
+	for _, tc := range tests {
+		got := table.CommitUriFromVersion(state.DeltaDataTypeVersion(tc.input))
+		if got.Raw != tc.want {
+			t.Errorf("expected %s, got %s", tc.want, got)
+		}
+	}
+}
+
+func TestIsValidCommitUri(t *testing.T) {
+	type test struct {
+		input string
+		want  bool
+	}
+
+	tests := []test{
+		{input: "_delta_log/00000000000000000000.json", want: true},
+		{input: "_delta_log/00000000000000000001.json", want: true},
+		{input: "_delta_log/01234567890123456789.json", want: true},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", want: false},
+		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", want: false},
+	}
+
+	for _, tc := range tests {
+		got := IsValidCommitUri(storage.NewPath(tc.input))
+		if got != tc.want {
+			t.Errorf("expected %t, got %t", tc.want, got)
+		}
+	}
+}
+
+func TestCommitVersionFromUri(t *testing.T) {
+	type test struct {
+		input       string
+		wantMatch   bool
+		wantVersion state.DeltaDataTypeVersion
+	}
+
+	tests := []test{
+		{input: "_delta_log/00000000000000000000.json", wantMatch: true, wantVersion: 0},
+		{input: "_delta_log/00000000000000000001.json", wantMatch: true, wantVersion: 1},
+		{input: "_delta_log/01234567890123456789.json", wantMatch: true, wantVersion: 1234567890123456789},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantMatch: false},
+		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantMatch: false},
+	}
+
+	for _, tc := range tests {
+		match, got := CommitVersionFromUri(storage.NewPath(tc.input))
+		if match != tc.wantMatch {
+			t.Errorf("expected %t, got %t", tc.wantMatch, match)
+		}
+		if match == tc.wantMatch && match {
+			if got != tc.wantVersion {
+				t.Errorf("expected %d, got %d", tc.wantVersion, got)
+			}
+		}
+	}
+}
+
+func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
+	type test struct {
+		input       string
+		wantMatch   bool
+		wantVersion state.DeltaDataTypeVersion
+	}
+
+	tests := []test{
+		{input: "_delta_log/00000000000000000000.json", wantMatch: true, wantVersion: 0},
+		{input: "_delta_log/00000000000000000001.json", wantMatch: true, wantVersion: 1},
+		{input: "_delta_log/01234567890123456789.json", wantMatch: true, wantVersion: 1234567890123456789},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantMatch: true, wantVersion: 1},
+		{input: "_delta_log/00000000000000094451.checkpoint.0000000002.0000000061.parquet", wantMatch: true, wantVersion: 94451},
+		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantMatch: false},
+	}
+
+	for _, tc := range tests {
+		match, got := CommitOrCheckpointVersionFromUri(storage.NewPath(tc.input))
+		if match != tc.wantMatch {
+			t.Errorf("expected %t, got %t", tc.wantMatch, match)
+		}
+		if match == tc.wantMatch && match {
+			if got != tc.wantVersion {
+				t.Errorf("expected %d, got %d", tc.wantVersion, got)
+			}
+		}
+	}
+}
+
+func TestLoadVersion(t *testing.T) {
+	// Use setupCheckpointTest() to copy testdata commits
+	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
+
+	// Load version 2
+	table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
+	var version state.DeltaDataTypeVersion = 2
+	err := table.LoadVersion(&version)
+	if err != nil {
+		t.Error(err)
+	}
+	// Check contents
+	// Set up the expected state based on the commits we are reading
+	expectedState := NewDeltaTableState[simpleCheckpointTestData, simpleCheckpointTestPartition](version)
+	operationParams := make(map[string]interface{}, 4)
+	operationParams["isManaged"] = "false"
+	operationParams["description"] = nil
+	operationParams["partitionBy"] = "[\"date\"]"
+	operationParams["properties"] = "{}"
+	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668675695), "operation": "CREATE TABLE", "operationParameters": operationParams, "isolationLevel": "SnapshotIsolation", "isBlindAppend": true, "operationMetrics": make(map[string]interface{})})
+	operationParams = make(map[string]interface{}, 2)
+	operationParams["mode"] = "Append"
+	operationParams["partitionBy"] = "[]"
+	operationMetrics := make(map[string]interface{}, 3)
+	operationMetrics["numFiles"] = "1"
+	operationMetrics["numOutputBytes"] = "1502"
+	operationMetrics["numOutputRows"] = "1"
+	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668685528), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(0), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
+	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668687609), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(1), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
+	expectedState.MinReaderVersion = 1
+	expectedState.MinWriterVersion = 2
+	add := new(Add[simpleCheckpointTestData, simpleCheckpointTestPartition])
+	add.Path = "date=2020-06-01/part-00000-b207ef5f-4458-4969-bd34-46439cdeb6a6.c000.snappy.parquet"
+	add.PartitionValues = make(map[string]string)
+	add.PartitionValues["date"] = "2020-06-01"
+	add.Size = 1502
+	add.ModificationTime = 1627668686000
+	add.DataChange = true
+	add.Stats = "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	expectedState.Files[add.Path] = *add
+	add = new(Add[simpleCheckpointTestData, simpleCheckpointTestPartition])
+	add.Path = "date=2020-06-01/part-00000-762e2b03-6a04-4707-b676-5d38d1ef9fca.c000.snappy.parquet"
+	add.PartitionValues = make(map[string]string)
+	add.PartitionValues["date"] = "2020-06-01"
+	add.Size = 1502
+	add.ModificationTime = 1627668688000
+	add.DataChange = true
+	add.Stats = "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	expectedState.Files[add.Path] = *add
+	var schema SchemaTypeStruct = SchemaTypeStruct{
+		Fields: []SchemaField{
+			{Name: "value", Type: String, Nullable: true, Metadata: make(map[string]any)},
+			{Name: "ts", Type: Timestamp, Nullable: true, Metadata: make(map[string]any)},
+			{Name: "date", Type: String, Nullable: true, Metadata: make(map[string]any)},
+		},
+	}
+	expectedState.CurrentMetadata = NewDeltaTableMetaData("", "", Format{Provider: "parquet", Options: map[string]string{}}, schema, []string{"date"}, make(map[string]string))
+	expectedState.CurrentMetadata.CreatedTime = time.Unix(1627668675, 432000000)
+	expectedState.CurrentMetadata.Id = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
+
+	if !reflect.DeepEqual(*expectedState, table.State) {
+		t.Errorf("table state expected %v, found %v", *expectedState, table.State)
+	}
+
+	// Invalid version should return error
+	version = 20
+	err = table.LoadVersion(&version)
+	if !errors.Is(err, ErrorInvalidVersion) {
+		t.Error("loading an invalid version did not return correct error")
+	}
+
+	// Calling with no version should load latest version
+	err = table.LoadVersion(nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if table.State.Version != 12 {
+		t.Errorf("expected version %d, found %d", 12, table.State.Version)
+	}
 }

@@ -13,9 +13,11 @@
 package filelock
 
 import (
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/storage"
 )
 
@@ -36,8 +38,8 @@ func TestTryLock(t *testing.T) {
 
 	otherFileLock := FileLock{BaseURI: tmpPath, Key: "_commit.lock"}
 	hasLock, err := otherFileLock.TryLock()
-	if err != nil {
-		t.Errorf("err = %e;", err)
+	if !errors.Is(err, lock.ErrorLockNotObtained) {
+		t.Errorf("err = %e; expected %e", err, lock.ErrorLockNotObtained)
 	}
 	if hasLock {
 		t.Errorf("hasLock = %v; want false", hasLock)

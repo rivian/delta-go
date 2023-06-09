@@ -99,6 +99,11 @@ func (s *S3ObjectStore) Get(location *storage.Path) ([]byte, error) {
 			Bucket: aws.String(s.bucket),
 			Key:    aws.String(key),
 		})
+	// Check for a 404 response, indicating that the object does not exist
+	var re *awshttp.ResponseError
+	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
+		return nil, errors.Join(storage.ErrorObjectDoesNotExist, err)
+	}
 	if err != nil {
 		return nil, errors.Join(storage.ErrorGetObject, err)
 	}
@@ -129,7 +134,7 @@ func (s *S3ObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path) 
 	// return ErrorObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
 	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
-		return fmt.Errorf("error %w: Object at location %s already exists", storage.ErrorObjectAlreadyExists, to.Raw)
+		return errors.Join(storage.ErrorObjectAlreadyExists, fmt.Errorf("object at location %s already exists", to.Raw))
 	}
 
 	err = s.Rename(from, to)

@@ -38,6 +38,28 @@ type DeltaDataTypeTimestamp int64
 // / Type alias for i32/Delta int
 type DeltaDataTypeInt int32
 
+// Type alias for date with custom JSON marshal/unmarshal to simplify use of dates as partitions
+type DeltaDataTypeDate int32
+
+const NUM_SECONDS_IN_DAY int64 = 60 * 60 * 24
+const DELTA_DATE_FORMAT string = "2006-01-02"
+
+func (date *DeltaDataTypeDate) UnmarshalJSON(b []byte) error {
+	trimmedDateString := strings.Trim(string(b), "\"")
+	t, err := time.Parse(DELTA_DATE_FORMAT, trimmedDateString)
+	if err != nil {
+		return err
+	}
+
+	*date = DeltaDataTypeDate(t.Unix() / NUM_SECONDS_IN_DAY)
+	return nil
+}
+
+func (date DeltaDataTypeDate) MarshalJSON() ([]byte, error) {
+	dateAsTime := time.Unix(int64(date)*NUM_SECONDS_IN_DAY, 0)
+	return []byte(dateAsTime.Format(DELTA_DATE_FORMAT)), nil
+}
+
 const (
 	STRUCT_TAG = "struct"
 	ARRAY_TAG  = "array"
@@ -52,6 +74,8 @@ type SchemaTypeStruct struct {
 	Fields []SchemaField //`json:"fields"`
 }
 
+// TODO this does not handle nested maps, arrays, or structs correctly
+// See TestMetadataGetSchema in action_test.go for example outputs for those cases
 func (s *SchemaTypeStruct) Json() []byte {
 
 	type constructorSchemaField struct {
@@ -96,16 +120,16 @@ const (
 	Byte      SchemaDataType = "byte"      //  * byte: i8
 	Float     SchemaDataType = "float"     //  * float: f32
 	Double    SchemaDataType = "double"    //  * double: f64
-	Boolean   SchemaDataType = "boolean"   // * boolean: bool
+	Boolean   SchemaDataType = "boolean"   //  * boolean: bool
 	Binary    SchemaDataType = "binary"    //  * binary: a sequence of binary data
 	Date      SchemaDataType = "date"      //  * date: A calendar date, represented as a year-month-day triple without a timezone
-	Timestamp SchemaDataType = "timestamp" // * timestamp: Microsecond precision timestamp without a timezone
-	Struct    SchemaDataType = "struct"    // * timestamp: Microsecond precision timestamp without a timezone
+	Timestamp SchemaDataType = "timestamp" //  * timestamp: Microsecond precision timestamp without a timezone
+	Struct    SchemaDataType = "struct"    //  * struct:
 	Unknown   SchemaDataType = "unknown"
 )
 
 // GetSchema recursively walks over the given struct interface i and extracts SchemaTypeStruct StructFields using reflect
-// TODO: Handel error cases where types are not compatible with spark types.
+// TODO: Handle error cases where types are not compatible with spark types.
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#schema-serialization-format
 // i.e. Value int is not currently readable with spark.read.format("delta").load("...")
 func GetSchema(i any) SchemaTypeStruct {

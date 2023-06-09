@@ -14,6 +14,7 @@ package delta
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,14 +24,17 @@ import (
 )
 
 // TODO Make more unit tests for commits
-func TestLogEntryFromActions(t *testing.T) {
 
-	add1 := Add{
+type emptyTestStruct struct {
+}
+
+func TestLogEntryFromActions(t *testing.T) {
+	add1 := Add[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
 	}
-	add2 := &Add{
+	add2 := &Add[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-2.snappy.parquet",
 		Size:             2,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
@@ -44,15 +48,15 @@ func TestLogEntryFromActions(t *testing.T) {
 	data = append(data, commit)
 	data = append(data, add1)
 	data = append(data, add2)
-	logs, err := LogEntryFromActions(data)
+	logs, err := LogEntryFromActions[emptyTestStruct, emptyTestStruct](data)
 	if err != nil {
 		t.Error(err)
 	}
 	println(string(logs))
 
 	expectedStr := `{"commitInfo":{"operation":"delta-go.Write","operationParameters":{"mode":"ErrorIfExists","partitionBy":"[]","predicate":"[]"},"timestamp":1675020556534}}
-	{"add":{"path":"part-1.snappy.parquet","size":1,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}}
-	{"add":{"path":"part-2.snappy.parquet","size":2,"partitionValues":null,"modificationTime":{},"dataChange":false,"stats":"","Tags":null}}`
+{"add":{"path":"part-1.snappy.parquet","size":1,"partitionValues":null,"modificationTime":1675020556534,"dataChange":false,"stats":""}}
+{"add":{"path":"part-2.snappy.parquet","size":2,"partitionValues":null,"modificationTime":1675020556534,"dataChange":false,"stats":""}}`
 
 	if !strings.Contains(string(logs), `{"commitInfo":{"operation":"delta-go.Write"`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
@@ -62,11 +66,11 @@ func TestLogEntryFromActions(t *testing.T) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
-	// if !strings.Contains(string(logs), `{"add":{"path":"part-1.snappy.parquet","size":1,"partitionValues":null,"modificationTime":1675020556534,"dataChange":false,"stats":"","Tags":null}}`) {
-	// 	t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
-	// }
+	if !strings.Contains(string(logs), `{"add":{"path":"part-1.snappy.parquet","partitionValues":null,"size":1,"modificationTime":1675020556534,"dataChange":false,"stats":""}}`) {
+		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
+	}
 
-	if !strings.Contains(string(logs), `{"path":"part-2.snappy.parquet","size":2,"partitionValues":null,"modificationTime":1675020556534,"dataChange":false,"stats":""}`) {
+	if !strings.Contains(string(logs), `{"path":"part-2.snappy.parquet","partitionValues":null,"size":2,"modificationTime":1675020556534,"dataChange":false,"stats":""}`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 }
@@ -78,7 +82,7 @@ func TestLogEntryFromAction(t *testing.T) {
 	commit["size"] = 1
 	commit["ModificationTime"] = DeltaDataTypeTimestamp(time.Now().UnixMilli())
 
-	abytes, err := logEntryFromAction(commit)
+	abytes, err := logEntryFromAction[emptyTestStruct, emptyTestStruct](commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -110,7 +114,7 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 		Options:  make(map[string]string),
 	}
 	config := make(map[string]string)
-	config["appendOnly"] = "true"
+	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	id, _ := uuid.Parse("af23c9d7-fff1-4a5a-a2c8-55c59bd782aa")
 	action := MetaData{
 		Id:               id,
@@ -120,7 +124,7 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 		Configuration:    config,
 	}
 
-	b, err := logEntryFromAction(action)
+	b, err := logEntryFromAction[emptyTestStruct, emptyTestStruct](action)
 	if err != nil {
 		t.Error(err)
 	}
@@ -160,7 +164,6 @@ func TestUpdateStats(t *testing.T) {
 		UpdateStats(&stats, "id", &row.Id)
 		UpdateStats(&stats, "label", &row.Label)
 		UpdateStats(&stats, "value", row.Value)
-
 	}
 
 	b, _ := json.Marshal(stats)
@@ -237,7 +240,7 @@ func TestWriteOperationParameters(t *testing.T) {
 
 	var data []Action
 	data = append(data, commit)
-	logs, err := LogEntryFromActions(data)
+	logs, err := LogEntryFromActions[emptyTestStruct, emptyTestStruct](data)
 	if err != nil {
 		t.Error(err)
 	}
@@ -325,25 +328,29 @@ func TestActionFromLogEntry(t *testing.T) {
 		name    string
 		args    args
 		want    Action
-		wantErr bool
+		wantErr error
 	}{
 		{name: "Add", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`{"path":"mypath.parquet","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true,"stats":"{\"numRecords\":155,\"tightBounds\":false,\"minValues\":{\"timestamp\":1615338375007003},\"maxValues\":{\"timestamp\":1615338377517216},\"nullCount\":null}"}`)}},
-			want: &Add{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
-				Stats: `{"numRecords":155,"tightBounds":false,"minValues":{"timestamp":1615338375007003},"maxValues":{"timestamp":1615338377517216},"nullCount":null}`}, wantErr: false},
+			want: &Add[emptyTestStruct, emptyTestStruct]{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
+				Stats: `{"numRecords":155,"tightBounds":false,"minValues":{"timestamp":1615338375007003},"maxValues":{"timestamp":1615338377517216},"nullCount":null}`}, wantErr: nil},
 		{name: "CommitInfo", args: args{unstructuredResult: map[string]json.RawMessage{"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
 			want: &CommitInfo{"clientVersion": "delta-go.alpha-0.0.0", "isBlindAppend": true, "operation": "delta-go.Write",
-				"timestamp": float64(1679610144893)}, wantErr: false},
+				"timestamp": float64(1679610144893)}, wantErr: nil},
 		{name: "Protocol", args: args{unstructuredResult: map[string]json.RawMessage{"protocol": []byte(`{"minReaderVersion":2,"minWriterVersion":7}`)}},
-			want: &Protocol{MinReaderVersion: 2, MinWriterVersion: 7}, wantErr: false},
+			want: &Protocol{MinReaderVersion: 2, MinWriterVersion: 7}, wantErr: nil},
 		{name: "Fail on invalid JSON", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`"path":"s3a://bucket/table","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true}`)}},
-			want: nil, wantErr: true},
-		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: true},
-		{name: "Fail on CDC", args: args{unstructuredResult: map[string]json.RawMessage{"cdc": []byte(`{}`)}}, want: nil, wantErr: true},
+			want: nil, wantErr: ErrorActionJSONFormat},
+		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: ErrorActionUnknown},
+		{name: "Fail on CDC", args: args{unstructuredResult: map[string]json.RawMessage{"cdc": []byte(`{}`)}}, want: nil, wantErr: ErrorCDCNotSupported},
+		{name: "Fail on multiple entries", args: args{unstructuredResult: map[string]json.RawMessage{
+			"protocol":   []byte(`{"minReaderVersion":2,"minWriterVersion":7}`),
+			"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
+			want: nil, wantErr: ErrorActionJSONFormat},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := actionFromLogEntry(tt.args.unstructuredResult)
-			if (err != nil) != tt.wantErr {
+			got, err := actionFromLogEntry[emptyTestStruct, emptyTestStruct](tt.args.unstructuredResult)
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("actionFromLogEntry() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
@@ -360,7 +367,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 		NumRecords: 123,
 	}
 
-	add := Add{
+	add := Add[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
@@ -374,13 +381,13 @@ func TestActionsFromLogEntries(t *testing.T) {
 	var data []Action
 	data = append(data, commit)
 	data = append(data, add)
-	logs, err := LogEntryFromActions(data)
+	logs, err := LogEntryFromActions[emptyTestStruct, emptyTestStruct](data)
 	if err != nil {
 		t.Fatalf("LogEntryFromActions() error = %v", err)
 	}
 	logBytes := []byte(logs)
 
-	actions, err := ActionsFromLogEntries(logBytes)
+	actions, err := ActionsFromLogEntries[emptyTestStruct, emptyTestStruct](logBytes)
 	if err != nil {
 		t.Fatalf("ActionsFromLogEntries() error = %v", err)
 	}
@@ -390,20 +397,134 @@ func TestActionsFromLogEntries(t *testing.T) {
 	}
 
 	// resultCommit, ok := actions[0].(*CommitInfo)
-	_, ok := actions[0].(*CommitInfo)
+	resultCommit, ok := actions[0].(*CommitInfo)
 	if !ok {
 		t.Error("Expected CommitInfo for first action")
 	}
-	// TODO - this fails because JSON unmarshalling changes the timestamp type.
-	// if !reflect.DeepEqual(*resultCommit, commit) {
-	// 	t.Errorf("Commit did not match.  Got %v expected %v", *resultCommit, commit)
-	// }
+	// JSON unmarshalling changes some types
+	commit["timestamp"] = float64(commit["timestamp"].(int))
+	commit["operationParameters"].(map[string]interface{})["mode"] = string(commit["operationParameters"].(map[string]interface{})["mode"].(SaveMode))
+	if !reflect.DeepEqual(*resultCommit, commit) {
+		t.Errorf("Commit did not match.  Got %v expected %v", *resultCommit, commit)
+	}
 
-	resultAdd, ok := actions[1].(*Add)
+	resultAdd, ok := actions[1].(*Add[emptyTestStruct, emptyTestStruct])
 	if !ok {
 		t.Error("Expected Add for second action")
 	}
 	if !reflect.DeepEqual(*resultAdd, add) {
 		t.Errorf("Add did not match.  Got %v expected %v", *resultAdd, add)
 	}
+}
+
+// / Test converting untyped stats to generic stats
+func TestStatsAsGenericStats(t *testing.T) {
+	type TestStats1 struct {
+		Id     int    `json:"id"`
+		Field1 string `json:"field1"`
+	}
+	input1 := Stats{TightBounds: true, NumRecords: 2, MinValues: make(map[string]any, 2), MaxValues: make(map[string]any, 2), NullCount: make(map[string]int64, 2)}
+	input1.MinValues["id"] = 1
+	input1.MinValues["field1"] = "aaa"
+	input1.MaxValues["id"] = 3
+	input1.MaxValues["field1"] = "zzz"
+	input1.NullCount["id"] = 0
+	input1.NullCount["field1"] = 0
+
+	expectedStats1 := GenericStats[TestStats1]{TightBounds: true, NumRecords: 2, MinValues: TestStats1{Id: 1, Field1: "aaa"}, MaxValues: TestStats1{Id: 3, Field1: "zzz"}, NullCount: make(map[string]int64, 2)}
+	expectedStats1.NullCount["id"] = 0
+	expectedStats1.NullCount["field1"] = 0
+
+	results1, err := statsAsGenericStats[TestStats1](&input1)
+	if err != nil {
+		t.Error(err)
+	} else {
+		if !reflect.DeepEqual(expectedStats1, *results1) {
+			t.Errorf("StatsAsGenericStats results did not match expected.  Got %v expected %v", *results1, expectedStats1)
+		}
+	}
+
+	type TestStats2 struct {
+		CreatedTimestamp int64 `json:"created_timestamp"`
+		SometimesNull    *bool `json:"sometimes_null"`
+	}
+
+	input2 := Stats{TightBounds: false, NumRecords: 3, MinValues: make(map[string]any, 2), MaxValues: make(map[string]any, 2), NullCount: make(map[string]int64, 2)}
+	input2.MinValues["created_timestamp"] = 1615338375007003
+	input2.MaxValues["created_timestamp"] = 1615338375007300
+	input2.NullCount["created_timestamp"] = 0
+	input2.NullCount["sometimes_null"] = 3
+
+	expectedStats2 := GenericStats[TestStats2]{TightBounds: false, NumRecords: 3, MinValues: TestStats2{CreatedTimestamp: 1615338375007003, SometimesNull: nil}, MaxValues: TestStats2{CreatedTimestamp: 1615338375007300, SometimesNull: nil}, NullCount: make(map[string]int64, 2)}
+	expectedStats2.NullCount["created_timestamp"] = 0
+	expectedStats2.NullCount["sometimes_null"] = 3
+
+	results2, err := statsAsGenericStats[TestStats2](&input2)
+	if err != nil {
+		t.Error(err)
+	} else {
+		if !reflect.DeepEqual(expectedStats2, *results2) {
+			t.Errorf("StatsAsGenericStats results did not match expected.  Got %v expected %v", *results2, expectedStats2)
+		}
+	}
+}
+
+func TestPartitionValuesAsGenericPartitions(t *testing.T) {
+	type TestPartitionType1 struct {
+		Date DeltaDataTypeDate `json:"date"`
+	}
+
+	input1 := make(map[string]string)
+	input1["date"] = "2012-07-26"
+
+	expectedPartitions1 := TestPartitionType1{Date: DeltaDataTypeDate(time.Date(2012, time.July, 26, 0, 0, 0, 0, time.UTC).Unix() / NUM_SECONDS_IN_DAY)}
+
+	results1, err := partitionValuesAsGeneric[TestPartitionType1](input1)
+	if err != nil {
+		t.Error(err)
+	} else {
+		if !reflect.DeepEqual(expectedPartitions1, *results1) {
+			t.Errorf("StatsAsGenericStats results did not match expected.  Got %v expected %v", *results1, expectedPartitions1)
+		}
+	}
+
+	// TODO non-string type partitions
+}
+
+func TestMetadataGetSchema(t *testing.T) {
+	// Simple
+	schemaString := "{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}},{\"name\":\"date\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"
+	md := new(MetaData)
+	md.SchemaString = schemaString
+	schema, err := md.GetSchema()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(schema.Fields) != 3 {
+		t.Errorf("Expected 3 fields in schema, found %d", len(schema.Fields))
+	}
+
+	// TODO nested struct
+	// schemaString = `{"type":"struct","fields":[{"name":"some_struct","type":{"type":"struct","fields":[{"name":"some_struct_member","type":"string","nullable":true,"metadata":{}},{"name":"some_struct_timestamp","type":"timestamp","nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}`
+	// md.SchemaString = schemaString
+	// schema, err = md.GetSchema()
+	// if err != nil {
+	// 	t.Error(err)
+	// }
+
+	// TODO array
+	// schemaString = `{"type":"struct","fields":[{"name":"type","type":"string","nullable":true,"metadata":{}},{"name":"names","type":{"type":"array","elementType":"string","containsNull":true},"nullable":true,"metadata":{}}]}`
+	// md.SchemaString = schemaString
+	// schema, err = md.GetSchema()
+	// if err != nil {
+	// 	t.Error(err)
+	// }
+
+	// TODO map
+	// schemaString = `{"type":"struct","fields":[{"name":"key","type":"string","nullable":true,"metadata":{}},{"name":"metric","type":{"type":"map","keyType":"string","valueType":"float","valueContainsNull":true},"nullable":true,"metadata":{}}]}`
+	// md.SchemaString = schemaString
+	// schema, err = md.GetSchema()
+	// if err != nil {
+	// 	t.Error(err)
+	// }
 }
