@@ -30,8 +30,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
+	"github.com/rivian/delta-go/lock/nillock"
 	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/state/filestate"
+	"github.com/rivian/delta-go/state/localstate"
 	"github.com/segmentio/parquet-go"
 
 	"github.com/rivian/delta-go/storage"
@@ -307,6 +309,39 @@ func TestCommitUnlockFailure(t *testing.T) {
 	_, err := transaction.Commit(operation, appMetaData)
 	if !errors.Is(err, lock.ErrorUnableToUnlock) {
 		t.Error(err)
+	}
+}
+
+// / Test using local state and empty lock; this scenario is for local scripts and testing
+func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpPath := storage.NewPath(tmpDir)
+	store := filestore.New(tmpPath)
+	storeState := localstate.New(-1)
+	lock := nillock.New()
+	table := NewDeltaTable[testData, emptyTestStruct](store, lock, storeState)
+
+	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add[testData, emptyTestStruct]{})
+	transaction, operation, appMetaData := setupTransaction(t, table, nil)
+	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	if err != nil {
+		t.Error(err)
+	}
+	err = transaction.TryCommit(&commit)
+	if err != nil {
+		t.Error(err)
+	}
+	if transaction.DeltaTable.State.Version != 1 {
+		t.Errorf("want version %d, has version = %d", 1, transaction.DeltaTable.State.Version)
+	}
+
+	commit, _ = transaction.PrepareCommit(operation, appMetaData)
+	err = transaction.TryCommit(&commit)
+	if err != nil {
+		t.Error(err)
+	}
+	if transaction.DeltaTable.State.Version != 2 {
+		t.Errorf("want version %d, has version = %d", 2, transaction.DeltaTable.State.Version)
 	}
 }
 
