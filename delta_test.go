@@ -130,7 +130,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
-	protocol := Protocol{MinReaderVersion: 2, MinWriterVersion: 6}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
 	add := Add[testData, emptyTestStruct]{
 		Path:             "part-123.snappy.parquet",
@@ -360,7 +360,7 @@ func TestDeltaTableCreate(t *testing.T) {
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
-	protocol := Protocol{MinReaderVersion: 2, MinWriterVersion: 7}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
 	add := Add[testData, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,

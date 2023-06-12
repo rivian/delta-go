@@ -408,7 +408,7 @@ func TestExpiredTombstones(t *testing.T) {
 }
 
 // TODO this fails in the parquet library
-func _TestCheckpointNoPartition(t *testing.T) {
+func TestCheckpointNoPartition(t *testing.T) {
 	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "", false)
 	checkpointConfiguration := NewCheckpointConfiguration()
 
@@ -454,6 +454,22 @@ func _TestCheckpointNoPartition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(table.State.Files) != 2 {
+		t.Errorf("State contains %d files, expected 2", len(table.State.Files))
+	}
+	_, ok := table.State.Files[add1.Path]
+	if !ok {
+		t.Errorf("Missing file %s", add1.Path)
+	}
+	_, ok = table.State.Files[add2.Path]
+	if !ok {
+		t.Errorf("Missing file %s", add2.Path)
+	}
+
+	add1.DataChange = false
+	if !reflect.DeepEqual(table.State.Files[add1.Path], *add1) {
+		t.Errorf("Expected %v found %v", *add1, table.State.Files[add1.Path])
+	}
 }
 
 func TestMultiPartCheckpoint(t *testing.T) {
@@ -465,7 +481,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 
 	metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: "tester", Options: map[string]string{"hello": "world"}},
 		GetSchema(new(simpleCheckpointTestData)), make([]string, 0), map[string]string{"delta.isTest": "true"})
-	protocol := Protocol{MinReaderVersion: 4, MinWriterVersion: 3}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
 	table.Create(*metadata, protocol, CommitInfo{}, make([]Add[simpleCheckpointTestData, simpleCheckpointTestPartition], 0))
 	paths := make([]string, 0, 10)
 	// Commit ten Add actions

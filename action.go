@@ -36,6 +36,33 @@ type Action interface {
 
 type CommitInfo map[string]interface{}
 
+type AddWithoutPartition[RowType any] struct {
+	// A relative path, from the root of the table, to a file that should be added to the table
+	Path string `json:"path" parquet:"path,optional"`
+	// A map from partition column to value for this file
+	PartitionValues map[string]string `json:"partitionValues" parquet:"partitionValues,optional"`
+	// The size of this file in bytes
+	Size DeltaDataTypeLong `json:"size" parquet:"size,optional"`
+	// The time this file was created, as milliseconds since the epoch
+	ModificationTime DeltaDataTypeTimestamp `json:"modificationTime" parquet:"modificationTime,optional"`
+	// When false the file must already be present in the table or the records in the added file
+	// must be contained in one or more remove actions in the same version
+	//
+	// streaming queries that are tailing the transaction log can use this flag to skip actions
+	// that would not affect the final results.
+	DataChange bool `json:"dataChange" parquet:"dataChange,optional"`
+	// Map containing metadata about this file
+	Tags map[string]string `json:"tags,omitempty" parquet:"tags,optional"`
+	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
+	Stats string `json:"stats" parquet:"stats,optional"`
+	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
+	// raw parquet format. This field needs to be written when statistics are available and the
+	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
+	//
+	// This field is only available in add action records read from / written to checkpoints
+	StatsParsed GenericStats[RowType] `json:"-" parquet:"stats_parsed,optional"`
+}
+
 // Typed version of Add, used for checkpoints
 type Add[RowType any, PartitionType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
@@ -70,6 +97,16 @@ type Add[RowType any, PartitionType any] struct {
 	//
 	// This field is only available in add action records read from / written to checkpoints
 	StatsParsed GenericStats[RowType] `json:"-" parquet:"stats_parsed,optional"`
+}
+
+func (add *Add[RowType, PartitionType]) fromAddWithoutPartition(addWithoutPartition *AddWithoutPartition[RowType]) {
+	add.DataChange = addWithoutPartition.DataChange
+	add.ModificationTime = addWithoutPartition.ModificationTime
+	add.PartitionValues = addWithoutPartition.PartitionValues
+	add.Path = addWithoutPartition.Path
+	add.Size = addWithoutPartition.Size
+	add.Stats = addWithoutPartition.Stats
+	add.Tags = addWithoutPartition.Tags
 }
 
 // / Represents a tombstone (deleted file) in the Delta log.

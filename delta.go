@@ -32,6 +32,9 @@ import (
 
 const DELTA_CLIENT_VERSION = "alpha-0.0.0"
 
+const MAX_READER_VERSION_SUPPORTED = 1
+const MAX_WRITER_VERSION_SUPPORTED = 3
+
 var (
 	ErrorDeltaTable                  error = errors.New("failed to apply transaction log")
 	ErrorRetrieveLockBytes           error = errors.New("failed to retrieve bytes from lock")
@@ -41,6 +44,8 @@ var (
 	ErrorInvalidVersion              error = errors.New("invalid version")
 	ErrorLockFailed                  error = errors.New("lock failed unexpectedly without an error")
 	ErrorNotImplemented              error = errors.New("not implemented")
+	ErrorUnsupportedReaderVersion    error = errors.New("reader version is unsupported")
+	ErrorUnsupportedWriterVersion    error = errors.New("writer version is unsupported")
 )
 
 var (
@@ -129,6 +134,8 @@ func CommitOrCheckpointVersionFromUri(path *storage.Path) (bool, state.DeltaData
 }
 
 // / Create a DeltaTable with version 0 given the provided MetaData, Protocol, and CommitInfo
+// / Note that if the protocol MinReaderVersion or MinWriterVersion is too high, the table will be created
+// / and then an error will be returned
 func (table *DeltaTable[RowType, PartitionType]) Create(metadata DeltaTableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add[RowType, PartitionType]) error {
 	meta := metadata.ToMetaData()
 
@@ -170,6 +177,15 @@ func (table *DeltaTable[RowType, PartitionType]) Create(metadata DeltaTableMetaD
 		return err
 	}
 	table.State.merge(newState)
+
+	// If either version is too high, we return an error, but we still create the table first
+	if protocol.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
+		return ErrorUnsupportedReaderVersion
+	}
+	if protocol.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
+		return ErrorUnsupportedWriterVersion
+	}
+
 	return nil
 }
 
@@ -827,6 +843,7 @@ func NewDeltaTransactionOptions() *DeltaTransactionOptions {
 }
 
 // / Open the table at this specific version
+// / If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
 func OpenTableWithVersion[RowType any, PartitionType any](store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version state.DeltaDataTypeVersion) (*DeltaTable[RowType, PartitionType], error) {
 	table := NewDeltaTable[RowType, PartitionType](store, lock, stateStore)
 	err := table.LoadVersion(&version)
@@ -834,10 +851,19 @@ func OpenTableWithVersion[RowType any, PartitionType any](store storage.ObjectSt
 		return nil, err
 	}
 
-	return table, nil
+	if table.State.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
+		err = ErrorUnsupportedReaderVersion
+	}
+
+	if table.State.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
+		err = errors.Join(err, ErrorUnsupportedWriterVersion)
+	}
+
+	return table, err
 }
 
 // / Open the latest version of the table
+// / If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
 func OpenTable[RowType any, PartitionType any](store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore) (*DeltaTable[RowType, PartitionType], error) {
 	table := NewDeltaTable[RowType, PartitionType](store, lock, stateStore)
 	err := table.LoadVersion(nil)
@@ -845,5 +871,13 @@ func OpenTable[RowType any, PartitionType any](store storage.ObjectStore, lock l
 		return nil, err
 	}
 
-	return table, nil
+	if table.State.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
+		err = ErrorUnsupportedReaderVersion
+	}
+
+	if table.State.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
+		err = errors.Join(err, ErrorUnsupportedWriterVersion)
+	}
+
+	return table, err
 }

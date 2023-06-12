@@ -35,13 +35,13 @@ type CheckPoint struct {
 }
 
 // / A single checkpoint entry in the checkpoint Parquet file
-type CheckpointEntry[RowType any, PartitionType any] struct {
-	Txn      *Txn                         `parquet:"txn"`
-	Add      *Add[RowType, PartitionType] `parquet:"add"`
-	Remove   *Remove                      `parquet:"remove"`
-	MetaData *MetaData                    `parquet:"metaData"`
-	Protocol *Protocol                    `parquet:"protocol"`
-	Cdc      *Cdc                         `parquet:"-"`
+type CheckpointEntry[RowType any, PartitionType any, AddType Add[RowType, PartitionType] | AddWithoutPartition[RowType]] struct {
+	Txn      *Txn      `parquet:"txn"`
+	Add      *AddType  `parquet:"add"`
+	Remove   *Remove   `parquet:"remove"`
+	MetaData *MetaData `parquet:"metaData"`
+	Protocol *Protocol `parquet:"protocol"`
+	Cdc      *Cdc      `parquet:"-"`
 }
 
 // / Additional configuration for checkpointing
@@ -170,10 +170,20 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version DeltaDataType
 	return false, nil
 }
 
+func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
+	// Determine whether partitioned
+	isPartitioned := !isPartitionTypeEmpty[PartitionType]()
+	if isPartitioned {
+		return createCheckpointWithAddType[RowType, PartitionType, Add[RowType, PartitionType]](tableState, store, checkpointConfiguration)
+	} else {
+		return createCheckpointWithAddType[RowType, PartitionType, AddWithoutPartition[RowType]](tableState, store, checkpointConfiguration)
+	}
+}
+
 // / Create a checkpoint for the given state in the given store
 // / Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
 // / Applies tombstone expiration first
-func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
+func createCheckpointWithAddType[RowType any, PartitionType any, AddType Add[RowType, PartitionType] | AddWithoutPartition[RowType]](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
 	checkpointExists, err := doesCheckpointVersionExist(store, DeltaDataTypeVersion(tableState.Version), false)
 	if err != nil {
 		return err
@@ -207,7 +217,7 @@ func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableS
 
 	offsetRow := 0
 	for part := 0; part < numParts; part++ {
-		records, err := tableState.checkpointRows(offsetRow, checkpointConfiguration.MaxRowsPerPart)
+		records, err := checkpointRows[RowType, PartitionType, AddType](tableState, offsetRow, checkpointConfiguration.MaxRowsPerPart)
 		if err != nil {
 			return err
 		}
@@ -250,11 +260,7 @@ func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableS
 }
 
 // / Generate an Add action for a checkpoint (with additional fields) from a basic Add action
-func checkpointAdd[RowType any, PartitionType any](add *Add[RowType, PartitionType]) (*Add[RowType, PartitionType], error) {
-	checkpointAdd := new(Add[RowType, PartitionType])
-	*checkpointAdd = *add
-	checkpointAdd.DataChange = false
-
+func checkpointAdd[RowType any, PartitionType any, AddType Add[RowType, PartitionType] | AddWithoutPartition[RowType]](add *Add[RowType, PartitionType]) (*AddType, error) {
 	stats, err := StatsFromJson([]byte(add.Stats))
 	if err != nil {
 		return nil, err
@@ -263,14 +269,28 @@ func checkpointAdd[RowType any, PartitionType any](add *Add[RowType, PartitionTy
 	if err != nil {
 		return nil, err
 	}
-	checkpointAdd.StatsParsed = *parsedStats
 
-	partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
-	if err != nil {
-		return nil, err
+	checkpointAdd := new(AddType)
+	switch typedAdd := any(checkpointAdd).(type) {
+	case *Add[RowType, PartitionType]:
+		*typedAdd = *add
+		typedAdd.DataChange = false
+		typedAdd.StatsParsed = *parsedStats
+		partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
+		if err != nil {
+			return checkpointAdd, err
+		}
+		typedAdd.PartitionValuesParsed = *partitionValuesParsed
+	case *AddWithoutPartition[RowType]:
+		typedAdd.DataChange = false
+		typedAdd.ModificationTime = add.ModificationTime
+		typedAdd.PartitionValues = add.PartitionValues
+		typedAdd.Path = add.Path
+		typedAdd.Size = add.Size
+		typedAdd.Stats = add.Stats
+		typedAdd.Tags = add.Tags
+		typedAdd.StatsParsed = *parsedStats
 	}
-	checkpointAdd.PartitionValuesParsed = *partitionValuesParsed
-
 	return checkpointAdd, nil
 }
 
