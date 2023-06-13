@@ -36,10 +36,15 @@ type Action interface {
 
 type CommitInfo map[string]interface{}
 
-type AddWithoutPartition[RowType any] struct {
+// An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
+// the correct schema without using reflection.
+// The Add variant is for a non-partitioned table; the PartitionValuesParsed field will be omitted.
+// When writing a partitioned table checkpoint, the AddPartitioned variant below is used instead.
+type Add[RowType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
 	Path string `json:"path" parquet:"path,optional"`
 	// A map from partition column to value for this file
+	// This field is required even without a partition.
 	PartitionValues map[string]string `json:"partitionValues" parquet:"partitionValues,optional"`
 	// The size of this file in bytes
 	Size DeltaDataTypeLong `json:"size" parquet:"size,optional"`
@@ -63,8 +68,10 @@ type AddWithoutPartition[RowType any] struct {
 	StatsParsed GenericStats[RowType] `json:"-" parquet:"stats_parsed,optional"`
 }
 
-// Typed version of Add, used for checkpoints
-type Add[RowType any, PartitionType any] struct {
+// An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
+// the correct schema without using reflection.
+// The AddPartitioned variant is for a partitioned table; the PartitionValuesParsed field will consist of the partition struct.
+type AddPartitioned[RowType any, PartitionType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
 	Path string `json:"path" parquet:"path,optional"`
 	// A map from partition column to value for this file
@@ -99,14 +106,15 @@ type Add[RowType any, PartitionType any] struct {
 	StatsParsed GenericStats[RowType] `json:"-" parquet:"stats_parsed,optional"`
 }
 
-func (add *Add[RowType, PartitionType]) fromAddWithoutPartition(addWithoutPartition *AddWithoutPartition[RowType]) {
-	add.DataChange = addWithoutPartition.DataChange
-	add.ModificationTime = addWithoutPartition.ModificationTime
-	add.PartitionValues = addWithoutPartition.PartitionValues
-	add.Path = addWithoutPartition.Path
-	add.Size = addWithoutPartition.Size
-	add.Stats = addWithoutPartition.Stats
-	add.Tags = addWithoutPartition.Tags
+// / Convenience function to copy data from an Add to an AddPartitioned
+func (addPartitioned *AddPartitioned[RowType, PartitionType]) fromAdd(add *Add[RowType]) {
+	addPartitioned.DataChange = add.DataChange
+	addPartitioned.ModificationTime = add.ModificationTime
+	addPartitioned.PartitionValues = add.PartitionValues
+	addPartitioned.Path = add.Path
+	addPartitioned.Size = add.Size
+	addPartitioned.Stats = add.Stats
+	addPartitioned.Tags = add.Tags
 }
 
 // / Represents a tombstone (deleted file) in the Delta log.
@@ -255,7 +263,7 @@ func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, 
 		key := strcase.ToLowerCamel(reflect.ValueOf(action).Elem().Type().Name())
 		m[key] = action
 		log, err = json.Marshal(m)
-	case Add[RowType, PartitionType], *Add[RowType, PartitionType]:
+	case AddPartitioned[RowType, PartitionType], *AddPartitioned[RowType, PartitionType]:
 		key := string(AddActionKey)
 		m[key] = action
 		log, err = json.Marshal(m)
@@ -307,7 +315,7 @@ func actionFromLogEntry[RowType any, PartitionType any](unstructuredResult map[s
 	var actionFound bool
 
 	if marshalledAction, actionFound = unstructuredResult[string(AddActionKey)]; actionFound {
-		action = new(Add[RowType, PartitionType])
+		action = new(AddPartitioned[RowType, PartitionType])
 	} else if marshalledAction, actionFound = unstructuredResult[string(RemoveActionKey)]; actionFound {
 		action = new(Remove)
 	} else if marshalledAction, actionFound = unstructuredResult[string(CommitInfoActionKey)]; actionFound {

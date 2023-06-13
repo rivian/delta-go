@@ -136,7 +136,7 @@ func CommitOrCheckpointVersionFromUri(path *storage.Path) (bool, state.DeltaData
 // / Create a DeltaTable with version 0 given the provided MetaData, Protocol, and CommitInfo
 // / Note that if the protocol MinReaderVersion or MinWriterVersion is too high, the table will be created
 // / and then an error will be returned
-func (table *DeltaTable[RowType, PartitionType]) Create(metadata DeltaTableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add[RowType, PartitionType]) error {
+func (table *DeltaTable[RowType, PartitionType]) Create(metadata DeltaTableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []AddPartitioned[RowType, PartitionType]) error {
 	meta := metadata.ToMetaData()
 
 	// delta-rs commit info will include the delta-rs version and timestamp as of now
@@ -852,11 +852,11 @@ func OpenTableWithVersion[RowType any, PartitionType any](store storage.ObjectSt
 	}
 
 	if table.State.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
-		err = ErrorUnsupportedReaderVersion
+		err = errors.Join(ErrorUnsupportedReaderVersion, fmt.Errorf("table minimum reader version %d, max supported reader version %d", table.State.MinReaderVersion, MAX_READER_VERSION_SUPPORTED))
 	}
 
 	if table.State.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
-		err = errors.Join(err, ErrorUnsupportedWriterVersion)
+		err = errors.Join(err, ErrorUnsupportedWriterVersion, fmt.Errorf("table minimum writer version %d, max supported writer version %d", table.State.MinWriterVersion, MAX_WRITER_VERSION_SUPPORTED))
 	}
 
 	return table, err
