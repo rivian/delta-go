@@ -343,7 +343,7 @@ func (table *DeltaTable[RowType, PartitionType]) findLatestCheckpointsForVersion
 			}
 			// For multi-part checkpoint, verify that all parts are present before using it
 			isCompleteCheckpoint := true
-			if checkpoint.Parts > 0 {
+			if checkpoint.Parts != nil {
 				isCompleteCheckpoint, err = doesCheckpointVersionExist(table.Store, DeltaDataTypeVersion(checkpoint.Version), true)
 				if err != nil {
 					return nil, false, err
@@ -385,10 +385,10 @@ func (table *DeltaTable[RowType, PartitionType]) findLatestCheckpointsForVersion
 func (table *DeltaTable[RowType, PartitionType]) GetCheckpointDataPaths(checkpoint *CheckPoint) []storage.Path {
 	paths := make([]storage.Path, 0, 10)
 	prefix := fmt.Sprintf("%020d", checkpoint.Version)
-	if checkpoint.Parts == 0 {
+	if checkpoint.Parts == nil {
 		paths = append(paths, storage.PathFromIter([]string{"_delta_log", prefix + ".checkpoint.parquet"}))
 	} else {
-		for i := DeltaDataTypeInt(0); i < checkpoint.Parts; i++ {
+		for i := DeltaDataTypeInt(0); i < *checkpoint.Parts; i++ {
 			part := fmt.Sprintf("%s.checkpoint.%010d.%010d.parquet", prefix, i+1, checkpoint.Parts)
 			paths = append(paths, storage.PathFromIter([]string{"_delta_log", part}))
 		}

@@ -27,11 +27,14 @@ import (
 // / This gets written out to _last_checkpoint
 type CheckPoint struct {
 	/// Delta table version
-	Version state.DeltaDataTypeVersion
-	// 20 digits decimals
-	Size DeltaDataTypeLong
-	// 10 digits decimals
-	Parts DeltaDataTypeInt
+	Version state.DeltaDataTypeVersion `json:"version"`
+	// The number of actions in the checkpoint. -1 if not available.
+	Size DeltaDataTypeLong `json:"size"`
+	// The number of parts if the checkpoint has multiple parts.  Omit if single part.
+	Parts *DeltaDataTypeInt `json:"parts,omitempty"`
+	// Size of the checkpoint in bytes
+	SizeInBytes   DeltaDataTypeLong `json:"sizeInBytes"`
+	NumOfAddFiles DeltaDataTypeLong `json:"numOfAddFiles"`
 }
 
 // / A single checkpoint entry in the checkpoint Parquet file
@@ -94,7 +97,6 @@ func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part Del
 		checkpoint = new(CheckPoint)
 		checkpoint.Version = state.DeltaDataTypeVersion(checkpointVersionInt)
 		checkpoint.Size = 0
-		checkpoint.Parts = 0
 		part = 0
 		return
 	}
@@ -120,7 +122,8 @@ func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part Del
 		checkpoint = new(CheckPoint)
 		checkpoint.Version = state.DeltaDataTypeVersion(checkpointVersionInt)
 		checkpoint.Size = 0
-		checkpoint.Parts = DeltaDataTypeInt(partsInt)
+		partsDeltaInt := DeltaDataTypeInt(partsInt)
+		checkpoint.Parts = &partsDeltaInt
 		part = DeltaDataTypeInt(partInt)
 	}
 	return
@@ -146,14 +149,14 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version DeltaDataType
 			return false, err
 		}
 		if checkpoint != nil {
-			if checkpoint.Parts == 0 || !validateAllPartsExist {
+			if checkpoint.Parts == nil || !validateAllPartsExist {
 				// If it's single-part or we're not validating multi-part, then we're done
 				return true, nil
 			}
-			if totalParts > 0 && checkpoint.Parts != totalParts {
+			if totalParts > 0 && *checkpoint.Parts != totalParts {
 				return false, errors.Join(ErrorCheckpointInvalidFileName, fmt.Errorf("different number of total parts found between checkpoint files for version %d", version))
 			}
-			totalParts = checkpoint.Parts
+			totalParts = *checkpoint.Parts
 			partsFound[currentPart] = true
 		}
 	}
@@ -207,14 +210,7 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 	// We are however sorting all entries, so the results should still be deterministic, except for the possibility
 	// of tombstones expiring between different calls to the function.
 
-	var parquetBytes []byte
-
-	reportedParts := numParts
-	if reportedParts == 1 {
-		// Single part checkpoints are written as having 0 parts
-		reportedParts = 0
-	}
-
+	var totalBytes int64 = 0
 	offsetRow := 0
 	for part := 0; part < numParts; part++ {
 		records, err := checkpointRows[RowType, PartitionType, AddType](tableState, offsetRow, checkpointConfiguration.MaxRowsPerPart)
@@ -242,12 +238,26 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 		if err != nil {
 			return err
 		}
+		totalBytes += int64(len(parquetBytes))
 	}
 	if offsetRow != totalRows {
 		return ErrorCheckpointRowCountMismatch
 	}
 
-	checkpoint := CheckPoint{Version: tableState.Version, Size: DeltaDataTypeLong(len(parquetBytes)), Parts: DeltaDataTypeInt(reportedParts)}
+	var reportedParts *DeltaDataTypeInt
+	if numParts > 1 {
+		// Only multipart checkpoints list the parts
+		partsDeltaInt := DeltaDataTypeInt(numParts)
+		reportedParts = &partsDeltaInt
+	}
+
+	checkpoint := CheckPoint{
+		Version:       tableState.Version,
+		Size:          DeltaDataTypeLong(totalRows),
+		SizeInBytes:   DeltaDataTypeLong(totalBytes),
+		Parts:         reportedParts,
+		NumOfAddFiles: DeltaDataTypeLong(len(tableState.Files)),
+	}
 	checkpointBytes, err := json.Marshal(checkpoint)
 	if err != nil {
 		return err

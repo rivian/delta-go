@@ -152,7 +152,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 	}
 
 	// Checkpoint file exists
-	_, err = store.Head(storage.NewPath("_delta_log/00000000000000000010.checkpoint.parquet"))
+	checkpointMeta, err := store.Head(storage.NewPath("_delta_log/00000000000000000010.checkpoint.parquet"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +172,16 @@ func TestSimpleCheckpoint(t *testing.T) {
 		lastCheckpoint := checkpoints[len(checkpoints)-1]
 		if lastCheckpoint.Version != 10 {
 			t.Errorf("last checkpoint version is %d, should be 10", lastCheckpoint.Version)
+		}
+		if lastCheckpoint.NumOfAddFiles != 10 {
+			t.Errorf("last checkpoint number of add files is %d, should be 10", lastCheckpoint.NumOfAddFiles)
+		}
+		if lastCheckpoint.Size != 12 {
+			t.Errorf("last checkpoint number of actions is %d, should be 12", lastCheckpoint.Size)
+		}
+
+		if lastCheckpoint.SizeInBytes != DeltaDataTypeLong(checkpointMeta.Size) {
+			t.Errorf("last checkpoint size in bytes is %d, should be %d", lastCheckpoint.SizeInBytes, checkpointMeta.Size)
 		}
 	}
 	// Reload table
@@ -560,8 +570,10 @@ func TestMultiPartCheckpoint(t *testing.T) {
 		if lastCheckpoint.Version != 12 {
 			t.Errorf("last checkpoint version is %d, expected 12", lastCheckpoint.Version)
 		}
-		if lastCheckpoint.Parts != 3 {
-			t.Errorf("last checkpoint parts count is %d, expected 3", lastCheckpoint.Parts)
+		if lastCheckpoint.Parts == nil {
+			t.Error("last checkpoint parts count is nil, expected 3")
+		} else if *lastCheckpoint.Parts != 3 {
+			t.Errorf("last checkpoint parts count is %d, expected 3", *lastCheckpoint.Parts)
 		}
 	}
 
@@ -660,12 +672,14 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 		wantPart       DeltaDataTypeInt
 	}
 
+	part63 := DeltaDataTypeInt(63)
+
 	tests := []test{
 		{input: "_delta_log/00000000000000000000.json", wantCheckpoint: nil},
 		{input: "_delta_log/01234567890123456789.json", wantCheckpoint: nil},
 		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantCheckpoint: nil},
-		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantCheckpoint: &CheckPoint{Version: 1, Size: 0, Parts: 0}, wantPart: 0},
-		{input: "_delta_log/00000000000000123456.checkpoint.0000000002.0000000063.parquet", wantCheckpoint: &CheckPoint{Version: 123456, Size: 0, Parts: 63}, wantPart: 2},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantCheckpoint: &CheckPoint{Version: 1, Size: 0, Parts: nil}, wantPart: 0},
+		{input: "_delta_log/00000000000000123456.checkpoint.0000000002.0000000063.parquet", wantCheckpoint: &CheckPoint{Version: 123456, Size: 0, Parts: &part63}, wantPart: 2},
 	}
 
 	for _, tc := range tests {
@@ -684,7 +698,7 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 			continue
 		}
 
-		if *gotCheckpoint != *tc.wantCheckpoint {
+		if !reflect.DeepEqual(*gotCheckpoint, *tc.wantCheckpoint) {
 			t.Errorf("expected %v, got %v", *tc.wantCheckpoint, *gotCheckpoint)
 		}
 		if gotPart != tc.wantPart {
