@@ -52,12 +52,18 @@ type CheckpointConfiguration struct {
 	// Maximum numbers of rows to include in each multi-part checkpoint part
 	// Current default 50k
 	MaxRowsPerPart int
+	// Allow checkpointing even if the table reader version or writer version is greater than supported
+	// by this client. Defaults to false.
+	// **WARNING** If you set this to true and the table being checkpointed uses features that are not supported by this
+	// client, the resulting checkpoint might fail unpredictably and silently; this could cause data loss or corruption
+	UnsafeIgnoreUnsupportedReaderWriterVersionErrors bool
 }
 
 func NewCheckpointConfiguration() *CheckpointConfiguration {
 	checkpointConfiguration := new(CheckpointConfiguration)
 	// TODO try to find what Spark uses
 	checkpointConfiguration.MaxRowsPerPart = 50000
+	checkpointConfiguration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors = false
 	return checkpointConfiguration
 }
 
