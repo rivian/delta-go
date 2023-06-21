@@ -1127,3 +1127,55 @@ func TestCheckpointUnlockFailure(t *testing.T) {
 		t.Fatal("did not create checkpoint")
 	}
 }
+
+func TestCheckpointInvalidVersion(t *testing.T) {
+	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "", false)
+
+	table := NewDeltaTable[tombstonesTestData, emptyTestStruct](store, lock, stateStore)
+
+	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
+	protocol := Protocol{MinReaderVersion: 3, MinWriterVersion: 7}
+	err := table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, emptyTestStruct], 0))
+	if !errors.Is(err, ErrorUnsupportedReaderVersion) || !errors.Is(err, ErrorUnsupportedWriterVersion) {
+		t.Error("should return unsupported reader/writer version errors")
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	add1 := getTestAdd[tombstonesTestData, emptyTestStruct](3 * 60 * 1000) // 3 mins ago
+	add2 := getTestAdd[tombstonesTestData, emptyTestStruct](2 * 60 * 1000) // 2 mins ago
+	v, err := testDoCommit(t, table, []Action{add1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 1 {
+		t.Errorf("Version is %d, expected 1", v)
+	}
+	v, err = testDoCommit(t, table, []Action{add2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 2 {
+		t.Errorf("Version is %d, expected 2", v)
+	}
+
+	// Create a checkpoint with default configuration - should fail
+	configuration := NewCheckpointConfiguration()
+	checkpointed, err := CreateCheckpoint[tombstonesTestData, emptyTestStruct](store, checkpointLock, configuration, 2)
+	if !errors.Is(err, ErrorUnsupportedReaderVersion) || !errors.Is(err, ErrorUnsupportedWriterVersion) {
+		t.Error("should return unsupported reader/writer version errors")
+	}
+	if checkpointed {
+		t.Error("should not create checkpoint with default configuration")
+	}
+
+	// Create a checkpoint with unsafe ignore option set in configuration - should succeed
+	configuration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors = true
+	checkpointed, err = CreateCheckpoint[tombstonesTestData, emptyTestStruct](store, checkpointLock, configuration, 2)
+	if err != nil {
+		t.Error("should not return an error")
+	}
+	if !checkpointed {
+		t.Error("should create checkpoint with modified configuration")
+	}
+}

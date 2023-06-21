@@ -180,13 +180,13 @@ func (table *DeltaTable[RowType, PartitionType]) Create(metadata DeltaTableMetaD
 
 	// If either version is too high, we return an error, but we still create the table first
 	if protocol.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
-		return ErrorUnsupportedReaderVersion
+		err = ErrorUnsupportedReaderVersion
 	}
 	if protocol.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
-		return ErrorUnsupportedWriterVersion
+		err = errors.Join(err, ErrorUnsupportedWriterVersion)
 	}
 
-	return nil
+	return err
 }
 
 // / Exists checks if a DeltaTable with version 0 exists in the object store.
@@ -468,7 +468,11 @@ func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore,
 	// The table doesn't need a commit lock or state store as we are not going to perform any commits
 	table, err := OpenTableWithVersion[RowType, PartitionType](store, nil, nil, version)
 	if err != nil {
-		return false, err
+		// If the UnsafeIgnoreUnsupportedReaderWriterVersionErrors option is true, we can ignore unsupported version errors
+		isUnsupportedVersionError := errors.Is(err, ErrorUnsupportedReaderVersion) || errors.Is(err, ErrorUnsupportedWriterVersion)
+		if !(isUnsupportedVersionError && checkpointConfiguration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors) {
+			return false, err
+		}
 	}
 	locked, err := checkpointLock.TryLock()
 	if err != nil {
