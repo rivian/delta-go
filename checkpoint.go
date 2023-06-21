@@ -27,21 +27,24 @@ import (
 // / This gets written out to _last_checkpoint
 type CheckPoint struct {
 	/// Delta table version
-	Version state.DeltaDataTypeVersion
-	// 20 digits decimals
-	Size DeltaDataTypeLong
-	// 10 digits decimals
-	Parts DeltaDataTypeInt
+	Version state.DeltaDataTypeVersion `json:"version"`
+	// The number of actions in the checkpoint. -1 if not available.
+	Size DeltaDataTypeLong `json:"size"`
+	// The number of parts if the checkpoint has multiple parts.  Omit if single part.
+	Parts *DeltaDataTypeInt `json:"parts,omitempty"`
+	// Size of the checkpoint in bytes
+	SizeInBytes   DeltaDataTypeLong `json:"sizeInBytes"`
+	NumOfAddFiles DeltaDataTypeLong `json:"numOfAddFiles"`
 }
 
 // / A single checkpoint entry in the checkpoint Parquet file
-type CheckpointEntry[RowType any, PartitionType any] struct {
-	Txn      *Txn                         `parquet:"txn"`
-	Add      *Add[RowType, PartitionType] `parquet:"add"`
-	Remove   *Remove                      `parquet:"remove"`
-	MetaData *MetaData                    `parquet:"metaData"`
-	Protocol *Protocol                    `parquet:"protocol"`
-	Cdc      *Cdc                         `parquet:"-"`
+type CheckpointEntry[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]] struct {
+	Txn      *Txn      `parquet:"txn"`
+	Add      *AddType  `parquet:"add"`
+	Remove   *Remove   `parquet:"remove"`
+	MetaData *MetaData `parquet:"metaData"`
+	Protocol *Protocol `parquet:"protocol"`
+	Cdc      *Cdc      `parquet:"-"`
 }
 
 // / Additional configuration for checkpointing
@@ -94,7 +97,6 @@ func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part Del
 		checkpoint = new(CheckPoint)
 		checkpoint.Version = state.DeltaDataTypeVersion(checkpointVersionInt)
 		checkpoint.Size = 0
-		checkpoint.Parts = 0
 		part = 0
 		return
 	}
@@ -120,7 +122,8 @@ func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part Del
 		checkpoint = new(CheckPoint)
 		checkpoint.Version = state.DeltaDataTypeVersion(checkpointVersionInt)
 		checkpoint.Size = 0
-		checkpoint.Parts = DeltaDataTypeInt(partsInt)
+		partsDeltaInt := DeltaDataTypeInt(partsInt)
+		checkpoint.Parts = &partsDeltaInt
 		part = DeltaDataTypeInt(partInt)
 	}
 	return
@@ -146,14 +149,14 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version DeltaDataType
 			return false, err
 		}
 		if checkpoint != nil {
-			if checkpoint.Parts == 0 || !validateAllPartsExist {
+			if checkpoint.Parts == nil || !validateAllPartsExist {
 				// If it's single-part or we're not validating multi-part, then we're done
 				return true, nil
 			}
-			if totalParts > 0 && checkpoint.Parts != totalParts {
+			if totalParts > 0 && *checkpoint.Parts != totalParts {
 				return false, errors.Join(ErrorCheckpointInvalidFileName, fmt.Errorf("different number of total parts found between checkpoint files for version %d", version))
 			}
-			totalParts = checkpoint.Parts
+			totalParts = *checkpoint.Parts
 			partsFound[currentPart] = true
 		}
 	}
@@ -170,10 +173,20 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version DeltaDataType
 	return false, nil
 }
 
+func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
+	// Determine whether partitioned
+	isPartitioned := !isPartitionTypeEmpty[PartitionType]()
+	if isPartitioned {
+		return createCheckpointWithAddType[RowType, PartitionType, AddPartitioned[RowType, PartitionType]](tableState, store, checkpointConfiguration)
+	} else {
+		return createCheckpointWithAddType[RowType, PartitionType, Add[RowType]](tableState, store, checkpointConfiguration)
+	}
+}
+
 // / Create a checkpoint for the given state in the given store
 // / Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
 // / Applies tombstone expiration first
-func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
+func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
 	checkpointExists, err := doesCheckpointVersionExist(store, DeltaDataTypeVersion(tableState.Version), false)
 	if err != nil {
 		return err
@@ -197,17 +210,10 @@ func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableS
 	// We are however sorting all entries, so the results should still be deterministic, except for the possibility
 	// of tombstones expiring between different calls to the function.
 
-	var parquetBytes []byte
-
-	reportedParts := numParts
-	if reportedParts == 1 {
-		// Single part checkpoints are written as having 0 parts
-		reportedParts = 0
-	}
-
+	var totalBytes int64 = 0
 	offsetRow := 0
 	for part := 0; part < numParts; part++ {
-		records, err := tableState.checkpointRows(offsetRow, checkpointConfiguration.MaxRowsPerPart)
+		records, err := checkpointRows[RowType, PartitionType, AddType](tableState, offsetRow, checkpointConfiguration.MaxRowsPerPart)
 		if err != nil {
 			return err
 		}
@@ -232,12 +238,26 @@ func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableS
 		if err != nil {
 			return err
 		}
+		totalBytes += int64(len(parquetBytes))
 	}
 	if offsetRow != totalRows {
 		return ErrorCheckpointRowCountMismatch
 	}
 
-	checkpoint := CheckPoint{Version: tableState.Version, Size: DeltaDataTypeLong(len(parquetBytes)), Parts: DeltaDataTypeInt(reportedParts)}
+	var reportedParts *DeltaDataTypeInt
+	if numParts > 1 {
+		// Only multipart checkpoints list the parts
+		partsDeltaInt := DeltaDataTypeInt(numParts)
+		reportedParts = &partsDeltaInt
+	}
+
+	checkpoint := CheckPoint{
+		Version:       tableState.Version,
+		Size:          DeltaDataTypeLong(totalRows),
+		SizeInBytes:   DeltaDataTypeLong(totalBytes),
+		Parts:         reportedParts,
+		NumOfAddFiles: DeltaDataTypeLong(len(tableState.Files)),
+	}
 	checkpointBytes, err := json.Marshal(checkpoint)
 	if err != nil {
 		return err
@@ -250,11 +270,7 @@ func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableS
 }
 
 // / Generate an Add action for a checkpoint (with additional fields) from a basic Add action
-func checkpointAdd[RowType any, PartitionType any](add *Add[RowType, PartitionType]) (*Add[RowType, PartitionType], error) {
-	checkpointAdd := new(Add[RowType, PartitionType])
-	*checkpointAdd = *add
-	checkpointAdd.DataChange = false
-
+func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](add *AddPartitioned[RowType, PartitionType]) (*AddType, error) {
 	stats, err := StatsFromJson([]byte(add.Stats))
 	if err != nil {
 		return nil, err
@@ -263,14 +279,28 @@ func checkpointAdd[RowType any, PartitionType any](add *Add[RowType, PartitionTy
 	if err != nil {
 		return nil, err
 	}
-	checkpointAdd.StatsParsed = *parsedStats
 
-	partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
-	if err != nil {
-		return nil, err
+	checkpointAdd := new(AddType)
+	switch typedAdd := any(checkpointAdd).(type) {
+	case *AddPartitioned[RowType, PartitionType]:
+		*typedAdd = *add
+		typedAdd.DataChange = false
+		typedAdd.StatsParsed = *parsedStats
+		partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
+		if err != nil {
+			return checkpointAdd, err
+		}
+		typedAdd.PartitionValuesParsed = *partitionValuesParsed
+	case *Add[RowType]:
+		typedAdd.DataChange = false
+		typedAdd.ModificationTime = add.ModificationTime
+		typedAdd.PartitionValues = add.PartitionValues
+		typedAdd.Path = add.Path
+		typedAdd.Size = add.Size
+		typedAdd.Stats = add.Stats
+		typedAdd.Tags = add.Tags
+		typedAdd.StatsParsed = *parsedStats
 	}
-	checkpointAdd.PartitionValuesParsed = *partitionValuesParsed
-
 	return checkpointAdd, nil
 }
 

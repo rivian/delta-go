@@ -152,7 +152,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 	}
 
 	// Checkpoint file exists
-	_, err = store.Head(storage.NewPath("_delta_log/00000000000000000010.checkpoint.parquet"))
+	checkpointMeta, err := store.Head(storage.NewPath("_delta_log/00000000000000000010.checkpoint.parquet"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +172,16 @@ func TestSimpleCheckpoint(t *testing.T) {
 		lastCheckpoint := checkpoints[len(checkpoints)-1]
 		if lastCheckpoint.Version != 10 {
 			t.Errorf("last checkpoint version is %d, should be 10", lastCheckpoint.Version)
+		}
+		if lastCheckpoint.NumOfAddFiles != 10 {
+			t.Errorf("last checkpoint number of add files is %d, should be 10", lastCheckpoint.NumOfAddFiles)
+		}
+		if lastCheckpoint.Size != 12 {
+			t.Errorf("last checkpoint number of actions is %d, should be 12", lastCheckpoint.Size)
+		}
+
+		if lastCheckpoint.SizeInBytes != DeltaDataTypeLong(checkpointMeta.Size) {
+			t.Errorf("last checkpoint size in bytes is %d, should be %d", lastCheckpoint.SizeInBytes, checkpointMeta.Size)
 		}
 	}
 	// Reload table
@@ -194,8 +204,8 @@ type tombstonesTestData struct {
 	Id int32 `parquet:"id" json:"id"`
 }
 
-func getTestAdd[RowType any, PartitionType any](offsetMillis int64) *Add[RowType, PartitionType] {
-	add := new(Add[RowType, PartitionType])
+func getTestAdd[RowType any, PartitionType any](offsetMillis int64) *AddPartitioned[RowType, PartitionType] {
+	add := new(AddPartitioned[RowType, PartitionType])
 	add.Path = uuid.NewString()
 	add.Size = 100
 	add.DataChange = true
@@ -231,7 +241,7 @@ func TestTombstones(t *testing.T) {
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
 	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 2}
 
-	table.Create(*metadata, protocol, CommitInfo{}, make([]Add[tombstonesTestData, simpleCheckpointTestPartition], 0))
+	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, simpleCheckpointTestPartition], 0))
 	add1 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
 	v, err := testDoCommit(t, table, []Action{add1})
@@ -323,7 +333,7 @@ func TestExpiredTombstones(t *testing.T) {
 
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 2}
-	table.Create(*metadata, protocol, CommitInfo{}, make([]Add[tombstonesTestData, simpleCheckpointTestPartition], 0))
+	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, simpleCheckpointTestPartition], 0))
 	add1 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
 	v, err := testDoCommit(t, table, []Action{add1})
@@ -408,7 +418,7 @@ func TestExpiredTombstones(t *testing.T) {
 }
 
 // TODO this fails in the parquet library
-func _TestCheckpointNoPartition(t *testing.T) {
+func TestCheckpointNoPartition(t *testing.T) {
 	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "", false)
 	checkpointConfiguration := NewCheckpointConfiguration()
 
@@ -416,7 +426,7 @@ func _TestCheckpointNoPartition(t *testing.T) {
 
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 2}
-	table.Create(*metadata, protocol, CommitInfo{}, make([]Add[tombstonesTestData, emptyTestStruct], 0))
+	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, emptyTestStruct], 0))
 	add1 := getTestAdd[tombstonesTestData, emptyTestStruct](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, emptyTestStruct](2 * 60 * 1000) // 2 mins ago
 	v, err := testDoCommit(t, table, []Action{add1})
@@ -454,6 +464,22 @@ func _TestCheckpointNoPartition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(table.State.Files) != 2 {
+		t.Errorf("State contains %d files, expected 2", len(table.State.Files))
+	}
+	_, ok := table.State.Files[add1.Path]
+	if !ok {
+		t.Errorf("Missing file %s", add1.Path)
+	}
+	_, ok = table.State.Files[add2.Path]
+	if !ok {
+		t.Errorf("Missing file %s", add2.Path)
+	}
+
+	add1.DataChange = false
+	if !reflect.DeepEqual(table.State.Files[add1.Path], *add1) {
+		t.Errorf("Expected %v found %v", *add1, table.State.Files[add1.Path])
+	}
 }
 
 func TestMultiPartCheckpoint(t *testing.T) {
@@ -465,8 +491,8 @@ func TestMultiPartCheckpoint(t *testing.T) {
 
 	metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: "tester", Options: map[string]string{"hello": "world"}},
 		GetSchema(new(simpleCheckpointTestData)), make([]string, 0), map[string]string{"delta.isTest": "true"})
-	protocol := Protocol{MinReaderVersion: 4, MinWriterVersion: 3}
-	table.Create(*metadata, protocol, CommitInfo{}, make([]Add[simpleCheckpointTestData, simpleCheckpointTestPartition], 0))
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
+	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition], 0))
 	paths := make([]string, 0, 10)
 	// Commit ten Add actions
 	for i := 0; i < 10; i++ {
@@ -544,8 +570,10 @@ func TestMultiPartCheckpoint(t *testing.T) {
 		if lastCheckpoint.Version != 12 {
 			t.Errorf("last checkpoint version is %d, expected 12", lastCheckpoint.Version)
 		}
-		if lastCheckpoint.Parts != 3 {
-			t.Errorf("last checkpoint parts count is %d, expected 3", lastCheckpoint.Parts)
+		if lastCheckpoint.Parts == nil {
+			t.Error("last checkpoint parts count is nil, expected 3")
+		} else if *lastCheckpoint.Parts != 3 {
+			t.Errorf("last checkpoint parts count is %d, expected 3", *lastCheckpoint.Parts)
 		}
 	}
 
@@ -644,12 +672,14 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 		wantPart       DeltaDataTypeInt
 	}
 
+	part63 := DeltaDataTypeInt(63)
+
 	tests := []test{
 		{input: "_delta_log/00000000000000000000.json", wantCheckpoint: nil},
 		{input: "_delta_log/01234567890123456789.json", wantCheckpoint: nil},
 		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantCheckpoint: nil},
-		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantCheckpoint: &CheckPoint{Version: 1, Size: 0, Parts: 0}, wantPart: 0},
-		{input: "_delta_log/00000000000000123456.checkpoint.0000000002.0000000063.parquet", wantCheckpoint: &CheckPoint{Version: 123456, Size: 0, Parts: 63}, wantPart: 2},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantCheckpoint: &CheckPoint{Version: 1, Size: 0, Parts: nil}, wantPart: 0},
+		{input: "_delta_log/00000000000000123456.checkpoint.0000000002.0000000063.parquet", wantCheckpoint: &CheckPoint{Version: 123456, Size: 0, Parts: &part63}, wantPart: 2},
 	}
 
 	for _, tc := range tests {
@@ -668,7 +698,7 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 			continue
 		}
 
-		if *gotCheckpoint != *tc.wantCheckpoint {
+		if !reflect.DeepEqual(*gotCheckpoint, *tc.wantCheckpoint) {
 			t.Errorf("expected %v, got %v", *tc.wantCheckpoint, *gotCheckpoint)
 		}
 		if gotPart != tc.wantPart {
@@ -831,7 +861,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 
 		table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
 		// Use log expiration of 10 minutes
-		table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanup)}}, Protocol{}, CommitInfo{}, []Add[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
+		table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanup)}}, Protocol{}, CommitInfo{}, []AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
 
 		add1 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
 		add2 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
@@ -933,7 +963,7 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 
 	table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
 	// Use log expiration of 12 minutes
-	table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []Add[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
+	table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
 
 	add1 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](20 * 60 * 1000) // 20 mins ago
 	add2 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](19 * 60 * 1000) // 19 mins ago

@@ -29,12 +29,12 @@ type emptyTestStruct struct {
 }
 
 func TestLogEntryFromActions(t *testing.T) {
-	add1 := Add[emptyTestStruct, emptyTestStruct]{
+	add1 := AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
 	}
-	add2 := &Add[emptyTestStruct, emptyTestStruct]{
+	add2 := &AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-2.snappy.parquet",
 		Size:             2,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
@@ -331,7 +331,7 @@ func TestActionFromLogEntry(t *testing.T) {
 		wantErr error
 	}{
 		{name: "Add", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`{"path":"mypath.parquet","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true,"stats":"{\"numRecords\":155,\"tightBounds\":false,\"minValues\":{\"timestamp\":1615338375007003},\"maxValues\":{\"timestamp\":1615338377517216},\"nullCount\":null}"}`)}},
-			want: &Add[emptyTestStruct, emptyTestStruct]{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
+			want: &AddPartitioned[emptyTestStruct, emptyTestStruct]{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
 				Stats: `{"numRecords":155,"tightBounds":false,"minValues":{"timestamp":1615338375007003},"maxValues":{"timestamp":1615338377517216},"nullCount":null}`}, wantErr: nil},
 		{name: "CommitInfo", args: args{unstructuredResult: map[string]json.RawMessage{"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
 			want: &CommitInfo{"clientVersion": "delta-go.alpha-0.0.0", "isBlindAppend": true, "operation": "delta-go.Write",
@@ -367,7 +367,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 		NumRecords: 123,
 	}
 
-	add := Add[emptyTestStruct, emptyTestStruct]{
+	add := AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
@@ -408,7 +408,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 		t.Errorf("Commit did not match.  Got %v expected %v", *resultCommit, commit)
 	}
 
-	resultAdd, ok := actions[1].(*Add[emptyTestStruct, emptyTestStruct])
+	resultAdd, ok := actions[1].(*AddPartitioned[emptyTestStruct, emptyTestStruct])
 	if !ok {
 		t.Error("Expected Add for second action")
 	}
