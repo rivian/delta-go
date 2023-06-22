@@ -493,7 +493,7 @@ func CreateCheckpoint[RowType any, PartitionType any](store storage.ObjectStore,
 	if err != nil {
 		return false, err
 	}
-	if table.State.EnableExpiredLogCleanup {
+	if table.State.EnableExpiredLogCleanup && !checkpointConfiguration.DisableCleanup {
 		err = validateCheckpointAndCleanup(table, table.Store, version)
 		if err != nil {
 			return true, err
