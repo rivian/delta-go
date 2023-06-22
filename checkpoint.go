@@ -57,6 +57,9 @@ type CheckpointConfiguration struct {
 	// **WARNING** If you set this to true and the table being checkpointed uses features that are not supported by this
 	// client, the resulting checkpoint might fail unpredictably and silently; this could cause data loss or corruption
 	UnsafeIgnoreUnsupportedReaderWriterVersionErrors bool
+	// Disable any cleanup after checkpointing, even if it was enabled in the table configuration.
+	// Defaults to false.
+	DisableCleanup bool
 }
 
 func NewCheckpointConfiguration() *CheckpointConfiguration {
@@ -64,6 +67,7 @@ func NewCheckpointConfiguration() *CheckpointConfiguration {
 	// TODO try to find what Spark uses
 	checkpointConfiguration.MaxRowsPerPart = 50000
 	checkpointConfiguration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors = false
+	checkpointConfiguration.DisableCleanup = false
 	return checkpointConfiguration
 }
 

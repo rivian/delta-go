@@ -855,102 +855,110 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 		false,
 	}
 
-	for _, enableCleanup := range tests {
+	for _, enableCleanupInTableConfig := range tests {
 
-		store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "", false)
+		for _, disableCleanupInCheckpointConfig := range tests {
 
-		table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
-		// Use log expiration of 10 minutes
-		table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanup)}}, Protocol{}, CommitInfo{}, []AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
+			store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "", false)
 
-		add1 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
-		add2 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
-		v, err := testDoCommit(t, table, []Action{add1})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if v != 1 {
-			t.Errorf("Version is %d, expected 1", v)
-		}
-		v, err = testDoCommit(t, table, []Action{add2})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if v != 2 {
-			t.Errorf("Version is %d, expected 2", v)
-		}
-		now := time.Now()
-		// With cleanup enabled, 25 and 15 minutes ago should be deleted, 5 should not
-		err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
-		if err != nil {
-			t.Fatal(err)
-		}
+			table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
+			// Use log expiration of 10 minutes
+			table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, Protocol{}, CommitInfo{}, []AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
 
-		_, err = OpenTableWithVersion[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = OpenTableWithVersion[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = OpenTableWithVersion[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore, 2)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		ok, err := table.CreateCheckpoint(checkpointLock, NewCheckpointConfiguration(), 2)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !ok {
-			t.Fatal("unable to create checkpoint")
-		}
-
-		// Check cleanup results
-		version := state.DeltaDataTypeVersion(0)
-		err = table.LoadVersion(&version)
-		if enableCleanup {
-			if !errors.Is(err, ErrorInvalidVersion) {
-				t.Fatal("did not remove version 0")
+			add1 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
+			add2 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
+			v, err := testDoCommit(t, table, []Action{add1})
+			if err != nil {
+				t.Fatal(err)
 			}
-		} else {
+			if v != 1 {
+				t.Errorf("Version is %d, expected 1", v)
+			}
+			v, err = testDoCommit(t, table, []Action{add2})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if v != 2 {
+				t.Errorf("Version is %d, expected 2", v)
+			}
+			now := time.Now()
+			// With cleanup enabled, 25 and 15 minutes ago should be deleted, 5 should not
+			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = OpenTableWithVersion[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = OpenTableWithVersion[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = OpenTableWithVersion[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			checkpointConfiguration := NewCheckpointConfiguration()
+			checkpointConfiguration.DisableCleanup = disableCleanupInCheckpointConfig
+
+			ok, err := table.CreateCheckpoint(checkpointLock, checkpointConfiguration, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok {
+				t.Fatal("unable to create checkpoint")
+			}
+
+			shouldCleanup := enableCleanupInTableConfig && !disableCleanupInCheckpointConfig
+
+			// Check cleanup results
+			version := state.DeltaDataTypeVersion(0)
+			err = table.LoadVersion(&version)
+			if shouldCleanup {
+				if !errors.Is(err, ErrorInvalidVersion) {
+					t.Fatal("did not remove version 0")
+				}
+			} else {
+				if errors.Is(err, ErrorInvalidVersion) {
+					t.Fatal("should not remove version 0")
+				}
+				if err != nil {
+					t.Errorf("unexpected error %v", err)
+				}
+			}
+			version = 1
+			err = table.LoadVersion(&version)
+			if shouldCleanup {
+				if !errors.Is(err, ErrorInvalidVersion) {
+					t.Fatal("did not remove version 1")
+				}
+			} else {
+				if errors.Is(err, ErrorInvalidVersion) {
+					t.Fatal("should not remove version 1")
+				}
+				if err != nil {
+					t.Errorf("unexpected error %v", err)
+				}
+			}
+			version = 2
+			err = table.LoadVersion(&version)
 			if errors.Is(err, ErrorInvalidVersion) {
-				t.Fatal("should not remove version 0")
+				t.Fatal("unable to load version 2")
 			}
 			if err != nil {
 				t.Errorf("unexpected error %v", err)
 			}
-		}
-		version = 1
-		err = table.LoadVersion(&version)
-		if enableCleanup {
-			if !errors.Is(err, ErrorInvalidVersion) {
-				t.Fatal("did not remove version 1")
-			}
-		} else {
-			if errors.Is(err, ErrorInvalidVersion) {
-				t.Fatal("should not remove version 1")
-			}
-			if err != nil {
-				t.Errorf("unexpected error %v", err)
-			}
-		}
-		version = 2
-		err = table.LoadVersion(&version)
-		if errors.Is(err, ErrorInvalidVersion) {
-			t.Fatal("unable to load version 2")
-		}
-		if err != nil {
-			t.Errorf("unexpected error %v", err)
 		}
 	}
 }
