@@ -39,12 +39,13 @@ type CheckPoint struct {
 
 // / A single checkpoint entry in the checkpoint Parquet file
 type CheckpointEntry[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]] struct {
-	Txn      *Txn      `parquet:"txn"`
-	Add      *AddType  `parquet:"add"`
-	Remove   *Remove   `parquet:"remove"`
-	MetaData *MetaData `parquet:"metaData"`
-	Protocol *Protocol `parquet:"protocol"`
-	Cdc      *Cdc      `parquet:"-"`
+	Txn      *Txn      `parquet:"name=txn"`
+	Add      *AddType  `parquet:"name=add"`
+	Remove   *Remove   `parquet:"name=remove"`
+	MetaData *MetaData `parquet:"name=metaData"`
+	Protocol *Protocol `parquet:"name=protocol"`
+	// CDC not implemented yet
+	Cdc *Cdc
 }
 
 // / Additional configuration for checkpointing

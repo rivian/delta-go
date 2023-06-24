@@ -16,14 +16,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"sort"
 	"strconv"
 	"time"
 
 	"github.com/rivian/delta-go/state"
-	"github.com/segmentio/parquet-go"
+	"github.com/xitongsys/parquet-go-source/buffer"
+	"github.com/xitongsys/parquet-go/parquet"
+	"github.com/xitongsys/parquet-go/reader"
+	"github.com/xitongsys/parquet-go/writer"
 )
 
 type DeltaTableState[RowType any, PartitionType any] struct {
@@ -248,57 +250,49 @@ func processCheckpointBytes[RowType any, PartitionType any](checkpointBytes []by
 
 // / Update a table state with the contents of a checkpoint file
 func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) (returnErr error) {
-	reader := bytes.NewReader(checkpointBytes)
-	// The parquet library will panic if the file is malformed or if it can't handle the RowType/PartitionType
-	defer func() {
-		if r := recover(); r != nil {
-			err, ok := r.(error)
-			if !ok {
-				err = fmt.Errorf("%v", r)
-			}
-			returnErr = errors.Join(ErrorReadingCheckpoint, err)
+	bufferReader, err := buffer.NewBufferFile(checkpointBytes)
+	if err != nil {
+		return err
+	}
+	defer bufferReader.Close()
+	parquetReader, err := reader.NewParquetReader(bufferReader, new(CheckpointEntry[RowType, PartitionType, AddType]), 4)
+	if err != nil {
+		return err
+	}
+	defer parquetReader.ReadStop()
+	count := parquetReader.GetNumRows()
+	rowBuffer := make([]CheckpointEntry[RowType, PartitionType, AddType], parquetReader.GetNumRows())
+	err = parquetReader.Read(&rowBuffer)
+	if err != nil {
+		return err
+	}
+	var action Action
+	for i := int64(0); i < count; i++ {
+		row := rowBuffer[i]
+		if row.Add != nil {
+			action = row.Add
 		}
-	}()
-
-	parquetReader := parquet.NewGenericReader[CheckpointEntry[RowType, PartitionType, AddType]](reader)
-	defer parquetReader.Close()
-	for {
-		rowBuffer := make([]CheckpointEntry[RowType, PartitionType, AddType], 10)
-		count, err := parquetReader.Read(rowBuffer)
-		doneReading := errors.Is(err, io.EOF)
-		if err != nil && !doneReading {
+		if row.Remove != nil {
+			action = row.Remove
+		}
+		if row.MetaData != nil {
+			action = row.MetaData
+		}
+		if row.Txn != nil {
+			action = row.Txn
+		}
+		if row.Protocol != nil {
+			action = row.Protocol
+		}
+		if row.Cdc != nil {
+			return ErrorCDCNotSupported
+		}
+		err = tableState.processAction(action)
+		if err != nil {
 			return err
 		}
-		var action Action
-		for i := 0; i < count; i++ {
-			row := rowBuffer[i]
-			if row.Add != nil {
-				action = row.Add
-			}
-			if row.Remove != nil {
-				action = row.Remove
-			}
-			if row.MetaData != nil {
-				action = row.MetaData
-			}
-			if row.Txn != nil {
-				action = row.Txn
-			}
-			if row.Protocol != nil {
-				action = row.Protocol
-			}
-			if row.Cdc != nil {
-				return ErrorCDCNotSupported
-			}
-			err = tableState.processAction(action)
-			if err != nil {
-				return err
-			}
-		}
-		if doneReading {
-			break
-		}
 	}
+
 	return nil
 }
 
@@ -434,34 +428,21 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 
 // / Convert a slice of checkpoint entries into a checkpoint parquet file and return the bytes
 func checkpointParquetBytes[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointRows []CheckpointEntry[RowType, PartitionType, AddType]) ([]byte, error) {
-	// TODO configuration option for writer batch size?
-	batchSize := 5000
-	startRecord := 0
-	totalRecords := len(checkpointRows)
-	totalWritten := 0
-
 	buf := new(bytes.Buffer)
+	pw, err := writer.NewParquetWriterFromWriter(buf, new(CheckpointEntry[RowType, PartitionType, AddType]), 2)
+	if err != nil {
+		return nil, err
+	}
 	// TODO configuration option for compression type?
-	writer := parquet.NewGenericWriter[CheckpointEntry[RowType, PartitionType, AddType]](buf, parquet.Compression(&parquet.Snappy))
+	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
-	for totalWritten < totalRecords {
-		endRecord := startRecord + batchSize
-		if endRecord >= totalRecords {
-			endRecord = totalRecords
-		}
-		written, err := writer.Write(checkpointRows[startRecord:endRecord])
+	for _, record := range checkpointRows {
+		err = pw.Write(record)
 		if err != nil {
 			return nil, err
 		}
-		if written == 0 {
-			return nil, ErrorGeneratingCheckpoint
-		}
-		totalWritten += written
-		startRecord += written
 	}
-
-	writer.Flush()
-	writer.Close()
+	pw.WriteStop()
 
 	return buf.Bytes(), nil
 }

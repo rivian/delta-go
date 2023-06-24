@@ -101,13 +101,13 @@ func copyFilesToTempDirRecursively(t *testing.T, inputFolder string, outputFolde
 }
 
 type simpleCheckpointTestData struct {
-	Value string    `json:"value" parquet:"value"`
-	TS    time.Time `json:"ts" parquet:"ts,timestamp"`
-	Date  string    `json:"date" parquet:"date"`
+	Value string    `json:"value" parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
+	TS    time.Time `json:"ts" parquet:"name=ts, type=INT64, convertedtype=TIME_MICROS"`
+	Date  string    `json:"date" parquet:"name=date, type=BYTE_ARRAY, convertedtype=UTF8"`
 }
 
 type simpleCheckpointTestPartition struct {
-	Date string `json:"date" parquet:"date"`
+	Date string `json:"date" parquet:"name=date, type=BYTE_ARRAY, convertedtype=UTF8"`
 }
 
 func TestSimpleCheckpoint(t *testing.T) {
@@ -201,7 +201,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 }
 
 type tombstonesTestData struct {
-	Id int32 `parquet:"id" json:"id"`
+	Id int32 `parquet:"name=id, type=INT32" json:"id"`
 }
 
 func getTestAdd[RowType any, PartitionType any](offsetMillis int64) *AddPartitioned[RowType, PartitionType] {

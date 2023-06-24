@@ -42,30 +42,30 @@ type CommitInfo map[string]interface{}
 // When writing a partitioned table checkpoint, the AddPartitioned variant below is used instead.
 type Add[RowType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
-	Path string `json:"path" parquet:"path,optional"`
+	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	// A map from partition column to value for this file
 	// This field is required even without a partition.
-	PartitionValues map[string]string `json:"partitionValues" parquet:"partitionValues,optional"`
+	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// The size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"size,optional"`
+	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	// The time this file was created, as milliseconds since the epoch
-	ModificationTime DeltaDataTypeTimestamp `json:"modificationTime" parquet:"modificationTime,optional"`
+	ModificationTime DeltaDataTypeTimestamp `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 	// When false the file must already be present in the table or the records in the added file
 	// must be contained in one or more remove actions in the same version
 	//
 	// streaming queries that are tailing the transaction log can use this flag to skip actions
 	// that would not affect the final results.
-	DataChange bool `json:"dataChange" parquet:"dataChange,optional"`
+	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	// Map containing metadata about this file
-	Tags map[string]string `json:"tags,omitempty" parquet:"tags,optional"`
+	Tags map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats string `json:"stats" parquet:"stats,optional"`
+	Stats string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
 	// raw parquet format. This field needs to be written when statistics are available and the
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	StatsParsed GenericStats[RowType] `json:"-" parquet:"stats_parsed,optional"`
+	StatsParsed GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
 }
 
 // An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
@@ -73,23 +73,23 @@ type Add[RowType any] struct {
 // The AddPartitioned variant is for a partitioned table; the PartitionValuesParsed field will consist of the partition struct.
 type AddPartitioned[RowType any, PartitionType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
-	Path string `json:"path" parquet:"path,optional"`
+	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	// A map from partition column to value for this file
-	PartitionValues map[string]string `json:"partitionValues" parquet:"partitionValues,optional"`
+	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// The size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"size,optional"`
+	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	// The time this file was created, as milliseconds since the epoch
-	ModificationTime DeltaDataTypeTimestamp `json:"modificationTime" parquet:"modificationTime,optional"`
+	ModificationTime DeltaDataTypeTimestamp `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 	// When false the file must already be present in the table or the records in the added file
 	// must be contained in one or more remove actions in the same version
 	//
 	// streaming queries that are tailing the transaction log can use this flag to skip actions
 	// that would not affect the final results.
-	DataChange bool `json:"dataChange" parquet:"dataChange,optional"`
+	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	// Map containing metadata about this file
-	Tags map[string]string `json:"tags,omitempty" parquet:"tags,optional"`
+	Tags map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats string `json:"stats" parquet:"stats,optional"`
+	Stats string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
 	// Partition values stored in raw parquet struct format. In this struct, the column names
 	// correspond to the partition columns and the values are stored in their corresponding data
 	// type. This is a required field when the table is partitioned and the table property
@@ -97,13 +97,13 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	// column can be omitted.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	PartitionValuesParsed PartitionType `json:"-" parquet:"partitionValues_parsed,optional"`
+	PartitionValuesParsed PartitionType `json:"-" parquet:"name=partitionValues_parsed"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
 	// raw parquet format. This field needs to be written when statistics are available and the
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	StatsParsed GenericStats[RowType] `json:"-" parquet:"stats_parsed,optional"`
+	StatsParsed GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
 }
 
 // / Convenience function to copy data from an Add to an AddPartitioned
@@ -121,23 +121,23 @@ func (addPartitioned *AddPartitioned[RowType, PartitionType]) fromAdd(add *Add[R
 // / This is a top-level action in Delta log entries.
 type Remove struct {
 	/// The path of the file that is removed from the table.
-	Path string `json:"path" parquet:"path,optional"`
+	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// The timestamp when the remove was added to table state.
-	DeletionTimestamp DeltaDataTypeTimestamp `json:"deletionTimestamp" parquet:"deletionTimestamp,optional"`
+	DeletionTimestamp DeltaDataTypeTimestamp `json:"deletionTimestamp" parquet:"name=deletionTimestamp, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 	/// Whether data is changed by the remove. A table optimize will report this as false for
 	/// example, since it adds and removes files by combining many files into one.
-	DataChange bool `json:"dataChange" parquet:"dataChange,optional"`
+	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	/// When true the fields partitionValues, size, and tags are present
 	///
 	/// NOTE: Although it's defined as required in scala delta implementation, but some writes
 	/// it's still nullable so we keep it as Option<> for compatibly.
-	ExtendedFileMetadata bool `json:"extendedFileMetadata" parquet:"extendedFileMetadata,optional"`
+	ExtendedFileMetadata bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, type=BOOLEAN"`
 	/// A map from partition column to value for this file.
-	PartitionValues map[string]string `json:"partitionValues" parquet:"partitionValues,optional"`
+	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// Size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"size,optional"`
+	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	/// Map containing metadata about this file
-	Tags map[string]string `json:"tags" parquet:"-"`
+	Tags map[string]string `json:"tags"`
 }
 
 // Describes the data format of files in the table.
@@ -145,10 +145,10 @@ type Remove struct {
 type Format struct {
 	/// Name of the encoding for files in this table.
 	// Default: "parquet"
-	Provider string `json:"provider" parquet:"provider,optional"`
+	Provider string `json:"provider" parquet:"name=provider, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// A map containing configuration options for the format.
 	// Default: {}
-	Options map[string]string `json:"options" parquet:"options,optional"`
+	Options map[string]string `json:"options" parquet:"name=options, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 }
 
 // NewFormat provides the correct default format options as of Delta Lake 0.3.0
@@ -164,23 +164,23 @@ func (format *Format) Default() Format {
 // / This is a top-level action in Delta log entries.
 type MetaData struct {
 	/// Unique identifier for this table
-	Id uuid.UUID `json:"id" parquet:"-"`
+	Id uuid.UUID `json:"id"`
 	/// Parquet library cannot import to UUID
-	IdAsString string `json:"-" parquet:"id,optional"`
+	IdAsString string `json:"-" parquet:"name=id, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// User-provided identifier for this table
-	Name string `json:"name" parquet:"name,optional"`
+	Name string `json:"name" parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// User-provided description for this table
-	Description string `json:"description" parquet:"description,optional"`
+	Description string `json:"description" parquet:"name=description, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// Specification of the encoding for the files stored in the table
-	Format Format `json:"format" parquet:"format,optional"`
+	Format Format `json:"format" parquet:"name=format"`
 	/// Schema of the table
-	SchemaString string `json:"schemaString" parquet:"schemaString,optional"`
+	SchemaString string `json:"schemaString" parquet:"name=schemaString, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// An array containing the names of columns by which the data should be partitioned
-	PartitionColumns []string `json:"partitionColumns" parquet:"partitionColumns,list"`
+	PartitionColumns []string `json:"partitionColumns" parquet:"name=partitionColumns, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// A map containing configuration options for the table
-	Configuration map[string]string `json:"configuration" parquet:"configuration,optional"`
+	Configuration map[string]string `json:"configuration" parquet:"name=configuration, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// The time when this metadata action is created, in milliseconds since the Unix epoch
-	CreatedTime DeltaDataTypeTimestamp `json:"createdTime" parquet:"createdTime,optional"`
+	CreatedTime DeltaDataTypeTimestamp `json:"createdTime" parquet:"name=createdTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 }
 
 // MetaData.ToDeltaTableMetaData() converts a MetaData to DeltaTableMetaData
@@ -214,11 +214,11 @@ func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
 // / enable idempotency.
 type Txn struct {
 	/// A unique identifier for the application performing the transaction.
-	AppId string `json:"appId" parquet:"appId,optional"`
+	AppId string `json:"appId" parquet:"name=appId, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// An application-specific numeric identifier for this transaction.
-	Version DeltaDataTypeVersion `json:"version" parquet:"version,optional"`
+	Version DeltaDataTypeVersion `json:"version" parquet:"name=version, type=INT64"`
 	/// The time when this transaction action was created in milliseconds since the Unix epoch.
-	LastUpdated DeltaDataTypeTimestamp `json:"-" parquet:"lastUpdated,optional"`
+	LastUpdated DeltaDataTypeTimestamp `json:"-" parquet:"name=lastUpdated, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 }
 
 // / Action used to increase the version of the Delta protocol required to read or write to the
@@ -226,22 +226,22 @@ type Txn struct {
 type Protocol struct {
 	/// Minimum version of the Delta read protocol a client must implement to correctly read the
 	/// table.
-	MinReaderVersion DeltaDataTypeInt `json:"minReaderVersion" parquet:"minReaderVersion,optional"`
+	MinReaderVersion DeltaDataTypeInt `json:"minReaderVersion" parquet:"name=minReaderVersion, type=INT32"`
 	/// Minimum version of the Delta write protocol a client must implement to correctly read the
 	/// table.
-	MinWriterVersion DeltaDataTypeInt `json:"minWriterVersion" parquet:"minWriterVersion,optional"`
+	MinWriterVersion DeltaDataTypeInt `json:"minWriterVersion" parquet:"name=minWriterVersion, type=INT32"`
 }
 
 type Cdc struct {
 	/// A relative path, from the root of the table, or an
 	/// absolute path to a CDC file
-	Path string `json:"path" parquet:"path"`
+	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// The size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"size"`
+	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	/// A map from partition column to value for this file
 	PartitionValues map[string]string `json:"partitionValues"`
 	/// Should always be set to false because they do not change the underlying data of the table
-	DataChange bool `json:"dataChange" parquet:"dataChange"`
+	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	/// Map containing metadata about this file
 	Tags map[string]string `json:"tags,omitempty"`
 }
@@ -483,19 +483,19 @@ const (
 )
 
 type Stats struct {
-	NumRecords  int64            `json:"numRecords" parquet:"numRecords"`
-	TightBounds bool             `json:"tightBounds" parquet:"tightBounds"`
-	MinValues   map[string]any   `json:"minValues" parquet:"minValues"`
-	MaxValues   map[string]any   `json:"maxValues" parquet:"maxValues"`
-	NullCount   map[string]int64 `json:"nullCount" parquet:"nullCount"`
+	NumRecords  int64            `json:"numRecords" parquet:"name=numRecords, type=INT64"`
+	TightBounds bool             `json:"tightBounds" parquet:"name=tightBounds, type=BOOLEAN"`
+	MinValues   map[string]any   `json:"minValues" parquet:"name=minValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
+	MaxValues   map[string]any   `json:"maxValues" parquet:"name=maxValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
+	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT64"`
 }
 
 type GenericStats[RowType any] struct {
-	NumRecords  int64            `json:"numRecords" parquet:"numRecords,optional"`
-	TightBounds bool             `json:"tightBounds" parquet:"tightBounds,optional"`
-	MinValues   RowType          `json:"minValues" parquet:"minValues,optional"`
-	MaxValues   RowType          `json:"maxValues" parquet:"maxValues,optional"`
-	NullCount   map[string]int64 `json:"nullCount" parquet:"nullCount,optional"`
+	NumRecords  int64            `json:"numRecords" parquet:"name=numRecords, type=INT64"`
+	TightBounds bool             `json:"tightBounds" parquet:"name=tightBounds, type=BOOLEAN"`
+	MinValues   RowType          `json:"minValues" parquet:"name=minValues"`
+	MaxValues   RowType          `json:"maxValues" parquet:"name=maxValues"`
+	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT64"`
 }
 
 func (s *Stats) Json() []byte {
