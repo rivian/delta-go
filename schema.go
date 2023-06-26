@@ -37,26 +37,26 @@ type Guid string
 // type DeltaDataTypeInt int32
 
 // Type alias for date with custom JSON marshal/unmarshal to simplify use of dates as partitions
-type DeltaDataTypeDate int32
+// type DeltaDataTypeDate int32
 
-const NUM_SECONDS_IN_DAY int64 = 60 * 60 * 24
-const DELTA_DATE_FORMAT string = "2006-01-02"
+// const NUM_SECONDS_IN_DAY int64 = 60 * 60 * 24
+// const DELTA_DATE_FORMAT string = "2006-01-02"
 
-func (date *DeltaDataTypeDate) UnmarshalJSON(b []byte) error {
-	trimmedDateString := strings.Trim(string(b), "\"")
-	t, err := time.Parse(DELTA_DATE_FORMAT, trimmedDateString)
-	if err != nil {
-		return err
-	}
+// func (date *DeltaDataTypeDate) UnmarshalJSON(b []byte) error {
+// 	trimmedDateString := strings.Trim(string(b), "\"")
+// 	t, err := time.Parse(DELTA_DATE_FORMAT, trimmedDateString)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	*date = DeltaDataTypeDate(t.Unix() / NUM_SECONDS_IN_DAY)
-	return nil
-}
+// 	*date = DeltaDataTypeDate(t.Unix() / NUM_SECONDS_IN_DAY)
+// 	return nil
+// }
 
-func (date DeltaDataTypeDate) MarshalJSON() ([]byte, error) {
-	dateAsTime := time.Unix(int64(date)*NUM_SECONDS_IN_DAY, 0)
-	return []byte(dateAsTime.Format(DELTA_DATE_FORMAT)), nil
-}
+// func (date DeltaDataTypeDate) MarshalJSON() ([]byte, error) {
+// 	dateAsTime := time.Unix(int64(date)*NUM_SECONDS_IN_DAY, 0)
+// 	return []byte(dateAsTime.Format(DELTA_DATE_FORMAT)), nil
+// }
 
 const (
 	STRUCT_TAG = "struct"

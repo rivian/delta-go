@@ -280,26 +280,26 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 
 // / Generate an Add action for a checkpoint (with additional fields) from a basic Add action
 func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](add *AddPartitioned[RowType, PartitionType]) (*AddType, error) {
-	stats, err := StatsFromJson([]byte(add.Stats))
-	if err != nil {
-		return nil, err
-	}
-	parsedStats, err := statsAsGenericStats[RowType](stats)
-	if err != nil {
-		return nil, err
-	}
+	// stats, err := StatsFromJson([]byte(add.Stats))
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// parsedStats, err := statsAsGenericStats[RowType](stats)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	checkpointAdd := new(AddType)
 	switch typedAdd := any(checkpointAdd).(type) {
 	case *AddPartitioned[RowType, PartitionType]:
 		*typedAdd = *add
 		typedAdd.DataChange = false
-		typedAdd.StatsParsed = *parsedStats
-		partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
-		if err != nil {
-			return checkpointAdd, err
-		}
-		typedAdd.PartitionValuesParsed = *partitionValuesParsed
+		// typedAdd.StatsParsed = *parsedStats
+		// partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
+		// if err != nil {
+		// 	return checkpointAdd, err
+		// }
+		// typedAdd.PartitionValuesParsed = *partitionValuesParsed
 	case *Add[RowType]:
 		typedAdd.DataChange = false
 		typedAdd.ModificationTime = add.ModificationTime
@@ -308,7 +308,7 @@ func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowTyp
 		typedAdd.Size = add.Size
 		typedAdd.Stats = add.Stats
 		typedAdd.Tags = add.Tags
-		typedAdd.StatsParsed = *parsedStats
+		// typedAdd.StatsParsed = *parsedStats
 	}
 	return checkpointAdd, nil
 }

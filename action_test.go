@@ -469,28 +469,6 @@ func TestStatsAsGenericStats(t *testing.T) {
 	}
 }
 
-func TestPartitionValuesAsGenericPartitions(t *testing.T) {
-	type TestPartitionType1 struct {
-		Date DeltaDataTypeDate `json:"date"`
-	}
-
-	input1 := make(map[string]string)
-	input1["date"] = "2012-07-26"
-
-	expectedPartitions1 := TestPartitionType1{Date: DeltaDataTypeDate(time.Date(2012, time.July, 26, 0, 0, 0, 0, time.UTC).Unix() / NUM_SECONDS_IN_DAY)}
-
-	results1, err := partitionValuesAsGeneric[TestPartitionType1](input1)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if !reflect.DeepEqual(expectedPartitions1, *results1) {
-			t.Errorf("StatsAsGenericStats results did not match expected.  Got %v expected %v", *results1, expectedPartitions1)
-		}
-	}
-
-	// TODO non-string type partitions
-}
-
 func TestMetadataGetSchema(t *testing.T) {
 	// Simple
 	schemaString := "{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}},{\"name\":\"date\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"

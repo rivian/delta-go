@@ -90,6 +90,11 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	Tags map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
 	Stats string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
+
+	// TODO - parsed fields dropped after the parquet library switch.
+	// This requires dropping writer version to 2.
+	// We likely need to re-implement using reflection.
+
 	// Partition values stored in raw parquet struct format. In this struct, the column names
 	// correspond to the partition columns and the values are stored in their corresponding data
 	// type. This is a required field when the table is partitioned and the table property
@@ -97,13 +102,13 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	// column can be omitted.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	PartitionValuesParsed PartitionType `json:"-" parquet:"name=partitionValues_parsed"`
+	// PartitionValuesParsed PartitionType `json:"-" parquet:"name=partitionValues_parsed"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
 	// raw parquet format. This field needs to be written when statistics are available and the
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	StatsParsed GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
+	// StatsParsed GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
 }
 
 // / Convenience function to copy data from an Add to an AddPartitioned
@@ -581,18 +586,4 @@ func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
 
 	}
 
-}
-
-// / Convert untyped partition values into generic PartitionType
-func partitionValuesAsGeneric[PartitionType any](partitionValues map[string]string) (*PartitionType, error) {
-	genericPartitions := new(PartitionType)
-	b, err := json.Marshal(partitionValues)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(b, &genericPartitions)
-	if err != nil {
-		return nil, err
-	}
-	return genericPartitions, nil
 }

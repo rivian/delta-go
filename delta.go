@@ -33,7 +33,7 @@ import (
 const DELTA_CLIENT_VERSION = "alpha-0.0.0"
 
 const MAX_READER_VERSION_SUPPORTED = 1
-const MAX_WRITER_VERSION_SUPPORTED = 3
+const MAX_WRITER_VERSION_SUPPORTED = 1
 
 var (
 	ErrorDeltaTable                  error = errors.New("failed to apply transaction log")

@@ -129,7 +129,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             "part-123.snappy.parquet",
@@ -359,7 +359,7 @@ func TestDeltaTableCreate(t *testing.T) {
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
@@ -1047,7 +1047,7 @@ func TestLoadVersion(t *testing.T) {
 	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668685528), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(0), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
 	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668687609), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(1), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
 	expectedState.MinReaderVersion = 1
-	expectedState.MinWriterVersion = 2
+	expectedState.MinWriterVersion = 1
 	add := new(AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition])
 	add.Path = "date=2020-06-01/part-00000-b207ef5f-4458-4969-bd34-46439cdeb6a6.c000.snappy.parquet"
 	add.PartitionValues = make(map[string]string)

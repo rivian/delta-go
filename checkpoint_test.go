@@ -245,7 +245,7 @@ func TestTombstones(t *testing.T) {
 
 	// Set tombstone expiry time to 2 hours
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 2}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
 
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, simpleCheckpointTestPartition], 0))
 	add1 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
@@ -343,7 +343,7 @@ func TestExpiredTombstones(t *testing.T) {
 	table := NewDeltaTable[tombstonesTestData, simpleCheckpointTestPartition](store, lock, state)
 
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 2}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, simpleCheckpointTestPartition], 0))
 	add1 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
@@ -436,7 +436,7 @@ func TestCheckpointNoPartition(t *testing.T) {
 	table := NewDeltaTable[tombstonesTestData, emptyTestStruct](store, lock, stateStore)
 
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 2}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, emptyTestStruct], 0))
 	add1 := getTestAdd[tombstonesTestData, emptyTestStruct](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, emptyTestStruct](2 * 60 * 1000) // 2 mins ago
@@ -488,6 +488,7 @@ func TestCheckpointNoPartition(t *testing.T) {
 	}
 
 	add1.DataChange = false
+	add1.Tags = make(map[string]string)
 	if !reflect.DeepEqual(table.State.Files[add1.Path], *add1) {
 		t.Errorf("Expected %v found %v", *add1, table.State.Files[add1.Path])
 	}
@@ -502,7 +503,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 
 	metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: "tester", Options: map[string]string{"hello": "world"}},
 		GetSchema(new(simpleCheckpointTestData)), make([]string, 0), map[string]string{"delta.isTest": "true"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
+	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition], 0))
 	paths := make([]string, 0, 10)
 	// Commit ten Add actions
