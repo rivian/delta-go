@@ -32,12 +32,12 @@ func TestLogEntryFromActions(t *testing.T) {
 	add1 := AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
-		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
+		ModificationTime: 1675020556534,
 	}
 	add2 := &AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-2.snappy.parquet",
 		Size:             2,
-		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
+		ModificationTime: 1675020556534,
 	}
 
 	write := Write{Mode: ErrorIfExists}
@@ -80,7 +80,7 @@ func TestLogEntryFromAction(t *testing.T) {
 	commit := make(CommitInfo)
 	commit["path"] = "part-1.snappy.parquet"
 	commit["size"] = 1
-	commit["ModificationTime"] = DeltaDataTypeTimestamp(time.Now().UnixMilli())
+	commit["ModificationTime"] = time.Now().UnixMilli()
 
 	abytes, err := logEntryFromAction[emptyTestStruct, emptyTestStruct](commit)
 	if err != nil {
@@ -370,7 +370,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 	add := AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
-		ModificationTime: DeltaDataTypeTimestamp(1675020556534),
+		ModificationTime: int64(1675020556534),
 		Stats:            string(stats.Json()),
 	}
 

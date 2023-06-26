@@ -47,9 +47,9 @@ type Add[RowType any] struct {
 	// This field is required even without a partition.
 	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// The size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
+	Size int64 `json:"size" parquet:"name=size, type=INT64"`
 	// The time this file was created, as milliseconds since the epoch
-	ModificationTime DeltaDataTypeTimestamp `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 	// When false the file must already be present in the table or the records in the added file
 	// must be contained in one or more remove actions in the same version
 	//
@@ -77,9 +77,9 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	// A map from partition column to value for this file
 	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// The size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
+	Size int64 `json:"size" parquet:"name=size, type=INT64"`
 	// The time this file was created, as milliseconds since the epoch
-	ModificationTime DeltaDataTypeTimestamp `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 	// When false the file must already be present in the table or the records in the added file
 	// must be contained in one or more remove actions in the same version
 	//
@@ -123,7 +123,7 @@ type Remove struct {
 	/// The path of the file that is removed from the table.
 	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// The timestamp when the remove was added to table state.
-	DeletionTimestamp DeltaDataTypeTimestamp `json:"deletionTimestamp" parquet:"name=deletionTimestamp, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	DeletionTimestamp int64 `json:"deletionTimestamp" parquet:"name=deletionTimestamp, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 	/// Whether data is changed by the remove. A table optimize will report this as false for
 	/// example, since it adds and removes files by combining many files into one.
 	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
@@ -135,7 +135,7 @@ type Remove struct {
 	/// A map from partition column to value for this file.
 	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// Size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
+	Size int64 `json:"size" parquet:"name=size, type=INT64"`
 	/// Map containing metadata about this file
 	Tags map[string]string `json:"tags"`
 }
@@ -180,7 +180,7 @@ type MetaData struct {
 	/// A map containing configuration options for the table
 	Configuration map[string]string `json:"configuration" parquet:"name=configuration, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// The time when this metadata action is created, in milliseconds since the Unix epoch
-	CreatedTime DeltaDataTypeTimestamp `json:"createdTime" parquet:"name=createdTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	CreatedTime int64 `json:"createdTime" parquet:"name=createdTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 }
 
 // MetaData.ToDeltaTableMetaData() converts a MetaData to DeltaTableMetaData
@@ -216,9 +216,9 @@ type Txn struct {
 	/// A unique identifier for the application performing the transaction.
 	AppId string `json:"appId" parquet:"name=appId, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// An application-specific numeric identifier for this transaction.
-	Version DeltaDataTypeVersion `json:"version" parquet:"name=version, type=INT64"`
+	Version int64 `json:"version" parquet:"name=version, type=INT64"`
 	/// The time when this transaction action was created in milliseconds since the Unix epoch.
-	LastUpdated DeltaDataTypeTimestamp `json:"-" parquet:"name=lastUpdated, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	LastUpdated int64 `json:"-" parquet:"name=lastUpdated, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 }
 
 // / Action used to increase the version of the Delta protocol required to read or write to the
@@ -226,10 +226,10 @@ type Txn struct {
 type Protocol struct {
 	/// Minimum version of the Delta read protocol a client must implement to correctly read the
 	/// table.
-	MinReaderVersion DeltaDataTypeInt `json:"minReaderVersion" parquet:"name=minReaderVersion, type=INT32"`
+	MinReaderVersion int `json:"minReaderVersion" parquet:"name=minReaderVersion, type=INT32"`
 	/// Minimum version of the Delta write protocol a client must implement to correctly read the
 	/// table.
-	MinWriterVersion DeltaDataTypeInt `json:"minWriterVersion" parquet:"name=minWriterVersion, type=INT32"`
+	MinWriterVersion int `json:"minWriterVersion" parquet:"name=minWriterVersion, type=INT32"`
 }
 
 type Cdc struct {
@@ -237,7 +237,7 @@ type Cdc struct {
 	/// absolute path to a CDC file
 	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// The size of this file in bytes
-	Size DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
+	Size int64 `json:"size" parquet:"name=size, type=INT64"`
 	/// A map from partition column to value for this file
 	PartitionValues map[string]string `json:"partitionValues"`
 	/// Should always be set to false because they do not change the underlying data of the table

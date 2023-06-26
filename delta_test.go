@@ -31,7 +31,6 @@ import (
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/lock/nillock"
-	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/state/localstate"
 	"github.com/segmentio/parquet-go"
@@ -50,7 +49,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	add := AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 	}
 	transaction.AddAction(add)
 	operation := Write{Mode: Overwrite}
@@ -135,7 +134,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             "part-123.snappy.parquet",
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 		Stats:            string(stats.Json()),
 	}
 	commitInfo := make(map[string]any)
@@ -364,7 +363,7 @@ func TestDeltaTableCreate(t *testing.T) {
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
@@ -620,9 +619,9 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             fileName,
-		Size:             DeltaDataTypeLong(p.Size),
+		Size:             p.Size,
 		DataChange:       true,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
@@ -666,9 +665,9 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 			add := AddPartitioned[testData, emptyTestStruct]{
 				Path:             fileName,
-				Size:             DeltaDataTypeLong(p.Size),
+				Size:             p.Size,
 				DataChange:       true,
-				ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+				ModificationTime: time.Now().UnixMilli(),
 				Stats:            string(stats.Json()),
 				PartitionValues:  make(map[string]string),
 			}
@@ -729,9 +728,9 @@ func TestCreateWithParquet(t *testing.T) {
 
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             fileName,
-		Size:             DeltaDataTypeLong(p.Size),
+		Size:             p.Size,
 		DataChange:       true,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
@@ -898,7 +897,7 @@ func setupTransaction(t *testing.T, table *DeltaTable[testData, emptyTestStruct]
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 	}
 	transaction.AddAction(add)
 	operation = Write{Mode: Overwrite}
@@ -917,7 +916,7 @@ func fileExists(filename string) bool {
 
 func TestCommitUriFromVersion(t *testing.T) {
 	type test struct {
-		input state.DeltaDataTypeVersion
+		input int64
 		want  string
 	}
 
@@ -932,7 +931,7 @@ func TestCommitUriFromVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
 
 	for _, tc := range tests {
-		got := table.CommitUriFromVersion(state.DeltaDataTypeVersion(tc.input))
+		got := table.CommitUriFromVersion(tc.input)
 		if got.Raw != tc.want {
 			t.Errorf("expected %s, got %s", tc.want, got)
 		}
@@ -965,7 +964,7 @@ func TestCommitVersionFromUri(t *testing.T) {
 	type test struct {
 		input       string
 		wantMatch   bool
-		wantVersion state.DeltaDataTypeVersion
+		wantVersion int64
 	}
 
 	tests := []test{
@@ -993,7 +992,7 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 	type test struct {
 		input       string
 		wantMatch   bool
-		wantVersion state.DeltaDataTypeVersion
+		wantVersion int64
 	}
 
 	tests := []test{
@@ -1024,7 +1023,7 @@ func TestLoadVersion(t *testing.T) {
 
 	// Load version 2
 	table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
-	var version state.DeltaDataTypeVersion = 2
+	var version int64 = 2
 	err := table.LoadVersion(&version)
 	if err != nil {
 		t.Error(err)

@@ -101,9 +101,9 @@ func copyFilesToTempDirRecursively(t *testing.T, inputFolder string, outputFolde
 }
 
 type simpleCheckpointTestData struct {
-	Value string    `json:"value" parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
-	TS    time.Time `json:"ts" parquet:"name=ts, type=INT64, convertedtype=TIME_MICROS"`
-	Date  string    `json:"date" parquet:"name=date, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Value string `json:"value" parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
+	TS    int64  `json:"ts" parquet:"name=ts, type=INT64, convertedtype=TIME_MICROS"`
+	Date  string `json:"date" parquet:"name=date, type=BYTE_ARRAY, convertedtype=UTF8"`
 }
 
 type simpleCheckpointTestPartition struct {
@@ -180,10 +180,16 @@ func TestSimpleCheckpoint(t *testing.T) {
 			t.Errorf("last checkpoint number of actions is %d, should be 12", lastCheckpoint.Size)
 		}
 
-		if lastCheckpoint.SizeInBytes != DeltaDataTypeLong(checkpointMeta.Size) {
+		if lastCheckpoint.SizeInBytes != checkpointMeta.Size {
 			t.Errorf("last checkpoint size in bytes is %d, should be %d", lastCheckpoint.SizeInBytes, checkpointMeta.Size)
 		}
 	}
+	// Remove the previous log to make sure we use the checkpoint when loading
+	err = store.Delete(table.CommitUriFromVersion(9))
+	if err != nil {
+		t.Error(err)
+	}
+
 	// Reload table
 	table, err = OpenTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, state)
 	if err != nil {
@@ -196,7 +202,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 	// Can't create a checkpoint if it already exists
 	_, err = CreateCheckpoint[simpleCheckpointTestData, simpleCheckpointTestPartition](store, checkpointLock, checkpointConfiguration, 10)
 	if !errors.Is(err, ErrorCheckpointAlreadyExists) {
-		t.Error("creating a checkpoint when it already exists did not return correct error")
+		t.Errorf("creating a checkpoint when it already exists did not return correct error, %v", err)
 	}
 }
 
@@ -210,7 +216,7 @@ func getTestAdd[RowType any, PartitionType any](offsetMillis int64) *AddPartitio
 	add.Size = 100
 	add.DataChange = true
 	add.PartitionValues = make(map[string]string)
-	add.ModificationTime = DeltaDataTypeTimestamp(time.Now().UnixMilli() - offsetMillis)
+	add.ModificationTime = int64(time.Now().UnixMilli() - offsetMillis)
 	return add
 }
 
@@ -220,11 +226,11 @@ func getTestRemove(offsetMillis int64, path string) *Remove {
 	remove.Size = 100
 	remove.DataChange = true
 	remove.PartitionValues = make(map[string]string)
-	remove.DeletionTimestamp = DeltaDataTypeTimestamp(time.Now().UnixMilli() - offsetMillis)
+	remove.DeletionTimestamp = int64(time.Now().UnixMilli() - offsetMillis)
 	return remove
 }
 
-func testDoCommit[RowType any, PartitionType any](t *testing.T, table *DeltaTable[RowType, PartitionType], actions []Action) (state.DeltaDataTypeVersion, error) {
+func testDoCommit[RowType any, PartitionType any](t *testing.T, table *DeltaTable[RowType, PartitionType], actions []Action) (int64, error) {
 	t.Helper()
 	tx := table.CreateTransaction(&DeltaTransactionOptions{})
 	tx.AddActions(actions)
@@ -266,6 +272,11 @@ func TestTombstones(t *testing.T) {
 	}
 
 	// Load the checkpoint
+	// Remove the previous log to make sure we use the checkpoint when loading
+	err = store.Delete(table.CommitUriFromVersion(1))
+	if err != nil {
+		t.Error(err)
+	}
 	// Reload table
 	table, err = OpenTable[tombstonesTestData, simpleCheckpointTestPartition](store, lock, state)
 	if err != nil {
@@ -451,7 +462,7 @@ func TestCheckpointNoPartition(t *testing.T) {
 	}
 
 	// Load the checkpoint - don't use OpenTable since it will fall back to incremental if checkpoint read fails
-	version := state.DeltaDataTypeVersion(2)
+	var version int64 = 2
 	checkpoints, _, err := table.findLatestCheckpointsForVersion(&version)
 	if err != nil {
 		t.Fatal(err)
@@ -521,8 +532,8 @@ func TestMultiPartCheckpoint(t *testing.T) {
 	// And a txn
 	txn := new(Txn)
 	txn.AppId = "testApp"
-	txn.LastUpdated = DeltaDataTypeTimestamp(time.Now().UnixMilli())
-	txn.Version = DeltaDataTypeVersion(v)
+	txn.LastUpdated = time.Now().UnixMilli()
+	txn.Version = v
 	v, err = testDoCommit(t, table, []Action{txn})
 	if err != nil {
 		t.Fatal(err)
@@ -577,6 +588,11 @@ func TestMultiPartCheckpoint(t *testing.T) {
 		}
 	}
 
+	// Remove the previous commit to make sure we load the checkpoint files
+	err = store.Delete(table.CommitUriFromVersion(11))
+	if err != nil {
+		t.Error(err)
+	}
 	// Load the multipart checkpoint
 	err = table.Load()
 	if err != nil {
@@ -635,7 +651,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 		if !ok {
 			t.Error("Did not find expected app in app versions")
 		} else {
-			if version != state.DeltaDataTypeVersion(txn.Version) {
+			if version != txn.Version {
 				t.Errorf("Found version %d in app versions, expected %d", version, txn.Version)
 			}
 		}
@@ -661,7 +677,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if table.State.Version != 12 {
-		t.Errorf("Expected versino %d, found %d", 12, table.State.Version)
+		t.Errorf("Expected version %d, found %d", 12, table.State.Version)
 	}
 }
 
@@ -669,10 +685,10 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 	type test struct {
 		input          string
 		wantCheckpoint *CheckPoint
-		wantPart       DeltaDataTypeInt
+		wantPart       int
 	}
 
-	part63 := DeltaDataTypeInt(63)
+	part63 := 63
 
 	tests := []test{
 		{input: "_delta_log/00000000000000000000.json", wantCheckpoint: nil},
@@ -923,7 +939,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			shouldCleanup := enableCleanupInTableConfig && !disableCleanupInCheckpointConfig
 
 			// Check cleanup results
-			version := state.DeltaDataTypeVersion(0)
+			var version int64 = 0
 			err = table.LoadVersion(&version)
 			if shouldCleanup {
 				if !errors.Is(err, ErrorInvalidVersion) {
@@ -1045,12 +1061,12 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 
 	// Even though we checkpointed at version 5, and expiry is set to 11 minutes (covering versions 0-4),
 	// because of the time adjustment we should only have removed versions 0 and 1
-	version := state.DeltaDataTypeVersion(0)
+	var version int64 = 0
 	err = table.LoadVersion(&version)
 	if !errors.Is(err, ErrorInvalidVersion) {
 		t.Fatal("did not remove version 0")
 	}
-	version = state.DeltaDataTypeVersion(1)
+	version = 1
 	err = table.LoadVersion(&version)
 	if !errors.Is(err, ErrorInvalidVersion) {
 		t.Fatal("did not remove version 1")
@@ -1078,7 +1094,7 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	version = state.DeltaDataTypeVersion(5)
+	version = 5
 	err = table.LoadVersion(&version)
 	if errors.Is(err, ErrorInvalidVersion) {
 		t.Fatal("should not remove version 5")

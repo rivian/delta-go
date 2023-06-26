@@ -19,24 +19,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/rivian/delta-go/state"
 )
 
 // / Type alias for a string expected to match a GUID/UUID format
 type Guid string
 
 // / Type alias for i64/Delta long
-type DeltaDataTypeLong state.DeltaDataTypeLong
+// type DeltaDataTypeLong state.DeltaDataTypeLong
 
 // / Type alias representing the expected type (i64) of a Delta table version.
-type DeltaDataTypeVersion state.DeltaDataTypeLong
+// type DeltaDataTypeVersion state.DeltaDataTypeLong
 
 // / Type alias representing the expected type (i64/ms since Unix epoch) of a Delta timestamp.
-type DeltaDataTypeTimestamp int64
+// type int64 int64
 
 // / Type alias for i32/Delta int
-type DeltaDataTypeInt int32
+// type DeltaDataTypeInt int32
 
 // Type alias for date with custom JSON marshal/unmarshal to simplify use of dates as partitions
 type DeltaDataTypeDate int32

@@ -69,7 +69,7 @@ func TestPut(t *testing.T) {
 	if err != nil {
 		t.Errorf("Error occurred in retriving  version.")
 	}
-	commitState := state.CommitState{Version: state.DeltaDataTypeVersion(0)}
+	commitState := state.CommitState{Version: 0}
 	err = dynamoState.Put(commitState)
 	if err != nil {
 		t.Errorf("Error occurred in PUT.")
