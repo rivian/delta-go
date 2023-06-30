@@ -254,42 +254,81 @@ func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddT
 		return err
 	}
 	defer bufferReader.Close()
-	parquetReader, err := reader.NewParquetReader(bufferReader, new(CheckpointEntry[RowType, PartitionType, AddType]), 4)
+	parquetReader, err := reader.NewParquetReader(bufferReader, nil, 4)
 	if err != nil {
 		return err
 	}
 	defer parquetReader.ReadStop()
+
+	maxBatchSize := 20000
+	var rowsRead int64 = 0
 	count := parquetReader.GetNumRows()
-	rowBuffer := make([]CheckpointEntry[RowType, PartitionType, AddType], parquetReader.GetNumRows())
-	err = parquetReader.Read(&rowBuffer)
-	if err != nil {
-		return err
+	if count == 0 {
+		return nil
 	}
-	var action Action
-	for i := int64(0); i < count; i++ {
-		row := rowBuffer[i]
-		if row.Add != nil {
-			action = row.Add
+	for rowsRead < count {
+		var batchSize int
+		if count-rowsRead > int64(maxBatchSize) {
+			batchSize = maxBatchSize
+		} else {
+			batchSize = int(count - rowsRead)
 		}
-		if row.Remove != nil {
-			action = row.Remove
-		}
-		if row.MetaData != nil {
-			action = row.MetaData
-		}
-		if row.Txn != nil {
-			action = row.Txn
-		}
-		if row.Protocol != nil {
-			action = row.Protocol
-		}
-		if row.Cdc != nil {
-			return ErrorCDCNotSupported
-		}
-		err = tableState.processAction(action)
+		rows, err := parquetReader.ReadByNumber(batchSize)
 		if err != nil {
 			return err
 		}
+
+		for _, row := range rows {
+			var action Action
+			// t := reflect.TypeOf(row)
+			// for i := 0; i < t.NumField(); i++ {
+			// 	fmt.Printf("%+v\n", t.Field(i))
+			// }
+
+			rowValue := reflect.ValueOf(row)
+			add := rowValue.FieldByName("Add").Elem()
+			if add.IsValid() {
+				action, err = addFromValue[RowType](add)
+				if err != nil {
+					return err
+				}
+			}
+			remove := rowValue.FieldByName("Remove").Elem()
+			if remove.IsValid() {
+				action, err = removeFromValue(remove)
+				if err != nil {
+					return err
+				}
+			}
+			metadata := rowValue.FieldByName("MetaData").Elem()
+			if metadata.IsValid() {
+				action, err = metadataFromValue(metadata)
+				if err != nil {
+					return err
+				}
+			}
+			protocol := rowValue.FieldByName("Protocol").Elem()
+			if protocol.IsValid() {
+				action, err = protocolFromValue(protocol)
+				if err != nil {
+					return err
+				}
+			}
+			txn := rowValue.FieldByName("Txn").Elem()
+			if txn.IsValid() {
+				action, err = txnFromValue(txn)
+				if err != nil {
+					return err
+				}
+			}
+			if action != nil {
+				err = tableState.processAction(action)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		rowsRead += int64(batchSize)
 	}
 
 	return nil

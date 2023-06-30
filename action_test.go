@@ -109,17 +109,19 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 		}
 	  }
 	`, "\n", ""), "\t", ""), " ", "")
+	provider := "parquet"
 	format := Format{
-		Provider: "parquet",
+		Provider: &provider,
 		Options:  make(map[string]string),
 	}
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	id, _ := uuid.Parse("af23c9d7-fff1-4a5a-a2c8-55c59bd782aa")
+	schemaString := "..."
 	action := MetaData{
 		Id:               id,
-		Format:           format,
-		SchemaString:     "...",
+		Format:           &format,
+		SchemaString:     &schemaString,
 		PartitionColumns: []string{},
 		Configuration:    config,
 	}
@@ -473,7 +475,7 @@ func TestMetadataGetSchema(t *testing.T) {
 	// Simple
 	schemaString := "{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}},{\"name\":\"date\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"
 	md := new(MetaData)
-	md.SchemaString = schemaString
+	md.SchemaString = &schemaString
 	schema, err := md.GetSchema()
 	if err != nil {
 		t.Error(err)

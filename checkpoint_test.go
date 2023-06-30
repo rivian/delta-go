@@ -428,7 +428,6 @@ func TestExpiredTombstones(t *testing.T) {
 	}
 }
 
-// TODO this fails in the parquet library
 func TestCheckpointNoPartition(t *testing.T) {
 	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "", false)
 	checkpointConfiguration := NewCheckpointConfiguration()
@@ -501,7 +500,8 @@ func TestMultiPartCheckpoint(t *testing.T) {
 
 	table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
 
-	metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: "tester", Options: map[string]string{"hello": "world"}},
+	provider := "tester"
+	metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: &provider, Options: map[string]string{"hello": "world"}},
 		GetSchema(new(simpleCheckpointTestData)), make([]string, 0), map[string]string{"delta.isTest": "true"})
 	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition], 0))

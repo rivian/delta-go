@@ -245,6 +245,7 @@ func (table *DeltaTable[RowType, PartitionType]) LoadVersion(version *int64) err
 	table.State = *NewDeltaTableState[RowType, PartitionType](-1)
 
 	var err error
+	var checkpointLoadError error
 	if version != nil {
 		commitURI := table.CommitUriFromVersion(*version)
 		_, err := table.Store.Head(commitURI)
@@ -271,6 +272,8 @@ func (table *DeltaTable[RowType, PartitionType]) LoadVersion(version *int64) err
 		err = table.restoreCheckpoint(&checkpoints[checkpointIndex])
 		if err == nil {
 			break
+		} else {
+			checkpointLoadError = err
 		}
 
 		if allReturned {
@@ -288,7 +291,7 @@ func (table *DeltaTable[RowType, PartitionType]) LoadVersion(version *int64) err
 		}
 	}
 
-	return table.updateIncremental(version)
+	return errors.Join(table.updateIncremental(version), checkpointLoadError)
 }
 
 // / Find the most recent checkpoint(s) at or before the given version
@@ -584,16 +587,18 @@ func NewDeltaTableMetaData(name string, description string, format Format, schem
 
 // DeltaTableMetaData.ToMetaData() converts a DeltaTableMetaData to MetaData
 func (dtmd *DeltaTableMetaData) ToMetaData() MetaData {
-
+	idAsString := dtmd.Id.String()
+	schemaString := string(dtmd.Schema.Json())
+	createdTime := dtmd.CreatedTime.UnixMilli()
 	metadata := MetaData{
 		Id:               dtmd.Id,
-		IdAsString:       dtmd.Id.String(),
-		Name:             dtmd.Name,
-		Description:      dtmd.Description,
-		Format:           dtmd.Format,
-		SchemaString:     string(dtmd.Schema.Json()),
+		IdAsString:       &idAsString,
+		Name:             &dtmd.Name,
+		Description:      &dtmd.Description,
+		Format:           &dtmd.Format,
+		SchemaString:     &schemaString,
 		PartitionColumns: dtmd.PartitionColumns,
-		CreatedTime:      int64(dtmd.CreatedTime.UnixMilli()),
+		CreatedTime:      &createdTime,
 		Configuration:    dtmd.Configuration,
 	}
 	return metadata

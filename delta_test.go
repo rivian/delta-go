@@ -1073,7 +1073,8 @@ func TestLoadVersion(t *testing.T) {
 			{Name: "date", Type: String, Nullable: true, Metadata: make(map[string]any)},
 		},
 	}
-	expectedState.CurrentMetadata = NewDeltaTableMetaData("", "", Format{Provider: "parquet", Options: map[string]string{}}, schema, []string{"date"}, make(map[string]string))
+	provider := "parquet"
+	expectedState.CurrentMetadata = NewDeltaTableMetaData("", "", Format{Provider: &provider, Options: map[string]string{}}, schema, []string{"date"}, make(map[string]string))
 	expectedState.CurrentMetadata.CreatedTime = time.Unix(1627668675, 432000000)
 	expectedState.CurrentMetadata.Id = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
 
