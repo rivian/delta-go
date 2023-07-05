@@ -239,7 +239,7 @@ func getTestRemove(offsetMillis int64, path string) *Remove {
 	return remove
 }
 
-func testDoCommit[RowType any, PartitionType any](t *testing.T, table *DeltaTable[RowType, PartitionType], actions []Action) (DeltaDataTypeVersion, error) {
+func testDoCommit[RowType any, PartitionType any](t *testing.T, table *DeltaTable[RowType, PartitionType], actions []Action) (state.DeltaDataTypeVersion, error) {
 	t.Helper()
 	tx := table.CreateTransaction(&DeltaTransactionOptions{})
 	tx.AddActions(actions)
@@ -469,7 +469,7 @@ func TestCheckpointNoPartition(t *testing.T) {
 	}
 
 	// Load the checkpoint - don't use OpenTable since it will fall back to incremental if checkpoint read fails
-	var version DeltaDataTypeVersion = 2
+	var version state.DeltaDataTypeVersion = 2
 	checkpoints, _, err := table.findLatestCheckpointsForVersion(&version)
 	if err != nil {
 		t.Fatal(err)
@@ -954,7 +954,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			shouldCleanup := enableCleanupInTableConfig && !disableCleanupInCheckpointConfig
 
 			// Check cleanup results
-			var version DeltaDataTypeVersion = 0
+			var version state.DeltaDataTypeVersion = 0
 			err = table.LoadVersion(&version)
 			if shouldCleanup {
 				if !errors.Is(err, ErrorInvalidVersion) {
@@ -1076,7 +1076,7 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 
 	// Even though we checkpointed at version 5, and expiry is set to 11 minutes (covering versions 0-4),
 	// because of the time adjustment we should only have removed versions 0 and 1
-	var version DeltaDataTypeVersion = 0
+	var version state.DeltaDataTypeVersion = 0
 	err = table.LoadVersion(&version)
 	if !errors.Is(err, ErrorInvalidVersion) {
 		t.Fatal("did not remove version 0")

@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/rivian/delta-go/state"
 	"github.com/xitongsys/parquet-go-source/buffer"
 	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/reader"
@@ -29,7 +30,7 @@ import (
 
 type DeltaTableState[RowType any, PartitionType any] struct {
 	// current table version represented by this table state
-	Version DeltaDataTypeVersion
+	Version state.DeltaDataTypeVersion
 	// A remove action should remain in the state of the table as a tombstone until it has expired.
 	// A tombstone expires when the creation timestamp of the delta file exceeds the expiration
 	Tombstones map[string]Remove
@@ -37,7 +38,7 @@ type DeltaTableState[RowType any, PartitionType any] struct {
 	Files map[string]AddPartitioned[RowType, PartitionType]
 	// Information added to individual commits
 	CommitInfos           []CommitInfo
-	AppTransactionVersion map[string]DeltaDataTypeVersion
+	AppTransactionVersion map[string]state.DeltaDataTypeVersion
 	MinReaderVersion      DeltaDataTypeInt
 	MinWriterVersion      DeltaDataTypeInt
 	// table metadata corresponding to current version
@@ -60,12 +61,12 @@ var (
 )
 
 // / Create an empty table state for the given version
-func NewDeltaTableState[RowType any, PartitionType any](version DeltaDataTypeVersion) *DeltaTableState[RowType, PartitionType] {
+func NewDeltaTableState[RowType any, PartitionType any](version state.DeltaDataTypeVersion) *DeltaTableState[RowType, PartitionType] {
 	tableState := new(DeltaTableState[RowType, PartitionType])
 	tableState.Version = version
 	tableState.Files = make(map[string]AddPartitioned[RowType, PartitionType])
 	tableState.Tombstones = make(map[string]Remove)
-	tableState.AppTransactionVersion = make(map[string]DeltaDataTypeVersion)
+	tableState.AppTransactionVersion = make(map[string]state.DeltaDataTypeVersion)
 	// Default 7 days
 	tableState.TombstoneRetention = time.Hour * 24 * 7
 	// Default 30 days
@@ -87,7 +88,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) ConfigurationOrDefaul
 }
 
 // / Generate a table state from a specific commit version
-func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
 	actions, err := table.ReadCommitVersion(version)
 	if err != nil {
 		return nil, err
@@ -96,7 +97,7 @@ func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTa
 }
 
 // / Generate a table state from a list of actions
-func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
 	tableState := NewDeltaTableState[RowType, PartitionType](version)
 	for _, action := range actions {
 		err := tableState.processAction(action)
@@ -221,7 +222,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) merge(newTableState *
 }
 
 func stateFromCheckpoint[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], checkpoint *CheckPoint) (*DeltaTableState[RowType, PartitionType], error) {
-	newState := NewDeltaTableState[RowType, PartitionType](checkpoint.Version)
+	newState := NewDeltaTableState[RowType, PartitionType](state.DeltaDataTypeVersion(checkpoint.Version))
 	checkpointDataPaths := table.GetCheckpointDataPaths(checkpoint)
 	for _, location := range checkpointDataPaths {
 		checkpointBytes, err := table.Store.Get(&location)

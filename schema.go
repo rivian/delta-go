@@ -29,9 +29,6 @@ type Guid string
 // / Type alias for i64/Delta long
 type DeltaDataTypeLong state.DeltaDataTypeLong
 
-// / Type alias representing the expected type (i64) of a Delta table version.
-type DeltaDataTypeVersion state.DeltaDataTypeLong
-
 // / Type alias representing the expected type (i64/ms since Unix epoch) of a Delta timestamp.
 type DeltaDataTypeTimestamp int64
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iancoleman/strcase"
+	"github.com/rivian/delta-go/state"
 	"golang.org/x/exp/constraints"
 )
 
@@ -61,12 +62,17 @@ type Add[RowType any] struct {
 	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
 	Stats *string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
+
+	// TODO - parsed fields dropped after the parquet library switch.
+	// This requires dropping writer version to 2.
+	// We likely need to re-implement using reflection.
+	//
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
 	// raw parquet format. This field needs to be written when statistics are available and the
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
+	// StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
 }
 
 // An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
@@ -103,13 +109,13 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	// column can be omitted.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	// PartitionValuesParsed PartitionType `json:"-" parquet:"name=partitionValues_parsed"`
+	// PartitionValuesParsed *PartitionType `json:"-" parquet:"name=partitionValues_parsed"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
 	// raw parquet format. This field needs to be written when statistics are available and the
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	// StatsParsed GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
+	// StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
 }
 
 // TODO partition version, and parsed fields
@@ -196,7 +202,7 @@ func boolFromValue(value reflect.Value) (*bool, error) {
 	return nil, ErrorActionConversion
 }
 
-func deltaDataIntTypeFromValue[DeltaIntType DeltaDataTypeInt | DeltaDataTypeLong | DeltaDataTypeTimestamp | DeltaDataTypeVersion | DeltaDataTypeDate](value reflect.Value) (*DeltaIntType, error) {
+func deltaDataIntTypeFromValue[DeltaIntType DeltaDataTypeInt | DeltaDataTypeLong | DeltaDataTypeTimestamp | state.DeltaDataTypeVersion | DeltaDataTypeDate](value reflect.Value) (*DeltaIntType, error) {
 	if value.Kind() == reflect.Ptr {
 		if value.IsNil() {
 			return nil, nil
@@ -521,7 +527,7 @@ type Txn struct {
 	/// A unique identifier for the application performing the transaction.
 	AppId *string `json:"appId" parquet:"name=appId, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// An application-specific numeric identifier for this transaction.
-	Version *DeltaDataTypeVersion `json:"version" parquet:"name=version, type=INT64"`
+	Version *state.DeltaDataTypeVersion `json:"version" parquet:"name=version, type=INT64"`
 	/// The time when this transaction action was created in milliseconds since the Unix epoch.
 	LastUpdated *DeltaDataTypeTimestamp `json:"-" parquet:"name=lastUpdated, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MILLIS"`
 }
@@ -534,7 +540,7 @@ func NewTxnFromValue(value reflect.Value) (*Txn, error) {
 	if err != nil {
 		return nil, err
 	}
-	txn.Version, err = deltaDataIntTypeFromValue[DeltaDataTypeVersion](value.FieldByName("Version"))
+	txn.Version, err = deltaDataIntTypeFromValue[state.DeltaDataTypeVersion](value.FieldByName("Version"))
 	if err != nil {
 		return nil, err
 	}

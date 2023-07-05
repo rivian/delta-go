@@ -31,6 +31,7 @@ import (
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/lock/nillock"
+	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/state/localstate"
 	"github.com/segmentio/parquet-go"
@@ -944,7 +945,7 @@ func fileExists(filename string) bool {
 
 func TestCommitUriFromVersion(t *testing.T) {
 	type test struct {
-		input DeltaDataTypeVersion
+		input state.DeltaDataTypeVersion
 		want  string
 	}
 
@@ -992,7 +993,7 @@ func TestCommitVersionFromUri(t *testing.T) {
 	type test struct {
 		input       string
 		wantMatch   bool
-		wantVersion DeltaDataTypeVersion
+		wantVersion state.DeltaDataTypeVersion
 	}
 
 	tests := []test{
@@ -1020,7 +1021,7 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 	type test struct {
 		input       string
 		wantMatch   bool
-		wantVersion DeltaDataTypeVersion
+		wantVersion state.DeltaDataTypeVersion
 	}
 
 	tests := []test{
@@ -1051,7 +1052,7 @@ func TestLoadVersion(t *testing.T) {
 
 	// Load version 2
 	table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
-	var version DeltaDataTypeVersion = 2
+	var version state.DeltaDataTypeVersion = 2
 	err := table.LoadVersion(&version)
 	if err != nil {
 		t.Error(err)
