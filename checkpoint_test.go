@@ -180,7 +180,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 			t.Errorf("last checkpoint number of actions is %d, should be 12", lastCheckpoint.Size)
 		}
 
-		if lastCheckpoint.SizeInBytes != checkpointMeta.Size {
+		if int64(lastCheckpoint.SizeInBytes) != checkpointMeta.Size {
 			t.Errorf("last checkpoint size in bytes is %d, should be %d", lastCheckpoint.SizeInBytes, checkpointMeta.Size)
 		}
 	}
@@ -212,25 +212,34 @@ type tombstonesTestData struct {
 
 func getTestAdd[RowType any, PartitionType any](offsetMillis int64) *AddPartitioned[RowType, PartitionType] {
 	add := new(AddPartitioned[RowType, PartitionType])
-	add.Path = uuid.NewString()
-	add.Size = 100
-	add.DataChange = true
-	add.PartitionValues = make(map[string]string)
-	add.ModificationTime = int64(time.Now().UnixMilli() - offsetMillis)
+	path := uuid.NewString()
+	add.Path = &path
+	size := DeltaDataTypeLong(100)
+	add.Size = &size
+	dataChange := true
+	add.DataChange = &dataChange
+	partitionValues := make(map[string]string)
+	add.PartitionValues = &partitionValues
+	modificationTime := DeltaDataTypeTimestamp(time.Now().UnixMilli() - offsetMillis)
+	add.ModificationTime = &modificationTime
 	return add
 }
 
 func getTestRemove(offsetMillis int64, path string) *Remove {
 	remove := new(Remove)
-	remove.Path = path
-	remove.Size = 100
-	remove.DataChange = true
-	remove.PartitionValues = make(map[string]string)
-	remove.DeletionTimestamp = int64(time.Now().UnixMilli() - offsetMillis)
+	remove.Path = &path
+	size := DeltaDataTypeLong(100)
+	remove.Size = &size
+	dataChange := true
+	remove.DataChange = &dataChange
+	partitionValues := make(map[string]string)
+	remove.PartitionValues = &partitionValues
+	deletionTimestamp := DeltaDataTypeTimestamp(time.Now().UnixMilli() - offsetMillis)
+	remove.DeletionTimestamp = &deletionTimestamp
 	return remove
 }
 
-func testDoCommit[RowType any, PartitionType any](t *testing.T, table *DeltaTable[RowType, PartitionType], actions []Action) (int64, error) {
+func testDoCommit[RowType any, PartitionType any](t *testing.T, table *DeltaTable[RowType, PartitionType], actions []Action) (DeltaDataTypeVersion, error) {
 	t.Helper()
 	tx := table.CreateTransaction(&DeltaTransactionOptions{})
 	tx.AddActions(actions)
@@ -245,8 +254,7 @@ func TestTombstones(t *testing.T) {
 
 	// Set tombstone expiry time to 2 hours
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
-
+	protocol := new(Protocol).Default()
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, simpleCheckpointTestPartition], 0))
 	add1 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
@@ -285,19 +293,19 @@ func TestTombstones(t *testing.T) {
 	if len(table.State.Files) != 2 {
 		t.Errorf("State contains %d files, expected 2", len(table.State.Files))
 	}
-	_, ok := table.State.Files[add1.Path]
+	_, ok := table.State.Files[*add1.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add1.Path)
+		t.Errorf("Missing file %s", *add1.Path)
 	}
-	_, ok = table.State.Files[add2.Path]
+	_, ok = table.State.Files[*add2.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add2.Path)
+		t.Errorf("Missing file %s", *add2.Path)
 	}
 
 	// Simulate an optimize at 5 minutes ago: the tombstones should not be expired since that's set to 2 hours
 	optimizeTime := int64(5) * 60 * 1000
-	remove1 := getTestRemove(optimizeTime, add1.Path)
-	remove2 := getTestRemove(optimizeTime, add2.Path)
+	remove1 := getTestRemove(optimizeTime, *add1.Path)
+	remove2 := getTestRemove(optimizeTime, *add2.Path)
 	add3 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](optimizeTime)
 	add4 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](optimizeTime)
 	v, err = testDoCommit(t, table, []Action{remove1, remove2, add3, add4})
@@ -322,13 +330,13 @@ func TestTombstones(t *testing.T) {
 	if len(table.State.Files) != 2 {
 		t.Errorf("State contains %d files, expected 2", len(table.State.Files))
 	}
-	_, ok = table.State.Files[add3.Path]
+	_, ok = table.State.Files[*add3.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add3.Path)
+		t.Errorf("Missing file %s", *add3.Path)
 	}
-	_, ok = table.State.Files[add4.Path]
+	_, ok = table.State.Files[*add4.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add4.Path)
+		t.Errorf("Missing file %s", *add4.Path)
 	}
 	// Verify tombstones are present
 	if len(table.State.Tombstones) != 2 {
@@ -343,7 +351,7 @@ func TestExpiredTombstones(t *testing.T) {
 	table := NewDeltaTable[tombstonesTestData, simpleCheckpointTestPartition](store, lock, state)
 
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
+	protocol := new(Protocol).Default()
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, simpleCheckpointTestPartition], 0))
 	add1 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago
@@ -377,19 +385,19 @@ func TestExpiredTombstones(t *testing.T) {
 	if len(table.State.Files) != 2 {
 		t.Errorf("State contains %d files, expected 2", len(table.State.Files))
 	}
-	_, ok := table.State.Files[add1.Path]
+	_, ok := table.State.Files[*add1.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add1.Path)
+		t.Errorf("Missing file %s", *add1.Path)
 	}
-	_, ok = table.State.Files[add2.Path]
+	_, ok = table.State.Files[*add2.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add2.Path)
+		t.Errorf("Missing file %s", *add2.Path)
 	}
 
 	// Simulate an optimize
 	optimizeTime := int64(5) * 59 * 1000
-	remove1 := getTestRemove(optimizeTime, add1.Path)
-	remove2 := getTestRemove(optimizeTime, add2.Path)
+	remove1 := getTestRemove(optimizeTime, *add1.Path)
+	remove2 := getTestRemove(optimizeTime, *add2.Path)
 	add3 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](optimizeTime)
 	add4 := getTestAdd[tombstonesTestData, simpleCheckpointTestPartition](optimizeTime)
 	v, err = testDoCommit(t, table, []Action{remove1, remove2, add3, add4})
@@ -414,13 +422,13 @@ func TestExpiredTombstones(t *testing.T) {
 	if len(table.State.Files) != 2 {
 		t.Errorf("State contains %d files, expected 2", len(table.State.Files))
 	}
-	_, ok = table.State.Files[add3.Path]
+	_, ok = table.State.Files[*add3.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add3.Path)
+		t.Errorf("Missing file %s", *add3.Path)
 	}
-	_, ok = table.State.Files[add4.Path]
+	_, ok = table.State.Files[*add4.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add4.Path)
+		t.Errorf("Missing file %s", *add4.Path)
 	}
 	// Verify stale tombstones were removed
 	if len(table.State.Tombstones) != 0 {
@@ -435,7 +443,7 @@ func TestCheckpointNoPartition(t *testing.T) {
 	table := NewDeltaTable[tombstonesTestData, emptyTestStruct](store, lock, stateStore)
 
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
+	protocol := new(Protocol).Default()
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, emptyTestStruct], 0))
 	add1 := getTestAdd[tombstonesTestData, emptyTestStruct](3 * 60 * 1000) // 3 mins ago
 	add2 := getTestAdd[tombstonesTestData, emptyTestStruct](2 * 60 * 1000) // 2 mins ago
@@ -461,7 +469,7 @@ func TestCheckpointNoPartition(t *testing.T) {
 	}
 
 	// Load the checkpoint - don't use OpenTable since it will fall back to incremental if checkpoint read fails
-	var version int64 = 2
+	var version DeltaDataTypeVersion = 2
 	checkpoints, _, err := table.findLatestCheckpointsForVersion(&version)
 	if err != nil {
 		t.Fatal(err)
@@ -477,19 +485,21 @@ func TestCheckpointNoPartition(t *testing.T) {
 	if len(table.State.Files) != 2 {
 		t.Errorf("State contains %d files, expected 2", len(table.State.Files))
 	}
-	_, ok := table.State.Files[add1.Path]
+	_, ok := table.State.Files[*add1.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add1.Path)
+		t.Errorf("Missing file %s", *add1.Path)
 	}
-	_, ok = table.State.Files[add2.Path]
+	_, ok = table.State.Files[*add2.Path]
 	if !ok {
-		t.Errorf("Missing file %s", add2.Path)
+		t.Errorf("Missing file %s", *add2.Path)
 	}
 
-	add1.DataChange = false
-	add1.Tags = make(map[string]string)
-	if !reflect.DeepEqual(table.State.Files[add1.Path], *add1) {
-		t.Errorf("Expected %v found %v", *add1, table.State.Files[add1.Path])
+	dataChange := false
+	add1.DataChange = &dataChange
+	tags := make(map[string]string)
+	add1.Tags = &tags
+	if !reflect.DeepEqual(table.State.Files[*add1.Path], *add1) {
+		t.Errorf("Expected %v found %v", *add1, table.State.Files[*add1.Path])
 	}
 }
 
@@ -501,15 +511,16 @@ func TestMultiPartCheckpoint(t *testing.T) {
 	table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
 
 	provider := "tester"
-	metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: &provider, Options: map[string]string{"hello": "world"}},
+	options := map[string]string{"hello": "world"}
+	metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: &provider, Options: &options},
 		GetSchema(new(simpleCheckpointTestData)), make([]string, 0), map[string]string{"delta.isTest": "true"})
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 1}
+	protocol := new(Protocol).Default()
 	table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition], 0))
 	paths := make([]string, 0, 10)
 	// Commit ten Add actions
 	for i := 0; i < 10; i++ {
 		add := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](60 * 1000)
-		paths = append(paths, add.Path)
+		paths = append(paths, *add.Path)
 		v, err := testDoCommit(t, table, []Action{add})
 		if err != nil {
 			t.Fatal(err)
@@ -532,9 +543,12 @@ func TestMultiPartCheckpoint(t *testing.T) {
 
 	// And a txn
 	txn := new(Txn)
-	txn.AppId = "testApp"
-	txn.LastUpdated = time.Now().UnixMilli()
-	txn.Version = v
+	appId := "testApp"
+	txn.AppId = &appId
+	lastUpdated := DeltaDataTypeTimestamp(time.Now().UnixMilli())
+	txn.LastUpdated = &lastUpdated
+	txnVersion := v
+	txn.Version = &txnVersion
 	v, err = testDoCommit(t, table, []Action{txn})
 	if err != nil {
 		t.Fatal(err)
@@ -638,8 +652,8 @@ func TestMultiPartCheckpoint(t *testing.T) {
 		if !ok {
 			t.Errorf("Missing expected tombstone %s", paths[0])
 		} else {
-			if remove.Path != checkpointRemove.Path {
-				t.Errorf("Found tombstone path %s, expected %s", remove.Path, checkpointRemove.Path)
+			if *remove.Path != *checkpointRemove.Path {
+				t.Errorf("Found tombstone path %s, expected %s", *remove.Path, *checkpointRemove.Path)
 			}
 		}
 	}
@@ -648,22 +662,22 @@ func TestMultiPartCheckpoint(t *testing.T) {
 	if len(table.State.AppTransactionVersion) != 1 {
 		t.Errorf("Found %d app versions, expected 1", len(table.State.AppTransactionVersion))
 	} else {
-		version, ok := table.State.AppTransactionVersion[txn.AppId]
+		version, ok := table.State.AppTransactionVersion[*txn.AppId]
 		if !ok {
 			t.Error("Did not find expected app in app versions")
 		} else {
-			if version != txn.Version {
-				t.Errorf("Found version %d in app versions, expected %d", version, txn.Version)
+			if version != *txn.Version {
+				t.Errorf("Found version %d in app versions, expected %d", version, *txn.Version)
 			}
 		}
 	}
 
 	// Verify correct protocol
-	if table.State.MinReaderVersion != protocol.MinReaderVersion {
-		t.Errorf("State MinReaderVersion is %d, expected %d", table.State.MinReaderVersion, protocol.MinReaderVersion)
+	if table.State.MinReaderVersion != *protocol.MinReaderVersion {
+		t.Errorf("State MinReaderVersion is %d, expected %d", table.State.MinReaderVersion, *protocol.MinReaderVersion)
 	}
-	if table.State.MinWriterVersion != protocol.MinWriterVersion {
-		t.Errorf("State MinWriterVersion is %d, expected %d", table.State.MinWriterVersion, protocol.MinWriterVersion)
+	if table.State.MinWriterVersion != *protocol.MinWriterVersion {
+		t.Errorf("State MinWriterVersion is %d, expected %d", table.State.MinWriterVersion, *protocol.MinWriterVersion)
 	}
 
 	// Remove _last_checkpoint
@@ -686,10 +700,10 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 	type test struct {
 		input          string
 		wantCheckpoint *CheckPoint
-		wantPart       int
+		wantPart       DeltaDataTypeInt
 	}
 
-	part63 := 63
+	part63 := DeltaDataTypeInt(63)
 
 	tests := []test{
 		{input: "_delta_log/00000000000000000000.json", wantCheckpoint: nil},
@@ -940,7 +954,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			shouldCleanup := enableCleanupInTableConfig && !disableCleanupInCheckpointConfig
 
 			// Check cleanup results
-			var version int64 = 0
+			var version DeltaDataTypeVersion = 0
 			err = table.LoadVersion(&version)
 			if shouldCleanup {
 				if !errors.Is(err, ErrorInvalidVersion) {
@@ -1062,7 +1076,7 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 
 	// Even though we checkpointed at version 5, and expiry is set to 11 minutes (covering versions 0-4),
 	// because of the time adjustment we should only have removed versions 0 and 1
-	var version int64 = 0
+	var version DeltaDataTypeVersion = 0
 	err = table.LoadVersion(&version)
 	if !errors.Is(err, ErrorInvalidVersion) {
 		t.Fatal("did not remove version 0")
@@ -1159,7 +1173,9 @@ func TestCheckpointInvalidVersion(t *testing.T) {
 	table := NewDeltaTable[tombstonesTestData, emptyTestStruct](store, lock, stateStore)
 
 	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
-	protocol := Protocol{MinReaderVersion: 3, MinWriterVersion: 7}
+	protocol := new(Protocol).Default()
+	*protocol.MinReaderVersion = 2
+	*protocol.MinWriterVersion = 2
 	err := table.Create(*metadata, protocol, CommitInfo{}, make([]AddPartitioned[tombstonesTestData, emptyTestStruct], 0))
 	if !errors.Is(err, ErrorUnsupportedReaderVersion) || !errors.Is(err, ErrorUnsupportedWriterVersion) {
 		t.Error("should return unsupported reader/writer version errors")

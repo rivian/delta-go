@@ -22,11 +22,11 @@ import (
 // / There is no persistence.
 // / This is intended for local use and testing only.
 type LocalStateStore struct {
-	version int64
+	version state.DeltaDataTypeVersion
 }
 
 // / Create a new LocalStateStore with the current table version
-func New(currentTableVersion int64) *LocalStateStore {
+func New(currentTableVersion state.DeltaDataTypeVersion) *LocalStateStore {
 	ls := new(LocalStateStore)
 	ls.version = currentTableVersion
 	return ls

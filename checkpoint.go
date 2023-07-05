@@ -26,14 +26,14 @@ import (
 // / This gets written out to _last_checkpoint
 type CheckPoint struct {
 	/// Delta table version
-	Version int64 `json:"version"`
+	Version DeltaDataTypeVersion `json:"version"`
 	// The number of actions in the checkpoint. -1 if not available.
-	Size int64 `json:"size"`
+	Size DeltaDataTypeLong `json:"size"`
 	// The number of parts if the checkpoint has multiple parts.  Omit if single part.
-	Parts *int `json:"parts,omitempty"`
+	Parts *DeltaDataTypeInt `json:"parts,omitempty"`
 	// Size of the checkpoint in bytes
-	SizeInBytes   int64 `json:"sizeInBytes"`
-	NumOfAddFiles int64 `json:"numOfAddFiles"`
+	SizeInBytes   DeltaDataTypeLong `json:"sizeInBytes"`
+	NumOfAddFiles DeltaDataTypeLong `json:"numOfAddFiles"`
 }
 
 // / A single checkpoint entry in the checkpoint Parquet file
@@ -95,7 +95,7 @@ func lastCheckpointPath() *storage.Path {
 // / Return the checkpoint version and total parts, and the current part index if the URI is a valid checkpoint filename
 // / If the checkpoint is single-part then part and checkpoint.Parts will both be zero
 // / If the URI is not a valid checkpoint filename then checkpoint will be nil
-func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part int, parseErr error) {
+func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part DeltaDataTypeInt, parseErr error) {
 	// Check for a single-part checkpoint
 	groups := checkpointRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 2 {
@@ -105,7 +105,7 @@ func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part int
 			return
 		}
 		checkpoint = new(CheckPoint)
-		checkpoint.Version = checkpointVersionInt
+		checkpoint.Version = DeltaDataTypeVersion(checkpointVersionInt)
 		checkpoint.Size = 0
 		part = 0
 		return
@@ -130,17 +130,17 @@ func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part int
 			return
 		}
 		checkpoint = new(CheckPoint)
-		checkpoint.Version = checkpointVersionInt
+		checkpoint.Version = DeltaDataTypeVersion(checkpointVersionInt)
 		checkpoint.Size = 0
-		partsInt := int(partsInt64)
-		checkpoint.Parts = &partsInt
-		part = int(partInt64)
+		partsDeltaInt := DeltaDataTypeInt(partsInt64)
+		checkpoint.Parts = &partsDeltaInt
+		part = DeltaDataTypeInt(partInt64)
 	}
 	return
 }
 
 // / Check whether the given checkpoint version exists, either as a single- or multi-part checkpoint
-func doesCheckpointVersionExist(store storage.ObjectStore, version int64, validateAllPartsExist bool) (bool, error) {
+func doesCheckpointVersionExist(store storage.ObjectStore, version DeltaDataTypeVersion, validateAllPartsExist bool) (bool, error) {
 	// List all files starting with the version prefix.  This will also find commit logs and possible crc files
 	str := fmt.Sprintf("%020d", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
@@ -150,8 +150,8 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 	}
 
 	// Multi-part validation
-	partsFound := make(map[int]bool, 10)
-	totalParts := 0
+	partsFound := make(map[DeltaDataTypeInt]bool, 10)
+	totalParts := DeltaDataTypeInt(0)
 
 	for _, possibleCheckpointFile := range possibleCheckpointFiles.Objects {
 		checkpoint, currentPart, err := checkpointInfoFromURI(&possibleCheckpointFile.Location)
@@ -172,7 +172,7 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 	}
 	// Found a multi-part checkpoint and we want to validate that all parts exist
 	if len(partsFound) > 0 {
-		for i := 0; i < totalParts; i++ {
+		for i := DeltaDataTypeInt(0); i < totalParts; i++ {
 			found, ok := partsFound[i+1]
 			if !ok || !found {
 				return false, ErrorCheckpointIncomplete
@@ -208,7 +208,7 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 	tableState.prepareStateForCheckpoint()
 
 	totalRows := len(tableState.Files) + len(tableState.Tombstones) + len(tableState.AppTransactionVersion) + 2
-	numParts := ((totalRows - 1) / checkpointConfiguration.MaxRowsPerPart) + 1
+	numParts := DeltaDataTypeInt(((totalRows - 1) / checkpointConfiguration.MaxRowsPerPart) + 1)
 
 	// From https://github.com/delta-io/delta/blob/master/PROTOCOL.md#checkpoints:
 	// When writing multi-part checkpoints, the data must be clustered (either through hash or range partitioning)
@@ -222,7 +222,7 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 
 	var totalBytes int64 = 0
 	offsetRow := 0
-	for part := 0; part < numParts; part++ {
+	for part := DeltaDataTypeInt(0); part < numParts; part++ {
 		records, err := checkpointRows[RowType, PartitionType, AddType](tableState, offsetRow, checkpointConfiguration.MaxRowsPerPart)
 		if err != nil {
 			return err
@@ -254,7 +254,7 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 		return ErrorCheckpointRowCountMismatch
 	}
 
-	var reportedParts *int
+	var reportedParts *DeltaDataTypeInt
 	if numParts > 1 {
 		// Only multipart checkpoints list the parts
 		reportedParts = &numParts
@@ -262,10 +262,10 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 
 	checkpoint := CheckPoint{
 		Version:       tableState.Version,
-		Size:          int64(totalRows),
-		SizeInBytes:   int64(totalBytes),
+		Size:          DeltaDataTypeLong(totalRows),
+		SizeInBytes:   DeltaDataTypeLong(totalBytes),
 		Parts:         reportedParts,
-		NumOfAddFiles: int64(len(tableState.Files)),
+		NumOfAddFiles: DeltaDataTypeLong(len(tableState.Files)),
 	}
 	checkpointBytes, err := json.Marshal(checkpoint)
 	if err != nil {
@@ -289,11 +289,18 @@ func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowTyp
 	// 	return nil, err
 	// }
 
+	addDataChange := false
 	checkpointAdd := new(AddType)
 	switch typedAdd := any(checkpointAdd).(type) {
 	case *AddPartitioned[RowType, PartitionType]:
-		*typedAdd = *add
-		typedAdd.DataChange = false
+		// *typedAdd = *add
+		typedAdd.DataChange = &addDataChange
+		typedAdd.ModificationTime = add.ModificationTime
+		typedAdd.PartitionValues = add.PartitionValues
+		typedAdd.Path = add.Path
+		typedAdd.Size = add.Size
+		typedAdd.Stats = add.Stats
+		typedAdd.Tags = add.Tags
 		// typedAdd.StatsParsed = *parsedStats
 		// partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
 		// if err != nil {
@@ -301,10 +308,11 @@ func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowTyp
 		// }
 		// typedAdd.PartitionValuesParsed = *partitionValuesParsed
 	case *Add[RowType]:
-		typedAdd.DataChange = false
+		typedAdd.DataChange = &addDataChange
 		typedAdd.ModificationTime = add.ModificationTime
 		typedAdd.PartitionValues = add.PartitionValues
-		typedAdd.Path = add.Path
+		pathCopy := *add.Path
+		typedAdd.Path = &pathCopy
 		typedAdd.Size = add.Size
 		typedAdd.Stats = add.Stats
 		typedAdd.Tags = add.Tags
@@ -314,7 +322,7 @@ func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowTyp
 }
 
 type DeletionCandidate struct {
-	Version int64
+	Version DeltaDataTypeVersion
 	Meta    storage.ObjectMeta
 }
 
@@ -322,7 +330,7 @@ type DeletionCandidate struct {
 // / "Safe to delete" is determined by the version and timestamp of the last file in the maybeToDelete list.
 // / For more details see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
 // / Returns the number of files deleted.
-func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandidate, beforeVersion int64, maxTimestamp time.Time) (int, error) {
+func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandidate, beforeVersion DeltaDataTypeVersion, maxTimestamp time.Time) (int, error) {
 	deleted := 0
 
 	if len(maybeToDelete) > 0 {
@@ -345,7 +353,7 @@ func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandida
 // / Remove any logs and checkpoints that have a last updated date before maxTimestamp and a version before beforeVersion
 // / Last updated timestamps are required to be monotonically increasing, so there may be some time adjustment required
 // / For more detail see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
-func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time, store storage.ObjectStore) (int, error) {
+func removeExpiredLogsAndCheckpoints(beforeVersion DeltaDataTypeVersion, maxTimestamp time.Time, store storage.ObjectStore) (int, error) {
 	if !store.IsListOrdered() {
 		// Currently all object stores return list results sorted
 		return 0, errors.Join(ErrorNotImplemented, errors.New("removing expired logs is not implemented for this object store"))

@@ -43,30 +43,30 @@ type CommitInfo map[string]interface{}
 // When writing a partitioned table checkpoint, the AddPartitioned variant below is used instead.
 type Add[RowType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Path *string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	// A map from partition column to value for this file
 	// This field is required even without a partition.
-	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionValues *map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// The size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, type=INT64"`
+	Size *DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	// The time this file was created, as milliseconds since the epoch
-	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	ModificationTime *DeltaDataTypeTimestamp `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MILLIS"`
 	// When false the file must already be present in the table or the records in the added file
 	// must be contained in one or more remove actions in the same version
 	//
 	// streaming queries that are tailing the transaction log can use this flag to skip actions
 	// that would not affect the final results.
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
+	DataChange *bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	// Map containing metadata about this file
-	Tags map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Stats *string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
 	// raw parquet format. This field needs to be written when statistics are available and the
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	StatsParsed GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
+	StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
 }
 
 // An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
@@ -74,23 +74,23 @@ type Add[RowType any] struct {
 // The AddPartitioned variant is for a partitioned table; the PartitionValuesParsed field will consist of the partition struct.
 type AddPartitioned[RowType any, PartitionType any] struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Path *string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	// A map from partition column to value for this file
-	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionValues *map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// The size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, type=INT64"`
+	Size *DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	// The time this file was created, as milliseconds since the epoch
-	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	ModificationTime *DeltaDataTypeTimestamp `json:"modificationTime" parquet:"name=modificationTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MILLIS"`
 	// When false the file must already be present in the table or the records in the added file
 	// must be contained in one or more remove actions in the same version
 	//
 	// streaming queries that are tailing the transaction log can use this flag to skip actions
 	// that would not affect the final results.
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
+	DataChange *bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	// Map containing metadata about this file
-	Tags map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Stats *string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
 
 	// TODO - parsed fields dropped after the parquet library switch.
 	// This requires dropping writer version to 2.
@@ -113,65 +113,62 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 }
 
 // TODO partition version, and parsed fields
-func addFromValue[RowType any](value reflect.Value) (*Add[RowType], error) {
+func NewAddFromValue[RowType any](value reflect.Value) (*Add[RowType], error) {
 	add := new(Add[RowType])
 	var err error
-	dataChange, err := boolFromValue(value.FieldByName("DataChange"))
+	add.DataChange, err = boolFromValue(value.FieldByName("DataChange"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read DataChange for Add"))
 	}
-	if dataChange == nil {
-		add.DataChange = false
-	} else {
-		add.DataChange = *dataChange
+	if add.DataChange == nil {
+		addDataChange := false
+		add.DataChange = &addDataChange
 	}
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read DataChange for Add"))
 	}
-	add.ModificationTime, err = int64FromValue(value.FieldByName("ModificationTime"))
+	add.ModificationTime, err = deltaDataIntTypeFromValue[DeltaDataTypeTimestamp](value.FieldByName("ModificationTime"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read ModificationTime for Add"))
 	}
-	stringValue, err := stringFromValue(value.FieldByName("Path"))
+	add.Path, err = stringFromValue(value.FieldByName("Path"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read Path for Add"))
 	}
-	if stringValue != nil {
-		add.Path = *stringValue
-	}
 
-	add.Size, err = int64FromValue(value.FieldByName("Size"))
+	add.Size, err = deltaDataIntTypeFromValue[DeltaDataTypeLong](value.FieldByName("Size"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read Size for Add"))
 	}
 
-	stringValue, err = stringFromValue(value.FieldByName("Stats"))
+	add.Stats, err = stringFromValue(value.FieldByName("Stats"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read Stats for Add"))
-	}
-	if stringValue != nil {
-		add.Stats = *stringValue
 	}
 
 	// TODO type checking map key/values
 	partitionValues := value.FieldByName("PartitionValues")
 	if partitionValues.IsValid() {
-		add.PartitionValues = make(map[string]string, len(partitionValues.MapKeys()))
+		partitionValuesMap := make(map[string]string, len(partitionValues.MapKeys()))
+		add.PartitionValues = &partitionValuesMap
 		for _, e := range partitionValues.MapKeys() {
-			add.PartitionValues[e.String()] = partitionValues.MapIndex(e).String()
+			(*add.PartitionValues)[e.String()] = partitionValues.MapIndex(e).String()
 		}
 	} else {
-		add.PartitionValues = make(map[string]string, 0)
+		partitionValuesMap := make(map[string]string, 0)
+		add.PartitionValues = &partitionValuesMap
 	}
 
 	tags := value.FieldByName("Tags")
 	if tags.IsValid() {
-		add.Tags = make(map[string]string, len(tags.MapKeys()))
+		tagsMap := make(map[string]string, len(tags.MapKeys()))
+		add.Tags = &tagsMap
 		for _, e := range tags.MapKeys() {
-			add.Tags[e.String()] = tags.MapIndex(e).String()
+			(*add.Tags)[e.String()] = tags.MapIndex(e).String()
 		}
 	} else {
-		add.Tags = make(map[string]string, 0)
+		tagsMap := make(map[string]string, 0)
+		add.Tags = &tagsMap
 	}
 	return add, nil
 }
@@ -191,14 +188,19 @@ func boolFromValue(value reflect.Value) (*bool, error) {
 	return nil, ErrorActionConversion
 }
 
-func int64FromValue(value reflect.Value) (int64, error) {
+func deltaDataIntTypeFromValue[DeltaIntType DeltaDataTypeInt | DeltaDataTypeLong | DeltaDataTypeTimestamp | DeltaDataTypeVersion | DeltaDataTypeDate](value reflect.Value) (*DeltaIntType, error) {
 	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return nil, nil
+		}
 		value = value.Elem()
 	}
 	if value.Kind() == reflect.Int8 || value.Kind() == reflect.Int16 || value.Kind() == reflect.Int || value.Kind() == reflect.Int32 || value.Kind() == reflect.Int64 {
-		return value.Int(), nil
+		typedValue := DeltaIntType(value.Int())
+		return &typedValue, nil
 	}
-	return 0, ErrorActionConversion
+
+	return nil, ErrorActionConversion
 }
 
 func stringFromValue(value reflect.Value) (*string, error) {
@@ -230,80 +232,79 @@ func (addPartitioned *AddPartitioned[RowType, PartitionType]) fromAdd(add *Add[R
 // / This is a top-level action in Delta log entries.
 type Remove struct {
 	/// The path of the file that is removed from the table.
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Path *string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// The timestamp when the remove was added to table state.
-	DeletionTimestamp int64 `json:"deletionTimestamp" parquet:"name=deletionTimestamp, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	DeletionTimestamp *DeltaDataTypeTimestamp `json:"deletionTimestamp" parquet:"name=deletionTimestamp, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MILLIS"`
 	/// Whether data is changed by the remove. A table optimize will report this as false for
 	/// example, since it adds and removes files by combining many files into one.
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
+	DataChange *bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	/// When true the fields partitionValues, size, and tags are present
 	///
 	/// NOTE: Although it's defined as required in scala delta implementation, but some writes
 	/// it's still nullable so we keep it as Option<> for compatibly.
-	ExtendedFileMetadata bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, type=BOOLEAN"`
+	ExtendedFileMetadata *bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, type=BOOLEAN"`
 	/// A map from partition column to value for this file.
-	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionValues *map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// Size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, type=INT64"`
+	Size *DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	/// Map containing metadata about this file
-	Tags map[string]string `json:"tags"`
+	Tags *map[string]string `json:"tags"`
 }
 
-func removeFromValue(value reflect.Value) (*Remove, error) {
+func NewRemoveFromValue(value reflect.Value) (*Remove, error) {
 	remove := new(Remove)
 	var err error
-	dataChange, err := boolFromValue(value.FieldByName("DataChange"))
+	remove.DataChange, err = boolFromValue(value.FieldByName("DataChange"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read DataChange for Remove"))
 	}
-	if dataChange == nil {
-		remove.DataChange = false
-	} else {
-		remove.DataChange = *dataChange
+	if remove.DataChange == nil {
+		removeDataChange := false
+		remove.DataChange = &removeDataChange
 	}
-	remove.DeletionTimestamp, err = int64FromValue(value.FieldByName("DeletionTimestamp"))
+	remove.DeletionTimestamp, err = deltaDataIntTypeFromValue[DeltaDataTypeTimestamp](value.FieldByName("DeletionTimestamp"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read DeletionTimestamp in Remove"))
 	}
-	extendedFileMetadata, err := boolFromValue(value.FieldByName("ExtendedFileMetadata"))
+	remove.ExtendedFileMetadata, err = boolFromValue(value.FieldByName("ExtendedFileMetadata"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to read ExtendedFileMetadata for Remove"))
 	}
-	if dataChange == nil {
-		remove.ExtendedFileMetadata = false
-	} else {
-		remove.ExtendedFileMetadata = *extendedFileMetadata
+	if remove.ExtendedFileMetadata == nil {
+		removeExtendedFileMetadata := false
+		remove.ExtendedFileMetadata = &removeExtendedFileMetadata
 	}
 	// TODO type checking map key/values
 	partitionValues := value.FieldByName("PartitionValues")
 	if partitionValues.IsValid() {
-		remove.PartitionValues = make(map[string]string, len(partitionValues.MapKeys()))
+		partitionValuesMap := make(map[string]string, len(partitionValues.MapKeys()))
+		remove.PartitionValues = &partitionValuesMap
 		for _, e := range partitionValues.MapKeys() {
-			remove.PartitionValues[e.String()] = partitionValues.MapIndex(e).String()
+			(*remove.PartitionValues)[e.String()] = partitionValues.MapIndex(e).String()
 		}
 	} else {
-		remove.PartitionValues = make(map[string]string, 0)
+		partitionValuesMap := make(map[string]string, 0)
+		remove.PartitionValues = &partitionValuesMap
 	}
-	stringValue, err := stringFromValue(value.FieldByName("Path"))
+	remove.Path, err = stringFromValue(value.FieldByName("Path"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("Unable to read Path in Remove"))
 	}
-	if stringValue != nil {
-		remove.Path = *stringValue
-	}
 
-	remove.Size, err = int64FromValue(value.FieldByName("Size"))
+	remove.Size, err = deltaDataIntTypeFromValue[DeltaDataTypeLong](value.FieldByName("Size"))
 	if err != nil {
 		return nil, errors.Join(err, errors.New("Unable to read Size in Remove"))
 	}
 	tags := value.FieldByName("Tags")
 	if tags.IsValid() {
-		remove.Tags = make(map[string]string, len(tags.MapKeys()))
+		tagsMap := make(map[string]string, len(tags.MapKeys()))
+		remove.Tags = &tagsMap
 		for _, e := range tags.MapKeys() {
-			remove.Tags[e.String()] = tags.MapIndex(e).String()
+			(*remove.Tags)[e.String()] = tags.MapIndex(e).String()
 		}
 	} else {
-		remove.Tags = make(map[string]string, 0)
+		tagsMap := make(map[string]string, 0)
+		remove.Tags = &tagsMap
 	}
 	return remove, nil
 }
@@ -316,25 +317,27 @@ type Format struct {
 	Provider *string `json:"provider" parquet:"name=provider, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// A map containing configuration options for the format.
 	// Default: {}
-	Options map[string]string `json:"options" parquet:"name=options, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	Options *map[string]string `json:"options" parquet:"name=options, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 }
 
-func formatFromValue(value reflect.Value) (*Format, error) {
+func NewFormatFromValue(value reflect.Value) (*Format, error) {
 	format := new(Format)
 
-	stringValue, err := stringFromValue(value.FieldByName("Provider"))
+	var err error
+	format.Provider, err = stringFromValue(value.FieldByName("Provider"))
 	if err != nil {
 		return nil, err
 	}
-	format.Provider = stringValue
 	options := value.FieldByName("Options")
 	if options.IsValid() {
-		format.Options = make(map[string]string, len(options.MapKeys()))
+		optionsMap := make(map[string]string, len(options.MapKeys()))
+		format.Options = &optionsMap
 		for _, e := range options.MapKeys() {
-			format.Options[e.String()] = options.MapIndex(e).String()
+			(*format.Options)[e.String()] = options.MapIndex(e).String()
 		}
 	} else {
-		format.Options = make(map[string]string, 0)
+		optionsMap := make(map[string]string, 0)
+		format.Options = &optionsMap
 	}
 
 	return format, nil
@@ -346,7 +349,8 @@ func formatFromValue(value reflect.Value) (*Format, error) {
 func (format *Format) Default() Format {
 	provider := "parquet"
 	format.Provider = &provider
-	format.Options = make(map[string]string)
+	optionsMap := make(map[string]string)
+	format.Options = &optionsMap
 	return *format
 }
 
@@ -366,23 +370,22 @@ type MetaData struct {
 	/// Schema of the table
 	SchemaString *string `json:"schemaString" parquet:"name=schemaString, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// An array containing the names of columns by which the data should be partitioned
-	PartitionColumns []string `json:"partitionColumns" parquet:"name=partitionColumns, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionColumns *[]string `json:"partitionColumns" parquet:"name=partitionColumns, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// A map containing configuration options for the table
-	Configuration map[string]string `json:"configuration" parquet:"name=configuration, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	Configuration *map[string]string `json:"configuration" parquet:"name=configuration, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// The time when this metadata action is created, in milliseconds since the Unix epoch
-	CreatedTime *int64 `json:"createdTime" parquet:"name=createdTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	CreatedTime *DeltaDataTypeTimestamp `json:"createdTime" parquet:"name=createdTime, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MILLIS"`
 }
 
-func metadataFromValue(value reflect.Value) (*MetaData, error) {
+func NewMetadataFromValue(value reflect.Value) (*MetaData, error) {
 	metadata := new(MetaData)
 	var err error
-	stringValue, err := stringFromValue(value.FieldByName("Id"))
+	metadata.IdAsString, err = stringFromValue(value.FieldByName("Id"))
 	if err != nil {
 		return nil, err
 	}
-	metadata.IdAsString = stringValue
-	if stringValue != nil {
-		id, err := uuid.Parse(*stringValue)
+	if metadata.IdAsString != nil {
+		id, err := uuid.Parse(*metadata.IdAsString)
 		if err != nil {
 			return nil, err
 		}
@@ -390,52 +393,51 @@ func metadataFromValue(value reflect.Value) (*MetaData, error) {
 
 	}
 
-	stringValue, err = stringFromValue(value.FieldByName("Name"))
+	metadata.Name, err = stringFromValue(value.FieldByName("Name"))
 	if err != nil {
 		return nil, err
 	}
-	metadata.Name = stringValue
-	stringValue, err = stringFromValue(value.FieldByName("Description"))
+	metadata.Description, err = stringFromValue(value.FieldByName("Description"))
 	if err != nil {
 		return nil, err
 	}
-	metadata.Description = stringValue
-	format, err := formatFromValue(value.FieldByName("Format").Elem())
+	metadata.Format, err = NewFormatFromValue(value.FieldByName("Format").Elem())
 	if err != nil {
 		return nil, err
 	}
-	metadata.Format = format
-	stringValue, err = stringFromValue(value.FieldByName("SchemaString"))
+	metadata.SchemaString, err = stringFromValue(value.FieldByName("SchemaString"))
 	if err != nil {
 		return nil, err
 	}
-	metadata.SchemaString = stringValue
 
 	partitionColumns := value.FieldByName("PartitionColumns")
 	if partitionColumns.IsValid() {
-		metadata.PartitionColumns = make([]string, partitionColumns.Len())
+		partitionColumnsMap := make([]string, partitionColumns.Len())
+		metadata.PartitionColumns = &partitionColumnsMap
 		for i := 0; i < partitionColumns.Len(); i++ {
-			metadata.PartitionColumns[i] = partitionColumns.Index(i).String()
+			(*metadata.PartitionColumns)[i] = partitionColumns.Index(i).String()
 		}
 	} else {
-		metadata.PartitionColumns = make([]string, 0)
+		partitionColumnsMap := make([]string, 0)
+		metadata.PartitionColumns = &partitionColumnsMap
 	}
 
 	configuration := value.FieldByName("Configuration")
 	if configuration.IsValid() {
-		metadata.Configuration = make(map[string]string, len(configuration.MapKeys()))
+		configurationMap := make(map[string]string, len(configuration.MapKeys()))
+		metadata.Configuration = &configurationMap
 		for _, e := range configuration.MapKeys() {
-			metadata.Configuration[e.String()] = configuration.MapIndex(e).String()
+			(*metadata.Configuration)[e.String()] = configuration.MapIndex(e).String()
 		}
 	} else {
-		metadata.Configuration = make(map[string]string, 0)
+		configurationMap := make(map[string]string, 0)
+		metadata.Configuration = &configurationMap
 	}
 
-	intValue, err := int64FromValue(value.FieldByName("CreatedTime"))
+	metadata.CreatedTime, err = deltaDataIntTypeFromValue[DeltaDataTypeTimestamp](value.FieldByName("CreatedTime"))
 	if err != nil {
 		return nil, err
 	}
-	metadata.CreatedTime = &intValue
 
 	return metadata, nil
 }
@@ -455,11 +457,20 @@ func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
 		}
 	}
 
+	var partitionColumns []string
+	if md.PartitionColumns != nil {
+		partitionColumns = *md.PartitionColumns
+	}
+	var configuration map[string]string
+	if md.Configuration != nil {
+		configuration = *md.Configuration
+	}
+
 	dtmd := DeltaTableMetaData{
 		Id:               id,
 		Schema:           schema,
-		PartitionColumns: md.PartitionColumns,
-		Configuration:    md.Configuration,
+		PartitionColumns: partitionColumns,
+		Configuration:    configuration,
 	}
 	if md.Name != nil {
 		dtmd.Name = *md.Name
@@ -471,7 +482,7 @@ func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
 		dtmd.Format = *md.Format
 	}
 	if md.CreatedTime != nil {
-		dtmd.CreatedTime = time.UnixMilli(*md.CreatedTime)
+		dtmd.CreatedTime = time.UnixMilli(int64(*md.CreatedTime))
 	}
 	return dtmd, err
 }
@@ -480,29 +491,26 @@ func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
 // / enable idempotency.
 type Txn struct {
 	/// A unique identifier for the application performing the transaction.
-	AppId string `json:"appId" parquet:"name=appId, type=BYTE_ARRAY, convertedtype=UTF8"`
+	AppId *string `json:"appId" parquet:"name=appId, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// An application-specific numeric identifier for this transaction.
-	Version int64 `json:"version" parquet:"name=version, type=INT64"`
+	Version *DeltaDataTypeVersion `json:"version" parquet:"name=version, type=INT64"`
 	/// The time when this transaction action was created in milliseconds since the Unix epoch.
-	LastUpdated int64 `json:"-" parquet:"name=lastUpdated, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
+	LastUpdated *DeltaDataTypeTimestamp `json:"-" parquet:"name=lastUpdated, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MILLIS"`
 }
 
-func txnFromValue(value reflect.Value) (*Txn, error) {
+func NewTxnFromValue(value reflect.Value) (*Txn, error) {
 	txn := new(Txn)
 	var err error
 
-	stringValue, err := stringFromValue(value.FieldByName("AppId"))
+	txn.AppId, err = stringFromValue(value.FieldByName("AppId"))
 	if err != nil {
 		return nil, err
 	}
-	if stringValue != nil {
-		txn.AppId = *stringValue
-	}
-	txn.Version, err = int64FromValue(value.FieldByName("Version"))
+	txn.Version, err = deltaDataIntTypeFromValue[DeltaDataTypeVersion](value.FieldByName("Version"))
 	if err != nil {
 		return nil, err
 	}
-	txn.LastUpdated, err = int64FromValue(value.FieldByName("LastUpdated"))
+	txn.LastUpdated, err = deltaDataIntTypeFromValue[DeltaDataTypeTimestamp](value.FieldByName("LastUpdated"))
 	if err != nil {
 		return nil, err
 	}
@@ -514,43 +522,47 @@ func txnFromValue(value reflect.Value) (*Txn, error) {
 type Protocol struct {
 	/// Minimum version of the Delta read protocol a client must implement to correctly read the
 	/// table.
-	MinReaderVersion int `json:"minReaderVersion" parquet:"name=minReaderVersion, type=INT32"`
+	MinReaderVersion *DeltaDataTypeInt `json:"minReaderVersion" parquet:"name=minReaderVersion, type=INT32"`
 	/// Minimum version of the Delta write protocol a client must implement to correctly read the
 	/// table.
-	MinWriterVersion int `json:"minWriterVersion" parquet:"name=minWriterVersion, type=INT32"`
+	MinWriterVersion *DeltaDataTypeInt `json:"minWriterVersion" parquet:"name=minWriterVersion, type=INT32"`
 }
 
-func protocolFromValue(value reflect.Value) (*Protocol, error) {
+// / Default protocol versions are currently 1, 1 as we do not support any more advanced features yet
+func (protocol *Protocol) Default() Protocol {
+	minReaderVersion := DeltaDataTypeInt(1)
+	minWriterVersion := DeltaDataTypeInt(1)
+	protocol.MinReaderVersion = &minReaderVersion
+	protocol.MinWriterVersion = &minWriterVersion
+	return *protocol
+}
+
+func NewProtocolFromValue(value reflect.Value) (*Protocol, error) {
 	protocol := new(Protocol)
 	var err error
-
-	int64Value, err := int64FromValue(value.FieldByName("MinReaderVersion"))
+	protocol.MinReaderVersion, err = deltaDataIntTypeFromValue[DeltaDataTypeInt](value.FieldByName("MinReaderVersion"))
 	if err != nil {
 		return nil, err
 	}
-	protocol.MinReaderVersion = int(int64Value)
-
-	int64Value, err = int64FromValue(value.FieldByName("MinWriterVersion"))
+	protocol.MinWriterVersion, err = deltaDataIntTypeFromValue[DeltaDataTypeInt](value.FieldByName("MinWriterVersion"))
 	if err != nil {
 		return nil, err
 	}
-	protocol.MinWriterVersion = int(int64Value)
-
 	return protocol, nil
 }
 
 type Cdc struct {
 	/// A relative path, from the root of the table, or an
 	/// absolute path to a CDC file
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Path *string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// The size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, type=INT64"`
+	Size *DeltaDataTypeLong `json:"size" parquet:"name=size, type=INT64"`
 	/// A map from partition column to value for this file
-	PartitionValues map[string]string `json:"partitionValues"`
+	PartitionValues *map[string]string `json:"partitionValues"`
 	/// Should always be set to false because they do not change the underlying data of the table
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
+	DataChange *bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
 	/// Map containing metadata about this file
-	Tags map[string]string `json:"tags,omitempty"`
+	Tags *map[string]string `json:"tags,omitempty"`
 }
 
 func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, error) {

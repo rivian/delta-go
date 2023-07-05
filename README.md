@@ -60,9 +60,9 @@ func main() {
 
 	add := delta.Add{
 		Path:             fileName,
-		Size:             p.Size,
+		Size:             delta.DeltaDataTypeLong(p.Size),
 		DataChange:       true,
-		ModificationTime: time.Now().UnixMilli(),
+		ModificationTime: delta.DeltaDataTypeTimestamp(time.Now().UnixMilli()),
 		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
@@ -104,9 +104,9 @@ func main() {
 
 			add := delta.Add{
 				Path:             fileName,
-				Size:             p.Size,
+				Size:             delta.DeltaDataTypeLong(p.Size),
 				DataChange:       true,
-				ModificationTime: time.Now().UnixMilli(),
+				ModificationTime: delta.DeltaDataTypeTimestamp(time.Now().UnixMilli()),
 				Stats:            string(stats.Json()),
 				PartitionValues:  make(map[string]string),
 			}

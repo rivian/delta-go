@@ -29,7 +29,7 @@ import (
 
 type DeltaTableState[RowType any, PartitionType any] struct {
 	// current table version represented by this table state
-	Version int64
+	Version DeltaDataTypeVersion
 	// A remove action should remain in the state of the table as a tombstone until it has expired.
 	// A tombstone expires when the creation timestamp of the delta file exceeds the expiration
 	Tombstones map[string]Remove
@@ -37,9 +37,9 @@ type DeltaTableState[RowType any, PartitionType any] struct {
 	Files map[string]AddPartitioned[RowType, PartitionType]
 	// Information added to individual commits
 	CommitInfos           []CommitInfo
-	AppTransactionVersion map[string]int64
-	MinReaderVersion      int
-	MinWriterVersion      int
+	AppTransactionVersion map[string]DeltaDataTypeVersion
+	MinReaderVersion      DeltaDataTypeInt
+	MinWriterVersion      DeltaDataTypeInt
 	// table metadata corresponding to current version
 	CurrentMetadata *DeltaTableMetaData
 	// retention period for tombstones in milli-seconds
@@ -60,12 +60,12 @@ var (
 )
 
 // / Create an empty table state for the given version
-func NewDeltaTableState[RowType any, PartitionType any](version int64) *DeltaTableState[RowType, PartitionType] {
+func NewDeltaTableState[RowType any, PartitionType any](version DeltaDataTypeVersion) *DeltaTableState[RowType, PartitionType] {
 	tableState := new(DeltaTableState[RowType, PartitionType])
 	tableState.Version = version
 	tableState.Files = make(map[string]AddPartitioned[RowType, PartitionType])
 	tableState.Tombstones = make(map[string]Remove)
-	tableState.AppTransactionVersion = make(map[string]int64)
+	tableState.AppTransactionVersion = make(map[string]DeltaDataTypeVersion)
 	// Default 7 days
 	tableState.TombstoneRetention = time.Hour * 24 * 7
 	// Default 30 days
@@ -87,7 +87,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) ConfigurationOrDefaul
 }
 
 // / Generate a table state from a specific commit version
-func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version int64) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
 	actions, err := table.ReadCommitVersion(version)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTa
 }
 
 // / Generate a table state from a list of actions
-func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version int64) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
 	tableState := NewDeltaTableState[RowType, PartitionType](version)
 	for _, action := range actions {
 		err := tableState.processAction(action)
@@ -111,40 +111,43 @@ func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Act
 func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionInterface Action) error {
 	switch action := actionInterface.(type) {
 	case *AddPartitioned[RowType, PartitionType]:
-		tableState.Files[action.Path] = *action
+		tableState.Files[*action.Path] = *action
 	case *Add[RowType]:
 		// We're using the AddPartitioned type for storing our list of added files, so need to translate the type here
 		add := new(AddPartitioned[RowType, PartitionType])
 		// Copy details
 		add.fromAdd(action)
-		tableState.Files[action.Path] = *add
+		tableState.Files[*action.Path] = *add
 	case *Remove:
 		// TODO - do we need to decode as in delta-rs?
-		tableState.Tombstones[action.Path] = *action
+		tableState.Tombstones[*action.Path] = *action
 	case *MetaData:
-		option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]
-		if ok {
-			duration, err := ParseInterval(option)
-			if err != nil {
-				return err
+		if action.Configuration != nil {
+			// Parse the configuration options that we make use of
+			option, ok := (*action.Configuration)[string(DeletedFileRetentionDurationDeltaConfigKey)]
+			if ok {
+				duration, err := ParseInterval(option)
+				if err != nil {
+					return err
+				}
+				tableState.TombstoneRetention = duration
 			}
-			tableState.TombstoneRetention = duration
-		}
-		option, ok = action.Configuration[string(LogRetentionDurationDeltaConfigKey)]
-		if ok {
-			duration, err := ParseInterval(option)
-			if err != nil {
-				return err
+			option, ok = (*action.Configuration)[string(LogRetentionDurationDeltaConfigKey)]
+			if ok {
+				duration, err := ParseInterval(option)
+				if err != nil {
+					return err
+				}
+				tableState.LogRetention = duration
 			}
-			tableState.LogRetention = duration
-		}
-		option, ok = action.Configuration[string(EnableExpiredLogCleanupDeltaConfigKey)]
-		if ok {
-			boolOption, err := strconv.ParseBool(option)
-			if err != nil {
-				return err
+			option, ok = (*action.Configuration)[string(EnableExpiredLogCleanupDeltaConfigKey)]
+			if ok {
+				boolOption, err := strconv.ParseBool(option)
+				if err != nil {
+					return err
+				}
+				tableState.EnableExpiredLogCleanup = boolOption
 			}
-			tableState.EnableExpiredLogCleanup = boolOption
 		}
 		deltaTableMetadata, err := action.ToDeltaTableMetaData()
 		if err != nil {
@@ -152,10 +155,14 @@ func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionI
 		}
 		tableState.CurrentMetadata = &deltaTableMetadata
 	case *Txn:
-		tableState.AppTransactionVersion[action.AppId] = action.Version
+		tableState.AppTransactionVersion[*action.AppId] = *action.Version
 	case *Protocol:
-		tableState.MinReaderVersion = action.MinReaderVersion
-		tableState.MinWriterVersion = action.MinWriterVersion
+		if action.MinReaderVersion != nil {
+			tableState.MinReaderVersion = *action.MinReaderVersion
+		}
+		if action.MinWriterVersion != nil {
+			tableState.MinWriterVersion = *action.MinWriterVersion
+		}
 	case *CommitInfo:
 		tableState.CommitInfos = append(tableState.CommitInfos, *action)
 	case *Cdc:
@@ -288,35 +295,35 @@ func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddT
 			rowValue := reflect.ValueOf(row)
 			add := rowValue.FieldByName("Add").Elem()
 			if add.IsValid() {
-				action, err = addFromValue[RowType](add)
+				action, err = NewAddFromValue[RowType](add)
 				if err != nil {
 					return err
 				}
 			}
 			remove := rowValue.FieldByName("Remove").Elem()
 			if remove.IsValid() {
-				action, err = removeFromValue(remove)
+				action, err = NewRemoveFromValue(remove)
 				if err != nil {
 					return err
 				}
 			}
 			metadata := rowValue.FieldByName("MetaData").Elem()
 			if metadata.IsValid() {
-				action, err = metadataFromValue(metadata)
+				action, err = NewMetadataFromValue(metadata)
 				if err != nil {
 					return err
 				}
 			}
 			protocol := rowValue.FieldByName("Protocol").Elem()
 			if protocol.IsValid() {
-				action, err = protocolFromValue(protocol)
+				action, err = NewProtocolFromValue(protocol)
 				if err != nil {
 					return err
 				}
 			}
 			txn := rowValue.FieldByName("Txn").Elem()
 			if txn.IsValid() {
-				action, err = txnFromValue(txn)
+				action, err = NewTxnFromValue(txn)
 				if err != nil {
 					return err
 				}
@@ -343,21 +350,22 @@ func (tableState *DeltaTableState[RowType, PartitionType]) prepareStateForCheckp
 	// Don't keep expired tombstones
 	// Also check if any of the non-expired Remove actions had ExtendedFileMetadata = false
 	doNotUseExtendedFileMetadata := false
-	retentionTimestamp := time.Now().UnixMilli() - tableState.TombstoneRetention.Milliseconds()
+	retentionTimestamp := DeltaDataTypeTimestamp(time.Now().UnixMilli() - tableState.TombstoneRetention.Milliseconds())
 	unexpiredTombstones := make(map[string]Remove, len(tableState.Tombstones))
 	for path, remove := range tableState.Tombstones {
-		if remove.DeletionTimestamp > retentionTimestamp {
+		if *remove.DeletionTimestamp > retentionTimestamp {
 			unexpiredTombstones[path] = remove
-			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && !remove.ExtendedFileMetadata
+			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && !*remove.ExtendedFileMetadata
 		}
 	}
 
 	tableState.Tombstones = unexpiredTombstones
 
 	// If any Remove has ExtendedFileMetadata = false, set all to false
+	removeExtendedFileMetadata := false
 	if doNotUseExtendedFileMetadata {
 		for path, remove := range tableState.Tombstones {
-			remove.ExtendedFileMetadata = false
+			remove.ExtendedFileMetadata = &removeExtendedFileMetadata
 			tableState.Tombstones[path] = remove
 			// TODO - do we need to remove the extra settings if it was true?
 		}
@@ -378,8 +386,8 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 	// Row 1: protocol
 	if startOffset <= currentOffset {
 		protocol := new(Protocol)
-		protocol.MinReaderVersion = tableState.MinReaderVersion
-		protocol.MinWriterVersion = tableState.MinWriterVersion
+		protocol.MinReaderVersion = &tableState.MinReaderVersion
+		protocol.MinWriterVersion = &tableState.MinWriterVersion
 		checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Protocol: protocol})
 	}
 
@@ -403,8 +411,10 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 		for i, appId := range keys {
 			if startOffset < currentOffset+i {
 				txn := new(Txn)
-				txn.AppId = appId
-				txn.Version = tableState.AppTransactionVersion[appId]
+				appIdCopy := appId
+				txn.AppId = &appIdCopy
+				version := tableState.AppTransactionVersion[appId]
+				txn.Version = &version
 				checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Txn: txn})
 
 				if len(checkpointRows) >= maxRows {
@@ -480,7 +490,10 @@ func checkpointParquetBytes[RowType any, PartitionType any, AddType AddPartition
 			return nil, err
 		}
 	}
-	pw.WriteStop()
+	err = pw.WriteStop()
+	if err != nil {
+		return nil, err
+	}
 
 	return buf.Bytes(), nil
 }

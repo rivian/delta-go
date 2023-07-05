@@ -82,7 +82,7 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 		return state.CommitState{Version: -1}, err
 	}
 
-	commit := state.CommitState{Version: int64(version)}
+	commit := state.CommitState{Version: state.DeltaDataTypeVersion(version)}
 	return commit, nil
 }
 
