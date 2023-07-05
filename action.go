@@ -152,7 +152,11 @@ func NewAddFromValue[RowType any](value reflect.Value) (*Add[RowType], error) {
 		partitionValuesMap := make(map[string]string, len(partitionValues.MapKeys()))
 		add.PartitionValues = &partitionValuesMap
 		for _, e := range partitionValues.MapKeys() {
-			(*add.PartitionValues)[e.String()] = partitionValues.MapIndex(e).String()
+			val := partitionValues.MapIndex(e)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			(*add.PartitionValues)[e.String()] = val.String()
 		}
 	} else {
 		partitionValuesMap := make(map[string]string, 0)
@@ -164,7 +168,11 @@ func NewAddFromValue[RowType any](value reflect.Value) (*Add[RowType], error) {
 		tagsMap := make(map[string]string, len(tags.MapKeys()))
 		add.Tags = &tagsMap
 		for _, e := range tags.MapKeys() {
-			(*add.Tags)[e.String()] = tags.MapIndex(e).String()
+			val := tags.MapIndex(e)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			(*add.Tags)[e.String()] = val.String()
 		}
 	} else {
 		tagsMap := make(map[string]string, 0)
@@ -280,7 +288,11 @@ func NewRemoveFromValue(value reflect.Value) (*Remove, error) {
 		partitionValuesMap := make(map[string]string, len(partitionValues.MapKeys()))
 		remove.PartitionValues = &partitionValuesMap
 		for _, e := range partitionValues.MapKeys() {
-			(*remove.PartitionValues)[e.String()] = partitionValues.MapIndex(e).String()
+			val := partitionValues.MapIndex(e)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			(*remove.PartitionValues)[e.String()] = val.String()
 		}
 	} else {
 		partitionValuesMap := make(map[string]string, 0)
@@ -288,19 +300,23 @@ func NewRemoveFromValue(value reflect.Value) (*Remove, error) {
 	}
 	remove.Path, err = stringFromValue(value.FieldByName("Path"))
 	if err != nil {
-		return nil, errors.Join(err, errors.New("Unable to read Path in Remove"))
+		return nil, errors.Join(err, errors.New("unable to read Path in Remove"))
 	}
 
 	remove.Size, err = deltaDataIntTypeFromValue[DeltaDataTypeLong](value.FieldByName("Size"))
 	if err != nil {
-		return nil, errors.Join(err, errors.New("Unable to read Size in Remove"))
+		return nil, errors.Join(err, errors.New("unable to read Size in Remove"))
 	}
 	tags := value.FieldByName("Tags")
 	if tags.IsValid() {
 		tagsMap := make(map[string]string, len(tags.MapKeys()))
 		remove.Tags = &tagsMap
 		for _, e := range tags.MapKeys() {
-			(*remove.Tags)[e.String()] = tags.MapIndex(e).String()
+			val := tags.MapIndex(e)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			(*remove.Tags)[e.String()] = val.String()
 		}
 	} else {
 		tagsMap := make(map[string]string, 0)
@@ -333,7 +349,11 @@ func NewFormatFromValue(value reflect.Value) (*Format, error) {
 		optionsMap := make(map[string]string, len(options.MapKeys()))
 		format.Options = &optionsMap
 		for _, e := range options.MapKeys() {
-			(*format.Options)[e.String()] = options.MapIndex(e).String()
+			val := options.MapIndex(e)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			(*format.Options)[e.String()] = val.String()
 		}
 	} else {
 		optionsMap := make(map[string]string, 0)
@@ -370,7 +390,7 @@ type MetaData struct {
 	/// Schema of the table
 	SchemaString *string `json:"schemaString" parquet:"name=schemaString, type=BYTE_ARRAY, convertedtype=UTF8"`
 	/// An array containing the names of columns by which the data should be partitioned
-	PartitionColumns *[]string `json:"partitionColumns" parquet:"name=partitionColumns, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionColumns *[]string `json:"partitionColumns" parquet:"name=partitionColumns, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// A map containing configuration options for the table
 	Configuration *map[string]string `json:"configuration" parquet:"name=configuration, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 	/// The time when this metadata action is created, in milliseconds since the Unix epoch
@@ -415,7 +435,11 @@ func NewMetadataFromValue(value reflect.Value) (*MetaData, error) {
 		partitionColumnsMap := make([]string, partitionColumns.Len())
 		metadata.PartitionColumns = &partitionColumnsMap
 		for i := 0; i < partitionColumns.Len(); i++ {
-			(*metadata.PartitionColumns)[i] = partitionColumns.Index(i).String()
+			val := partitionColumns.Index(i)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			(*metadata.PartitionColumns)[i] = val.String()
 		}
 	} else {
 		partitionColumnsMap := make([]string, 0)
@@ -427,7 +451,11 @@ func NewMetadataFromValue(value reflect.Value) (*MetaData, error) {
 		configurationMap := make(map[string]string, len(configuration.MapKeys()))
 		metadata.Configuration = &configurationMap
 		for _, e := range configuration.MapKeys() {
-			(*metadata.Configuration)[e.String()] = configuration.MapIndex(e).String()
+			val := configuration.MapIndex(e)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			(*metadata.Configuration)[e.String()] = val.String()
 		}
 	} else {
 		configurationMap := make(map[string]string, 0)
