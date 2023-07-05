@@ -77,6 +77,7 @@ var (
 	ErrorCheckpointRowCountMismatch error = errors.New("checkpoint generated with unexpected row count")
 	ErrorCheckpointIncomplete       error = errors.New("checkpoint is missing parts")
 	ErrorCheckpointInvalidFileName  error = errors.New("checkpoint file name is invalid")
+	ErrorCheckpointAddZeroSize      error = errors.New("zero size in add not allowed")
 )
 
 func checkpointFromBytes(bytes []byte) (*CheckPoint, error) {
@@ -300,6 +301,9 @@ func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowTyp
 		typedAdd.PartitionValues = add.PartitionValues
 		typedAdd.Path = add.Path
 		typedAdd.Size = add.Size
+		if typedAdd.Size == nil || *typedAdd.Size == 0 {
+			return nil, errors.Join(ErrorCheckpointAddZeroSize, fmt.Errorf("zero size add for path %s", *add.Path))
+		}
 		typedAdd.Stats = add.Stats
 		typedAdd.Tags = add.Tags
 		// typedAdd.StatsParsed = *parsedStats
@@ -315,6 +319,9 @@ func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowTyp
 		pathCopy := *add.Path
 		typedAdd.Path = &pathCopy
 		typedAdd.Size = add.Size
+		if typedAdd.Size == nil || *typedAdd.Size == 0 {
+			return nil, errors.Join(ErrorCheckpointAddZeroSize, fmt.Errorf("zero size add for path %s", pathCopy))
+		}
 		typedAdd.Stats = add.Stats
 		typedAdd.Tags = add.Tags
 		// typedAdd.StatsParsed = *parsedStats
