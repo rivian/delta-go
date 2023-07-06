@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/rivian/delta-go/state"
 	"github.com/xitongsys/parquet-go-source/buffer"
 	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/reader"
@@ -30,7 +29,7 @@ import (
 
 type DeltaTableState[RowType any, PartitionType any] struct {
 	// current table version represented by this table state
-	Version state.DeltaDataTypeVersion
+	Version int64
 	// A remove action should remain in the state of the table as a tombstone until it has expired.
 	// A tombstone expires when the creation timestamp of the delta file exceeds the expiration
 	Tombstones map[string]Remove
@@ -38,9 +37,9 @@ type DeltaTableState[RowType any, PartitionType any] struct {
 	Files map[string]AddPartitioned[RowType, PartitionType]
 	// Information added to individual commits
 	CommitInfos           []CommitInfo
-	AppTransactionVersion map[string]state.DeltaDataTypeVersion
-	MinReaderVersion      DeltaDataTypeInt
-	MinWriterVersion      DeltaDataTypeInt
+	AppTransactionVersion map[string]int64
+	MinReaderVersion      int32
+	MinWriterVersion      int32
 	// table metadata corresponding to current version
 	CurrentMetadata *DeltaTableMetaData
 	// retention period for tombstones in milli-seconds
@@ -61,12 +60,12 @@ var (
 )
 
 // / Create an empty table state for the given version
-func NewDeltaTableState[RowType any, PartitionType any](version state.DeltaDataTypeVersion) *DeltaTableState[RowType, PartitionType] {
+func NewDeltaTableState[RowType any, PartitionType any](version int64) *DeltaTableState[RowType, PartitionType] {
 	tableState := new(DeltaTableState[RowType, PartitionType])
 	tableState.Version = version
 	tableState.Files = make(map[string]AddPartitioned[RowType, PartitionType])
 	tableState.Tombstones = make(map[string]Remove)
-	tableState.AppTransactionVersion = make(map[string]state.DeltaDataTypeVersion)
+	tableState.AppTransactionVersion = make(map[string]int64)
 	// Default 7 days
 	tableState.TombstoneRetention = time.Hour * 24 * 7
 	// Default 30 days
@@ -88,7 +87,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) ConfigurationOrDefaul
 }
 
 // / Generate a table state from a specific commit version
-func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version int64) (*DeltaTableState[RowType, PartitionType], error) {
 	actions, err := table.ReadCommitVersion(version)
 	if err != nil {
 		return nil, err
@@ -97,7 +96,7 @@ func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTa
 }
 
 // / Generate a table state from a list of actions
-func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version int64) (*DeltaTableState[RowType, PartitionType], error) {
 	tableState := NewDeltaTableState[RowType, PartitionType](version)
 	for _, action := range actions {
 		err := tableState.processAction(action)
@@ -112,20 +111,20 @@ func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Act
 func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionInterface Action) error {
 	switch action := actionInterface.(type) {
 	case *AddPartitioned[RowType, PartitionType]:
-		tableState.Files[*action.Path] = *action
+		tableState.Files[action.Path] = *action
 	case *Add[RowType]:
 		// We're using the AddPartitioned type for storing our list of added files, so need to translate the type here
 		add := new(AddPartitioned[RowType, PartitionType])
 		// Copy details
 		add.fromAdd(action)
-		tableState.Files[*action.Path] = *add
+		tableState.Files[action.Path] = *add
 	case *Remove:
 		// TODO - do we need to decode as in delta-rs?
-		tableState.Tombstones[*action.Path] = *action
+		tableState.Tombstones[action.Path] = *action
 	case *MetaData:
 		if action.Configuration != nil {
 			// Parse the configuration options that we make use of
-			option, ok := (*action.Configuration)[string(DeletedFileRetentionDurationDeltaConfigKey)]
+			option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]
 			if ok {
 				duration, err := ParseInterval(option)
 				if err != nil {
@@ -133,7 +132,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionI
 				}
 				tableState.TombstoneRetention = duration
 			}
-			option, ok = (*action.Configuration)[string(LogRetentionDurationDeltaConfigKey)]
+			option, ok = action.Configuration[string(LogRetentionDurationDeltaConfigKey)]
 			if ok {
 				duration, err := ParseInterval(option)
 				if err != nil {
@@ -141,7 +140,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionI
 				}
 				tableState.LogRetention = duration
 			}
-			option, ok = (*action.Configuration)[string(EnableExpiredLogCleanupDeltaConfigKey)]
+			option, ok = action.Configuration[string(EnableExpiredLogCleanupDeltaConfigKey)]
 			if ok {
 				boolOption, err := strconv.ParseBool(option)
 				if err != nil {
@@ -156,14 +155,10 @@ func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionI
 		}
 		tableState.CurrentMetadata = &deltaTableMetadata
 	case *Txn:
-		tableState.AppTransactionVersion[*action.AppId] = *action.Version
+		tableState.AppTransactionVersion[action.AppId] = action.Version
 	case *Protocol:
-		if action.MinReaderVersion != nil {
-			tableState.MinReaderVersion = *action.MinReaderVersion
-		}
-		if action.MinWriterVersion != nil {
-			tableState.MinWriterVersion = *action.MinWriterVersion
-		}
+		tableState.MinReaderVersion = action.MinReaderVersion
+		tableState.MinWriterVersion = action.MinWriterVersion
 	case *CommitInfo:
 		tableState.CommitInfos = append(tableState.CommitInfos, *action)
 	case *Cdc:
@@ -222,7 +217,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) merge(newTableState *
 }
 
 func stateFromCheckpoint[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], checkpoint *CheckPoint) (*DeltaTableState[RowType, PartitionType], error) {
-	newState := NewDeltaTableState[RowType, PartitionType](state.DeltaDataTypeVersion(checkpoint.Version))
+	newState := NewDeltaTableState[RowType, PartitionType](checkpoint.Version)
 	checkpointDataPaths := table.GetCheckpointDataPaths(checkpoint)
 	for _, location := range checkpointDataPaths {
 		checkpointBytes, err := table.Store.Get(&location)
@@ -351,7 +346,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) prepareStateForCheckp
 	// Don't keep expired tombstones
 	// Also check if any of the non-expired Remove actions had ExtendedFileMetadata = false
 	doNotUseExtendedFileMetadata := false
-	retentionTimestamp := DeltaDataTypeTimestamp(time.Now().UnixMilli() - tableState.TombstoneRetention.Milliseconds())
+	retentionTimestamp := time.Now().UnixMilli() - tableState.TombstoneRetention.Milliseconds()
 	unexpiredTombstones := make(map[string]Remove, len(tableState.Tombstones))
 	for path, remove := range tableState.Tombstones {
 		if *remove.DeletionTimestamp > retentionTimestamp {
@@ -387,8 +382,8 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 	// Row 1: protocol
 	if startOffset <= currentOffset {
 		protocol := new(Protocol)
-		protocol.MinReaderVersion = &tableState.MinReaderVersion
-		protocol.MinWriterVersion = &tableState.MinWriterVersion
+		protocol.MinReaderVersion = tableState.MinReaderVersion
+		protocol.MinWriterVersion = tableState.MinWriterVersion
 		checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Protocol: protocol})
 	}
 
@@ -412,10 +407,9 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 		for i, appId := range keys {
 			if startOffset < currentOffset+i {
 				txn := new(Txn)
-				appIdCopy := appId
-				txn.AppId = &appIdCopy
+				txn.AppId = appId
 				version := tableState.AppTransactionVersion[appId]
-				txn.Version = &version
+				txn.Version = version
 				checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Txn: txn})
 
 				if len(checkpointRows) >= maxRows {

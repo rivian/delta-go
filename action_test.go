@@ -29,24 +29,17 @@ type emptyTestStruct struct {
 }
 
 func TestLogEntryFromActions(t *testing.T) {
-	path1 := "part-1.snappy.parquet"
-	size1 := DeltaDataTypeLong(1)
-	time1 := DeltaDataTypeTimestamp(1675020556534)
-	dataChange := false
 	add1 := AddPartitioned[emptyTestStruct, emptyTestStruct]{
-		Path:             &path1,
-		Size:             &size1,
-		ModificationTime: &time1,
-		DataChange:       &dataChange,
+		Path:             "part-1.snappy.parquet",
+		Size:             1,
+		ModificationTime: 1675020556534,
+		DataChange:       false,
 	}
-	path2 := "part-2.snappy.parquet"
-	size2 := DeltaDataTypeLong(2)
-	time2 := DeltaDataTypeTimestamp(1675020556534)
 	add2 := &AddPartitioned[emptyTestStruct, emptyTestStruct]{
-		Path:             &path2,
-		Size:             &size2,
-		ModificationTime: &time2,
-		DataChange:       &dataChange,
+		Path:             "part-2.snappy.parquet",
+		Size:             2,
+		ModificationTime: 1675020556534,
+		DataChange:       false,
 	}
 
 	write := Write{Mode: ErrorIfExists}
@@ -89,7 +82,7 @@ func TestLogEntryFromAction(t *testing.T) {
 	commit := make(CommitInfo)
 	commit["path"] = "part-1.snappy.parquet"
 	commit["size"] = 1
-	commit["ModificationTime"] = DeltaDataTypeTimestamp(time.Now().UnixMilli())
+	commit["ModificationTime"] = time.Now().UnixMilli()
 
 	abytes, err := logEntryFromAction[emptyTestStruct, emptyTestStruct](commit)
 	if err != nil {
@@ -121,8 +114,8 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 	provider := "parquet"
 	options := make(map[string]string)
 	format := Format{
-		Provider: &provider,
-		Options:  &options,
+		Provider: provider,
+		Options:  options,
 	}
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
@@ -130,10 +123,10 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 	schemaString := "..."
 	action := MetaData{
 		Id:               id,
-		Format:           &format,
-		SchemaString:     &schemaString,
-		PartitionColumns: &[]string{},
-		Configuration:    &config,
+		Format:           format,
+		SchemaString:     schemaString,
+		PartitionColumns: []string{},
+		Configuration:    config,
 	}
 
 	b, err := logEntryFromAction[emptyTestStruct, emptyTestStruct](action)
@@ -333,14 +326,7 @@ func TestActionFromLogEntry(t *testing.T) {
 		unstructuredResult map[string]json.RawMessage
 	}
 
-	path := "mypath.parquet"
-	size := DeltaDataTypeLong(8382)
-	partitionValues := map[string]string{"date": "2021-03-09"}
-	modificationTime := DeltaDataTypeTimestamp(1679610144893)
-	dataChange := true
 	statsString := `{"numRecords":155,"tightBounds":false,"minValues":{"timestamp":1615338375007003},"maxValues":{"timestamp":1615338377517216},"nullCount":null}`
-	minReader := DeltaDataTypeInt(2)
-	minWriter := DeltaDataTypeInt(7)
 
 	// Caveats:
 	// CommitInfo's operationParameters is not being tested because the result from the unmarshal process is a map[string]interface{} and I haven't
@@ -352,13 +338,13 @@ func TestActionFromLogEntry(t *testing.T) {
 		wantErr error
 	}{
 		{name: "Add", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`{"path":"mypath.parquet","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true,"stats":"{\"numRecords\":155,\"tightBounds\":false,\"minValues\":{\"timestamp\":1615338375007003},\"maxValues\":{\"timestamp\":1615338377517216},\"nullCount\":null}"}`)}},
-			want: &AddPartitioned[emptyTestStruct, emptyTestStruct]{Path: &path, Size: &size, PartitionValues: &partitionValues, ModificationTime: &modificationTime, DataChange: &dataChange,
+			want: &AddPartitioned[emptyTestStruct, emptyTestStruct]{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
 				Stats: &statsString}, wantErr: nil},
 		{name: "CommitInfo", args: args{unstructuredResult: map[string]json.RawMessage{"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
 			want: &CommitInfo{"clientVersion": "delta-go.alpha-0.0.0", "isBlindAppend": true, "operation": "delta-go.Write",
 				"timestamp": float64(1679610144893)}, wantErr: nil},
 		{name: "Protocol", args: args{unstructuredResult: map[string]json.RawMessage{"protocol": []byte(`{"minReaderVersion":2,"minWriterVersion":7}`)}},
-			want: &Protocol{MinReaderVersion: &minReader, MinWriterVersion: &minWriter}, wantErr: nil},
+			want: &Protocol{MinReaderVersion: 2, MinWriterVersion: 7}, wantErr: nil},
 		{name: "Fail on invalid JSON", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`"path":"s3a://bucket/table","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true}`)}},
 			want: nil, wantErr: ErrorActionJSONFormat},
 		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: ErrorActionUnknown},
@@ -388,14 +374,11 @@ func TestActionsFromLogEntries(t *testing.T) {
 		NumRecords: 123,
 	}
 
-	path := "part-1.snappy.parquet"
-	size := DeltaDataTypeLong(1)
-	time := DeltaDataTypeTimestamp(1675020556534)
 	statsString := string(stats.Json())
 	add := AddPartitioned[emptyTestStruct, emptyTestStruct]{
-		Path:             &path,
-		Size:             &size,
-		ModificationTime: &time,
+		Path:             "part-1.snappy.parquet",
+		Size:             1,
+		ModificationTime: 1675020556534,
 		Stats:            &statsString,
 	}
 
@@ -498,7 +481,7 @@ func TestMetadataGetSchema(t *testing.T) {
 	// Simple
 	schemaString := "{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}},{\"name\":\"date\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"
 	md := new(MetaData)
-	md.SchemaString = &schemaString
+	md.SchemaString = schemaString
 	schema, err := md.GetSchema()
 	if err != nil {
 		t.Error(err)
