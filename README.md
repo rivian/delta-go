@@ -60,9 +60,9 @@ func main() {
 
 	add := delta.Add{
 		Path:             fileName,
-		Size:             delta.DeltaDataTypeLong(p.Size),
+		Size:             p.Size,
 		DataChange:       true,
-		ModificationTime: delta.DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
@@ -104,9 +104,9 @@ func main() {
 
 			add := delta.Add{
 				Path:             fileName,
-				Size:             delta.DeltaDataTypeLong(p.Size),
+				Size:             p.Size,
 				DataChange:       true,
-				ModificationTime: delta.DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+				ModificationTime: time.Now().UnixMilli(),
 				Stats:            string(stats.Json()),
 				PartitionValues:  make(map[string]string),
 			}
@@ -246,7 +246,6 @@ Limitations / TODO
 Checkpoints:
 - The checkpoint checksum is not being written or validated
 - Checkpoints with non-string-type partitions require custom JSON marshal/unmarshal code
-- Parsed stats does not include null counts
 
 Other:
 - Nested schemas (containing nested structs, arrays, or maps) are not supported

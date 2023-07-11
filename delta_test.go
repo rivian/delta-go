@@ -31,7 +31,6 @@ import (
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/lock/nillock"
-	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/state/localstate"
 	"github.com/segmentio/parquet-go"
@@ -50,7 +49,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	add := AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 	}
 	transaction.AddAction(add)
 	operation := Write{Mode: Overwrite}
@@ -75,7 +74,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	if err != nil {
 		t.Error("should be locked")
 	}
-	if !strings.Contains(string(b), "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet") {
+	if !strings.Contains(string(b), add.Path) {
 		t.Errorf("File should contain add part file")
 	}
 }
@@ -130,13 +129,15 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
+	protocol := new(Protocol).Default()
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
+	statsString := string(stats.Json())
+	path := "part-123.snappy.parquet"
 	add := AddPartitioned[testData, emptyTestStruct]{
-		Path:             "part-123.snappy.parquet",
+		Path:             path,
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-		Stats:            string(stats.Json()),
+		ModificationTime: time.Now().UnixMilli(),
+		Stats:            &statsString,
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
@@ -179,11 +180,11 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	if !ok {
 		t.Error("Expected Add for fourth action")
 	}
-	if a.Path != "part-123.snappy.parquet" {
+	if a.Path != path {
 		t.Error("Add path not deserialized properly")
 	}
 	var s Stats
-	err = json.Unmarshal([]byte(a.Stats), &s)
+	err = json.Unmarshal([]byte(*a.Stats), &s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,11 +361,11 @@ func TestDeltaTableCreate(t *testing.T) {
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
-	protocol := Protocol{MinReaderVersion: 1, MinWriterVersion: 3}
+	protocol := new(Protocol).Default()
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
@@ -618,12 +619,13 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
+	statsString := string(stats.Json())
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             fileName,
-		Size:             DeltaDataTypeLong(p.Size),
+		Size:             p.Size,
 		DataChange:       true,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-		Stats:            string(stats.Json()),
+		ModificationTime: time.Now().UnixMilli(),
+		Stats:            &statsString,
 		PartitionValues:  make(map[string]string),
 	}
 
@@ -664,12 +666,13 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 				t.Error(err)
 			}
 
+			statsString := string(stats.Json())
 			add := AddPartitioned[testData, emptyTestStruct]{
 				Path:             fileName,
-				Size:             DeltaDataTypeLong(p.Size),
+				Size:             p.Size,
 				DataChange:       true,
-				ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-				Stats:            string(stats.Json()),
+				ModificationTime: time.Now().UnixMilli(),
+				Stats:            &statsString,
 				PartitionValues:  make(map[string]string),
 			}
 
@@ -727,12 +730,13 @@ func TestCreateWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
+	statsString := string(stats.Json())
 	add := AddPartitioned[testData, emptyTestStruct]{
 		Path:             fileName,
-		Size:             DeltaDataTypeLong(p.Size),
+		Size:             p.Size,
 		DataChange:       true,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-		Stats:            string(stats.Json()),
+		ModificationTime: time.Now().UnixMilli(),
+		Stats:            &statsString,
 		PartitionValues:  make(map[string]string),
 	}
 
@@ -895,10 +899,10 @@ func setupTransaction(t *testing.T, table *DeltaTable[testData, emptyTestStruct]
 	t.Helper()
 
 	transaction = table.CreateTransaction(options)
-	add := AddPartitioned[testData, emptyTestStruct]{
+	add := AddPartitioned[emptyTestStruct, emptyTestStruct]{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
-		ModificationTime: DeltaDataTypeTimestamp(time.Now().UnixMilli()),
+		ModificationTime: time.Now().UnixMilli(),
 	}
 	transaction.AddAction(add)
 	operation = Write{Mode: Overwrite}
@@ -917,7 +921,7 @@ func fileExists(filename string) bool {
 
 func TestCommitUriFromVersion(t *testing.T) {
 	type test struct {
-		input state.DeltaDataTypeVersion
+		input int64
 		want  string
 	}
 
@@ -932,7 +936,7 @@ func TestCommitUriFromVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
 
 	for _, tc := range tests {
-		got := table.CommitUriFromVersion(state.DeltaDataTypeVersion(tc.input))
+		got := table.CommitUriFromVersion(tc.input)
 		if got.Raw != tc.want {
 			t.Errorf("expected %s, got %s", tc.want, got)
 		}
@@ -965,7 +969,7 @@ func TestCommitVersionFromUri(t *testing.T) {
 	type test struct {
 		input       string
 		wantMatch   bool
-		wantVersion state.DeltaDataTypeVersion
+		wantVersion int64
 	}
 
 	tests := []test{
@@ -993,7 +997,7 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 	type test struct {
 		input       string
 		wantMatch   bool
-		wantVersion state.DeltaDataTypeVersion
+		wantVersion int64
 	}
 
 	tests := []test{
@@ -1024,7 +1028,7 @@ func TestLoadVersion(t *testing.T) {
 
 	// Load version 2
 	table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
-	var version state.DeltaDataTypeVersion = 2
+	var version int64 = 2
 	err := table.LoadVersion(&version)
 	if err != nil {
 		t.Error(err)
@@ -1048,24 +1052,32 @@ func TestLoadVersion(t *testing.T) {
 	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668685528), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(0), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
 	expectedState.CommitInfos = append(expectedState.CommitInfos, CommitInfo{"timestamp": float64(1627668687609), "operation": "WRITE", "operationParameters": operationParams, "readVersion": float64(1), "isolationLevel": "WriteSerializable", "isBlindAppend": true, "operationMetrics": operationMetrics})
 	expectedState.MinReaderVersion = 1
-	expectedState.MinWriterVersion = 2
+	expectedState.MinWriterVersion = 1
 	add := new(AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition])
-	add.Path = "date=2020-06-01/part-00000-b207ef5f-4458-4969-bd34-46439cdeb6a6.c000.snappy.parquet"
-	add.PartitionValues = make(map[string]string)
-	add.PartitionValues["date"] = "2020-06-01"
-	add.Size = 1502
-	add.ModificationTime = 1627668686000
-	add.DataChange = true
-	add.Stats = "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	path := "date=2020-06-01/part-00000-b207ef5f-4458-4969-bd34-46439cdeb6a6.c000.snappy.parquet"
+	add.Path = path
+	partitionValues := make(map[string]string)
+	partitionValues["date"] = "2020-06-01"
+	add.PartitionValues = partitionValues
+	size := int64(1502)
+	add.Size = size
+	modificationTime := int64(1627668686000)
+	add.ModificationTime = modificationTime
+	dataChange := true
+	add.DataChange = dataChange
+	stats := "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	add.Stats = &stats
 	expectedState.Files[add.Path] = *add
 	add = new(AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition])
-	add.Path = "date=2020-06-01/part-00000-762e2b03-6a04-4707-b676-5d38d1ef9fca.c000.snappy.parquet"
-	add.PartitionValues = make(map[string]string)
-	add.PartitionValues["date"] = "2020-06-01"
-	add.Size = 1502
-	add.ModificationTime = 1627668688000
-	add.DataChange = true
-	add.Stats = "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	path2 := "date=2020-06-01/part-00000-762e2b03-6a04-4707-b676-5d38d1ef9fca.c000.snappy.parquet"
+	add.Path = path2
+	add.PartitionValues = partitionValues
+	add.Size = size
+	modificationTime2 := int64(1627668688000)
+	add.ModificationTime = modificationTime2
+	add.DataChange = dataChange
+	stats2 := "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
+	add.Stats = &stats2
 	expectedState.Files[add.Path] = *add
 	var schema SchemaTypeStruct = SchemaTypeStruct{
 		Fields: []SchemaField{
@@ -1074,7 +1086,9 @@ func TestLoadVersion(t *testing.T) {
 			{Name: "date", Type: String, Nullable: true, Metadata: make(map[string]any)},
 		},
 	}
-	expectedState.CurrentMetadata = NewDeltaTableMetaData("", "", Format{Provider: "parquet", Options: map[string]string{}}, schema, []string{"date"}, make(map[string]string))
+	provider := "parquet"
+	options := map[string]string{}
+	expectedState.CurrentMetadata = NewDeltaTableMetaData("", "", Format{Provider: provider, Options: options}, schema, []string{"date"}, make(map[string]string))
 	expectedState.CurrentMetadata.CreatedTime = time.Unix(1627668675, 432000000)
 	expectedState.CurrentMetadata.Id = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
 

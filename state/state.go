@@ -16,12 +16,6 @@ import (
 	"errors"
 )
 
-// / Type alias for i64/Delta long
-type DeltaDataTypeLong int64
-
-// / Type alias representing the expected type (i64) of a Delta table version.
-type DeltaDataTypeVersion DeltaDataTypeLong
-
 var (
 	ErrorStateIsEmpty     error = errors.New("the state is empty")
 	ErrorCanNotReadState  error = errors.New("the state is could not be read")
@@ -31,7 +25,7 @@ var (
 // CommitState stores an attempt to  `source` into `destination` and `version` for the latest commit.
 type CommitState struct {
 	// Version of the commit
-	Version DeltaDataTypeVersion `json:"version"`
+	Version int64 `json:"version"`
 }
 
 // StateStore provides remote state storage for fast lookup on the current commit version

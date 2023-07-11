@@ -66,12 +66,12 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 	if err != nil {
 		//TODO wrap error rather than printing
 		fmt.Println("Error retrieving item.", err)
-		return state.CommitState{Version: state.DeltaDataTypeVersion(-1)}, err
+		return state.CommitState{Version: -1}, err
 	}
 	if result.Item == nil {
 		//TODO wrap error rather than printing
 		fmt.Println("Couldn't retrieve any item.", err)
-		return state.CommitState{Version: state.DeltaDataTypeVersion(-1)}, err
+		return state.CommitState{Version: -1}, err
 	}
 
 	versionValue := *result.Item["version"].S
@@ -79,10 +79,10 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 	if err != nil {
 		//TODO wrap error rather than printing
 		fmt.Println("Error converting attribute to int:", err)
-		return state.CommitState{Version: state.DeltaDataTypeVersion(-1)}, err
+		return state.CommitState{Version: -1}, err
 	}
 
-	commit := state.CommitState{Version: state.DeltaDataTypeVersion(version)}
+	commit := state.CommitState{Version: int64(version)}
 	return commit, nil
 }
 

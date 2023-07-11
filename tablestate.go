@@ -16,19 +16,20 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"sort"
 	"strconv"
 	"time"
 
-	"github.com/rivian/delta-go/state"
-	"github.com/segmentio/parquet-go"
+	"github.com/xitongsys/parquet-go-source/buffer"
+	"github.com/xitongsys/parquet-go/parquet"
+	"github.com/xitongsys/parquet-go/reader"
+	"github.com/xitongsys/parquet-go/writer"
 )
 
 type DeltaTableState[RowType any, PartitionType any] struct {
 	// current table version represented by this table state
-	Version state.DeltaDataTypeVersion
+	Version int64
 	// A remove action should remain in the state of the table as a tombstone until it has expired.
 	// A tombstone expires when the creation timestamp of the delta file exceeds the expiration
 	Tombstones map[string]Remove
@@ -36,9 +37,9 @@ type DeltaTableState[RowType any, PartitionType any] struct {
 	Files map[string]AddPartitioned[RowType, PartitionType]
 	// Information added to individual commits
 	CommitInfos           []CommitInfo
-	AppTransactionVersion map[string]state.DeltaDataTypeVersion
-	MinReaderVersion      DeltaDataTypeInt
-	MinWriterVersion      DeltaDataTypeInt
+	AppTransactionVersion map[string]int64
+	MinReaderVersion      int32
+	MinWriterVersion      int32
 	// table metadata corresponding to current version
 	CurrentMetadata *DeltaTableMetaData
 	// retention period for tombstones in milli-seconds
@@ -59,12 +60,12 @@ var (
 )
 
 // / Create an empty table state for the given version
-func NewDeltaTableState[RowType any, PartitionType any](version state.DeltaDataTypeVersion) *DeltaTableState[RowType, PartitionType] {
+func NewDeltaTableState[RowType any, PartitionType any](version int64) *DeltaTableState[RowType, PartitionType] {
 	tableState := new(DeltaTableState[RowType, PartitionType])
 	tableState.Version = version
 	tableState.Files = make(map[string]AddPartitioned[RowType, PartitionType])
 	tableState.Tombstones = make(map[string]Remove)
-	tableState.AppTransactionVersion = make(map[string]state.DeltaDataTypeVersion)
+	tableState.AppTransactionVersion = make(map[string]int64)
 	// Default 7 days
 	tableState.TombstoneRetention = time.Hour * 24 * 7
 	// Default 30 days
@@ -86,7 +87,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) ConfigurationOrDefaul
 }
 
 // / Generate a table state from a specific commit version
-func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version int64) (*DeltaTableState[RowType, PartitionType], error) {
 	actions, err := table.ReadCommitVersion(version)
 	if err != nil {
 		return nil, err
@@ -95,7 +96,7 @@ func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTa
 }
 
 // / Generate a table state from a list of actions
-func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version state.DeltaDataTypeVersion) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version int64) (*DeltaTableState[RowType, PartitionType], error) {
 	tableState := NewDeltaTableState[RowType, PartitionType](version)
 	for _, action := range actions {
 		err := tableState.processAction(action)
@@ -121,29 +122,32 @@ func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionI
 		// TODO - do we need to decode as in delta-rs?
 		tableState.Tombstones[action.Path] = *action
 	case *MetaData:
-		option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]
-		if ok {
-			duration, err := ParseInterval(option)
-			if err != nil {
-				return err
+		if action.Configuration != nil {
+			// Parse the configuration options that we make use of
+			option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]
+			if ok {
+				duration, err := ParseInterval(option)
+				if err != nil {
+					return err
+				}
+				tableState.TombstoneRetention = duration
 			}
-			tableState.TombstoneRetention = duration
-		}
-		option, ok = action.Configuration[string(LogRetentionDurationDeltaConfigKey)]
-		if ok {
-			duration, err := ParseInterval(option)
-			if err != nil {
-				return err
+			option, ok = action.Configuration[string(LogRetentionDurationDeltaConfigKey)]
+			if ok {
+				duration, err := ParseInterval(option)
+				if err != nil {
+					return err
+				}
+				tableState.LogRetention = duration
 			}
-			tableState.LogRetention = duration
-		}
-		option, ok = action.Configuration[string(EnableExpiredLogCleanupDeltaConfigKey)]
-		if ok {
-			boolOption, err := strconv.ParseBool(option)
-			if err != nil {
-				return err
+			option, ok = action.Configuration[string(EnableExpiredLogCleanupDeltaConfigKey)]
+			if ok {
+				boolOption, err := strconv.ParseBool(option)
+				if err != nil {
+					return err
+				}
+				tableState.EnableExpiredLogCleanup = boolOption
 			}
-			tableState.EnableExpiredLogCleanup = boolOption
 		}
 		deltaTableMetadata, err := action.ToDeltaTableMetaData()
 		if err != nil {
@@ -151,7 +155,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionI
 		}
 		tableState.CurrentMetadata = &deltaTableMetadata
 	case *Txn:
-		tableState.AppTransactionVersion[action.AppId] = state.DeltaDataTypeVersion(action.Version)
+		tableState.AppTransactionVersion[action.AppId] = action.Version
 	case *Protocol:
 		tableState.MinReaderVersion = action.MinReaderVersion
 		tableState.MinWriterVersion = action.MinWriterVersion
@@ -248,57 +252,88 @@ func processCheckpointBytes[RowType any, PartitionType any](checkpointBytes []by
 
 // / Update a table state with the contents of a checkpoint file
 func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) (returnErr error) {
-	reader := bytes.NewReader(checkpointBytes)
-	// The parquet library will panic if the file is malformed or if it can't handle the RowType/PartitionType
-	defer func() {
-		if r := recover(); r != nil {
-			err, ok := r.(error)
-			if !ok {
-				err = fmt.Errorf("%v", r)
-			}
-			returnErr = errors.Join(ErrorReadingCheckpoint, err)
-		}
-	}()
+	bufferReader, err := buffer.NewBufferFile(checkpointBytes)
+	if err != nil {
+		return err
+	}
+	defer bufferReader.Close()
+	parquetReader, err := reader.NewParquetReader(bufferReader, nil, 4)
+	if err != nil {
+		return err
+	}
+	defer parquetReader.ReadStop()
 
-	parquetReader := parquet.NewGenericReader[CheckpointEntry[RowType, PartitionType, AddType]](reader)
-	defer parquetReader.Close()
-	for {
-		rowBuffer := make([]CheckpointEntry[RowType, PartitionType, AddType], 10)
-		count, err := parquetReader.Read(rowBuffer)
-		doneReading := errors.Is(err, io.EOF)
-		if err != nil && !doneReading {
+	maxBatchSize := 20000
+	var rowsRead int64 = 0
+	count := parquetReader.GetNumRows()
+	if count == 0 {
+		return nil
+	}
+	for rowsRead < count {
+		var batchSize int
+		if count-rowsRead > int64(maxBatchSize) {
+			batchSize = maxBatchSize
+		} else {
+			batchSize = int(count - rowsRead)
+		}
+		rows, err := parquetReader.ReadByNumber(batchSize)
+		if err != nil {
 			return err
 		}
-		var action Action
-		for i := 0; i < count; i++ {
-			row := rowBuffer[i]
-			if row.Add != nil {
-				action = row.Add
+
+		for _, row := range rows {
+			var action Action
+			// t := reflect.TypeOf(row)
+			// for i := 0; i < t.NumField(); i++ {
+			// 	fmt.Printf("%+v\n", t.Field(i))
+			// }
+
+			rowValue := reflect.ValueOf(row)
+			add := rowValue.FieldByName("Add").Elem()
+			if add.IsValid() {
+				action, err = NewAddFromValue[RowType](add)
+				if err != nil {
+					return err
+				}
 			}
-			if row.Remove != nil {
-				action = row.Remove
+			remove := rowValue.FieldByName("Remove").Elem()
+			if remove.IsValid() {
+				action, err = NewRemoveFromValue(remove)
+				if err != nil {
+					return err
+				}
 			}
-			if row.MetaData != nil {
-				action = row.MetaData
+			metadata := rowValue.FieldByName("MetaData").Elem()
+			if metadata.IsValid() {
+				action, err = NewMetadataFromValue(metadata)
+				if err != nil {
+					return err
+				}
 			}
-			if row.Txn != nil {
-				action = row.Txn
+			protocol := rowValue.FieldByName("Protocol").Elem()
+			if protocol.IsValid() {
+				action, err = NewProtocolFromValue(protocol)
+				if err != nil {
+					return err
+				}
 			}
-			if row.Protocol != nil {
-				action = row.Protocol
+			txn := rowValue.FieldByName("Txn").Elem()
+			if txn.IsValid() {
+				action, err = NewTxnFromValue(txn)
+				if err != nil {
+					return err
+				}
 			}
-			if row.Cdc != nil {
-				return ErrorCDCNotSupported
-			}
-			err = tableState.processAction(action)
-			if err != nil {
-				return err
+			if action != nil {
+				err = tableState.processAction(action)
+				if err != nil {
+					return err
+				}
 			}
 		}
-		if doneReading {
-			break
-		}
+		rowsRead += int64(batchSize)
 	}
+
 	return nil
 }
 
@@ -314,18 +349,19 @@ func (tableState *DeltaTableState[RowType, PartitionType]) prepareStateForCheckp
 	retentionTimestamp := time.Now().UnixMilli() - tableState.TombstoneRetention.Milliseconds()
 	unexpiredTombstones := make(map[string]Remove, len(tableState.Tombstones))
 	for path, remove := range tableState.Tombstones {
-		if remove.DeletionTimestamp > DeltaDataTypeTimestamp(retentionTimestamp) {
+		if *remove.DeletionTimestamp > retentionTimestamp {
 			unexpiredTombstones[path] = remove
-			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && !remove.ExtendedFileMetadata
+			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && !*remove.ExtendedFileMetadata
 		}
 	}
 
 	tableState.Tombstones = unexpiredTombstones
 
 	// If any Remove has ExtendedFileMetadata = false, set all to false
+	removeExtendedFileMetadata := false
 	if doNotUseExtendedFileMetadata {
 		for path, remove := range tableState.Tombstones {
-			remove.ExtendedFileMetadata = false
+			remove.ExtendedFileMetadata = &removeExtendedFileMetadata
 			tableState.Tombstones[path] = remove
 			// TODO - do we need to remove the extra settings if it was true?
 		}
@@ -372,7 +408,8 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 			if startOffset < currentOffset+i {
 				txn := new(Txn)
 				txn.AppId = appId
-				txn.Version = DeltaDataTypeVersion(tableState.AppTransactionVersion[appId])
+				version := tableState.AppTransactionVersion[appId]
+				txn.Version = version
 				checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Txn: txn})
 
 				if len(checkpointRows) >= maxRows {
@@ -434,34 +471,24 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 
 // / Convert a slice of checkpoint entries into a checkpoint parquet file and return the bytes
 func checkpointParquetBytes[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointRows []CheckpointEntry[RowType, PartitionType, AddType]) ([]byte, error) {
-	// TODO configuration option for writer batch size?
-	batchSize := 5000
-	startRecord := 0
-	totalRecords := len(checkpointRows)
-	totalWritten := 0
-
 	buf := new(bytes.Buffer)
+	pw, err := writer.NewParquetWriterFromWriter(buf, new(CheckpointEntry[RowType, PartitionType, AddType]), 2)
+	if err != nil {
+		return nil, err
+	}
 	// TODO configuration option for compression type?
-	writer := parquet.NewGenericWriter[CheckpointEntry[RowType, PartitionType, AddType]](buf, parquet.Compression(&parquet.Snappy))
+	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
-	for totalWritten < totalRecords {
-		endRecord := startRecord + batchSize
-		if endRecord >= totalRecords {
-			endRecord = totalRecords
-		}
-		written, err := writer.Write(checkpointRows[startRecord:endRecord])
+	for _, record := range checkpointRows {
+		err = pw.Write(record)
 		if err != nil {
 			return nil, err
 		}
-		if written == 0 {
-			return nil, ErrorGeneratingCheckpoint
-		}
-		totalWritten += written
-		startRecord += written
 	}
-
-	writer.Flush()
-	writer.Close()
+	err = pw.WriteStop()
+	if err != nil {
+		return nil, err
+	}
 
 	return buf.Bytes(), nil
 }
