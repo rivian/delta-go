@@ -492,8 +492,6 @@ func TestCheckpointNoPartition(t *testing.T) {
 	}
 
 	add1.DataChange = false
-	tags := make(map[string]string)
-	add1.Tags = &tags
 	if !reflect.DeepEqual(table.State.Files[add1.Path], *add1) {
 		t.Errorf("Expected %v found %v", add1, table.State.Files[add1.Path])
 	}
@@ -890,7 +888,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 
 			table := NewDeltaTable[simpleCheckpointTestData, simpleCheckpointTestPartition](store, lock, stateStore)
 			// Use log expiration of 10 minutes
-			table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, Protocol{}, CommitInfo{}, []AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
+			table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, new(Protocol).Default(), CommitInfo{}, []AddPartitioned[simpleCheckpointTestData, simpleCheckpointTestPartition]{})
 
 			add1 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](3 * 60 * 1000) // 3 mins ago
 			add2 := getTestAdd[simpleCheckpointTestData, simpleCheckpointTestPartition](2 * 60 * 1000) // 2 mins ago

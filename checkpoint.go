@@ -43,8 +43,7 @@ type CheckpointEntry[RowType any, PartitionType any, AddType AddPartitioned[RowT
 	Remove   *Remove   `parquet:"name=remove"`
 	MetaData *MetaData `parquet:"name=metaData"`
 	Protocol *Protocol `parquet:"name=protocol"`
-	// CDC not implemented yet
-	Cdc *Cdc
+	Cdc      *Cdc      `parquet:"-"` // CDC not implemented yet
 }
 
 // / Additional configuration for checkpointing

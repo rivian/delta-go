@@ -14,6 +14,7 @@ package delta
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -21,10 +22,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/xitongsys/parquet-go-source/buffer"
-	"github.com/xitongsys/parquet-go/parquet"
-	"github.com/xitongsys/parquet-go/reader"
-	"github.com/xitongsys/parquet-go/writer"
+	"github.com/apache/arrow/go/v13/arrow"
+	"github.com/apache/arrow/go/v13/arrow/array"
+	"github.com/apache/arrow/go/v13/arrow/memory"
+	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/apache/arrow/go/v13/parquet/file"
+	"github.com/apache/arrow/go/v13/parquet/pqarrow"
+	"github.com/apache/arrow/go/v13/parquet/schema"
 )
 
 type DeltaTableState[RowType any, PartitionType any] struct {
@@ -42,9 +47,9 @@ type DeltaTableState[RowType any, PartitionType any] struct {
 	MinWriterVersion      int32
 	// table metadata corresponding to current version
 	CurrentMetadata *DeltaTableMetaData
-	// retention period for tombstones in milli-seconds
+	// retention period for tombstones as time.Duration (nanoseconds)
 	TombstoneRetention time.Duration
-	// retention period for log entries in milli-seconds
+	// retention period for log entries as time.Duration (nanoseconds)
 	LogRetention            time.Duration
 	EnableExpiredLogCleanup bool
 }
@@ -57,6 +62,7 @@ var (
 	ErrorGeneratingCheckpoint     error = errors.New("unable to write checkpoint to buffer")
 	ErrorReadingCheckpoint        error = errors.New("unable to read checkpoint")
 	ErrorVersionOutOfOrder        error = errors.New("versions out of order during update")
+	ErrorUnexpectedSchemaFailure  error = errors.New("unexpected error converting schema")
 )
 
 // / Create an empty table state for the given version
@@ -251,87 +257,69 @@ func processCheckpointBytes[RowType any, PartitionType any](checkpointBytes []by
 }
 
 // / Update a table state with the contents of a checkpoint file
-func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) (returnErr error) {
-	bufferReader, err := buffer.NewBufferFile(checkpointBytes)
+func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) error {
+	bytesReader := bytes.NewReader(checkpointBytes)
+	parquetReader, err := file.NewParquetReader(bytesReader)
 	if err != nil {
 		return err
 	}
-	defer bufferReader.Close()
-	parquetReader, err := reader.NewParquetReader(bufferReader, nil, 4)
-	if err != nil {
-		return err
-	}
-	defer parquetReader.ReadStop()
 
-	maxBatchSize := 20000
-	var rowsRead int64 = 0
-	count := parquetReader.GetNumRows()
-	if count == 0 {
-		return nil
+	defaultCheckpointEntry := new(CheckpointEntry[RowType, PartitionType, AddType])
+
+	parquetSchema := parquetReader.MetaData().Schema
+
+	arrowSchema, err := pqarrow.FromParquet(parquetSchema, nil, nil)
+	if err != nil {
+		return err
 	}
-	for rowsRead < count {
-		var batchSize int
-		if count-rowsRead > int64(maxBatchSize) {
-			batchSize = maxBatchSize
+	arrowFieldList := arrowSchema.Fields()
+
+	// Get mappings between struct member names and parquet/arrow names so we don't have to look them up repeatedly
+	// during record assignments
+	structFieldNameToArrowIndexMappings := make(map[string]int, 100)
+	checkpointEntryType := reflect.TypeOf(defaultCheckpointEntry)
+	getStructFieldNameToArrowIndexMappings(checkpointEntryType, "CheckpointEntry", arrowFieldList, structFieldNameToArrowIndexMappings)
+
+	fileReader, err := pqarrow.NewFileReader(parquetReader, pqarrow.ArrowReadProperties{BatchSize: 1}, memory.DefaultAllocator)
+	if err != nil {
+		return err
+	}
+	recordReader, err := fileReader.GetRecordReader(context.Background(), nil, nil)
+	if err != nil {
+		return err
+	}
+	defer recordReader.Release()
+	for recordReader.Next() {
+		rec := recordReader.Record()
+		defer rec.Release()
+		checkpointEntry := new(CheckpointEntry[RowType, PartitionType, AddType])
+		goStructFromArrowArray(reflect.ValueOf(checkpointEntry), rec.Columns(), "CheckpointEntry", structFieldNameToArrowIndexMappings)
+
+		var action Action
+		if checkpointEntry.Add != nil {
+			action = checkpointEntry.Add
+		}
+		if checkpointEntry.MetaData != nil {
+			action = checkpointEntry.MetaData
+		}
+		if checkpointEntry.Protocol != nil {
+			action = checkpointEntry.Protocol
+		}
+		if checkpointEntry.Remove != nil {
+			action = checkpointEntry.Remove
+		}
+		if checkpointEntry.Txn != nil {
+			action = checkpointEntry.Txn
+		}
+
+		if action != nil {
+			err = tableState.processAction(action)
+			if err != nil {
+				return err
+			}
 		} else {
-			batchSize = int(count - rowsRead)
+			return errors.New("no action found in checkpoint record")
 		}
-		rows, err := parquetReader.ReadByNumber(batchSize)
-		if err != nil {
-			return err
-		}
-
-		for _, row := range rows {
-			var action Action
-			// t := reflect.TypeOf(row)
-			// for i := 0; i < t.NumField(); i++ {
-			// 	fmt.Printf("%+v\n", t.Field(i))
-			// }
-
-			rowValue := reflect.ValueOf(row)
-			add := rowValue.FieldByName("Add").Elem()
-			if add.IsValid() {
-				action, err = NewAddFromValue[RowType](add)
-				if err != nil {
-					return err
-				}
-			}
-			remove := rowValue.FieldByName("Remove").Elem()
-			if remove.IsValid() {
-				action, err = NewRemoveFromValue(remove)
-				if err != nil {
-					return err
-				}
-			}
-			metadata := rowValue.FieldByName("MetaData").Elem()
-			if metadata.IsValid() {
-				action, err = NewMetadataFromValue(metadata)
-				if err != nil {
-					return err
-				}
-			}
-			protocol := rowValue.FieldByName("Protocol").Elem()
-			if protocol.IsValid() {
-				action, err = NewProtocolFromValue(protocol)
-				if err != nil {
-					return err
-				}
-			}
-			txn := rowValue.FieldByName("Txn").Elem()
-			if txn.IsValid() {
-				action, err = NewTxnFromValue(txn)
-				if err != nil {
-					return err
-				}
-			}
-			if action != nil {
-				err = tableState.processAction(action)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		rowsRead += int64(batchSize)
 	}
 
 	return nil
@@ -349,9 +337,9 @@ func (tableState *DeltaTableState[RowType, PartitionType]) prepareStateForCheckp
 	retentionTimestamp := time.Now().UnixMilli() - tableState.TombstoneRetention.Milliseconds()
 	unexpiredTombstones := make(map[string]Remove, len(tableState.Tombstones))
 	for path, remove := range tableState.Tombstones {
-		if *remove.DeletionTimestamp > retentionTimestamp {
+		if remove.DeletionTimestamp == nil || *remove.DeletionTimestamp > retentionTimestamp {
 			unexpiredTombstones[path] = remove
-			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && !*remove.ExtendedFileMetadata
+			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && (remove.ExtendedFileMetadata == nil || !*remove.ExtendedFileMetadata)
 		}
 	}
 
@@ -472,20 +460,46 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 // / Convert a slice of checkpoint entries into a checkpoint parquet file and return the bytes
 func checkpointParquetBytes[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointRows []CheckpointEntry[RowType, PartitionType, AddType]) ([]byte, error) {
 	buf := new(bytes.Buffer)
-	pw, err := writer.NewParquetWriterFromWriter(buf, new(CheckpointEntry[RowType, PartitionType, AddType]), 2)
+	defaultCheckpointEntry := new(CheckpointEntry[RowType, PartitionType, AddType])
+	parquetSchema, err := schema.NewSchemaFromStruct(defaultCheckpointEntry)
 	if err != nil {
 		return nil, err
 	}
-	// TODO configuration option for compression type?
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
+	arrowSchema, err := pqarrow.FromParquet(parquetSchema, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	arrowFieldList := arrowSchema.Fields()
+
+	// Get mappings between struct member names and parquet/arrow names so we don't have to look them up repeatedly
+	// during record assignments
+	structFieldNameToArrowIndexMappings := make(map[string]int, 100)
+	checkpointEntryType := reflect.TypeOf(defaultCheckpointEntry)
+	getStructFieldNameToArrowIndexMappings(checkpointEntryType, "CheckpointEntry", arrowFieldList, structFieldNameToArrowIndexMappings)
+
+	recordBuilder := array.NewStructBuilder(memory.DefaultAllocator, arrow.StructOf(arrowFieldList...))
+	recordBuilder.Resize(len(checkpointRows))
 
 	for _, record := range checkpointRows {
-		err = pw.Write(record)
-		if err != nil {
-			return nil, err
-		}
+		appendGoValueToArrowBuilder(reflect.ValueOf(record), recordBuilder, "CheckpointEntry", structFieldNameToArrowIndexMappings)
 	}
-	err = pw.WriteStop()
+
+	cols := make([]arrow.Column, 0, len(arrowFieldList))
+	for idx, field := range arrowFieldList {
+		arr := recordBuilder.FieldBuilder(idx).NewArray()
+		defer arr.Release()
+		chunked := arrow.NewChunked(field.Type, []arrow.Array{arr})
+		defer chunked.Release()
+		col := arrow.NewColumn(field, chunked)
+		defer col.Release()
+		cols = append(cols, *col)
+	}
+
+	tbl := array.NewTable(arrowSchema, cols, int64(len(checkpointRows)))
+	props := parquet.NewWriterProperties(
+		parquet.WithCompression(compress.Codecs.Zstd),
+	)
+	err = pqarrow.WriteTable(tbl, buf, tbl.NumRows(), props, pqarrow.DefaultWriterProps())
 	if err != nil {
 		return nil, err
 	}
