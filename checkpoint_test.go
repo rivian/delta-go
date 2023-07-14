@@ -145,6 +145,12 @@ func TestSimpleCheckpoint(t *testing.T) {
 		}
 	}
 
+	// Remove the previous log to make sure we use the checkpoint when loading
+	err = store.Delete(table.CommitUriFromVersion(4))
+	if err != nil {
+		t.Error(err)
+	}
+
 	// Checkpoint at version 10
 	_, err = CreateCheckpoint[simpleCheckpointTestData, simpleCheckpointTestPartition](store, checkpointLock, checkpointConfiguration, 10)
 	if err != nil {

@@ -13,6 +13,8 @@
 package delta
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -22,54 +24,65 @@ import (
 	"github.com/apache/arrow/go/v13/arrow/array"
 	"github.com/apache/arrow/go/v13/arrow/decimal128"
 	"github.com/apache/arrow/go/v13/arrow/float16"
+	"github.com/apache/arrow/go/v13/arrow/memory"
+	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/apache/arrow/go/v13/parquet/file"
+	"github.com/apache/arrow/go/v13/parquet/pqarrow"
+	"github.com/apache/arrow/go/v13/parquet/schema"
 )
 
 var (
 	ErrorArrowConversion error = errors.New("Error converting from arrow")
 )
 
-func goStructFromArrowArray(goStruct reflect.Value, arrowArrays []arrow.Array, goNamePrefix string, goNameArrowIndexMap map[string]int) (reflect.Value, error) {
-	goType := goStruct.Type()
+// Read helpers
+
+func goStructFromArrowArrays(goStructs []reflect.Value, arrowArrays []arrow.Array, goNamePrefix string, goNameArrowIndexMap map[string]int) error {
+	goType := goStructs[0].Type()
 	for goType.Kind() == reflect.Pointer {
 		goType = goType.Elem()
 	}
 
-	structElem := goStruct
-	for structElem.Kind() == reflect.Pointer {
-		structElem = structElem.Elem()
-	}
+	for row := 0; row < len(goStructs); row++ {
+		structElem := goStructs[row]
+		for structElem.Kind() == reflect.Pointer {
+			structElem = structElem.Elem()
+		}
 
-	if goType.Kind() != reflect.Struct {
-		return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("expected struct type but found %v", goType.Name()))
-	}
+		if goType.Kind() != reflect.Struct {
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("expected struct type but found %v", goType.Name()))
+		}
 
-	for i := 0; i < goType.NumField(); i++ {
-		goFieldName := goNamePrefix + "." + goType.Field(i).Name
-		arrowIndex, ok := goNameArrowIndexMap[goFieldName]
-		if ok {
-			arrowField := arrowArrays[arrowIndex]
-			if arrowField.IsNull(0) {
-				continue
-			}
-			goField := structElem.FieldByName(goType.Field(i).Name)
-			elem := traversePointersAndGetValue(goField, false)
-			_, err := goValueFromArrowArray(elem, arrowField, 0, goFieldName, goNameArrowIndexMap)
-			if err != nil {
-				return reflect.Zero(goType), err
+		for i := 0; i < goType.NumField(); i++ {
+			goFieldName := goNamePrefix + "." + goType.Field(i).Name
+			arrowIndex, ok := goNameArrowIndexMap[goFieldName]
+			if ok {
+				arrowField := arrowArrays[arrowIndex]
+				if arrowField.IsNull(row) {
+					continue
+				}
+				goField := structElem.FieldByName(goType.Field(i).Name)
+				elem := traversePointersAndGetValue(goField, false)
+				err := goValueFromArrowArray(elem, arrowField, row, goFieldName, goNameArrowIndexMap)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
-	return goStruct, nil
+	// return goStruct, nil
+	return nil
 }
 
-func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayOffset int, goNamePrefix string, goNameArrowIndexMap map[string]int) (reflect.Value, error) {
+func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayOffset int, goNamePrefix string, goNameArrowIndexMap map[string]int) error {
 	goType := goValue.Type()
 	for goType.Kind() == reflect.Pointer {
 		goType = goType.Elem()
 	}
 
 	if arrowArray.IsNull(arrayOffset) {
-		return reflect.Zero(goType), nil
+		return nil
 	}
 
 	switch goType.Kind() {
@@ -79,9 +92,9 @@ func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayO
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetBool(arrowValue)
-			return elem, nil
+			return nil
 		default:
-			return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to bool", typedArrowArray.DataType().Name()))
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to bool", typedArrowArray.DataType().Name()))
 		}
 	case reflect.Float32, reflect.Float64:
 		switch typedArrowArray := arrowArray.(type) {
@@ -89,19 +102,19 @@ func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayO
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetFloat(float64(arrowValue.Float32()))
-			return elem, nil
+			return nil
 		case *array.Float32:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetFloat(float64(arrowValue))
-			return elem, nil
+			return nil
 		case *array.Float64:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetFloat(arrowValue)
-			return elem, nil
+			return nil
 		default:
-			return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to float", typedArrowArray.DataType().Name()))
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to float", typedArrowArray.DataType().Name()))
 		}
 	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8:
 		switch typedArrowArray := arrowArray.(type) {
@@ -109,24 +122,24 @@ func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayO
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetInt(int64(arrowValue))
-			return elem, nil
+			return nil
 		case *array.Int32:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetInt(int64(arrowValue))
-			return elem, nil
+			return nil
 		case *array.Int64:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetInt(arrowValue)
-			return elem, nil
+			return nil
 		case *array.Int8:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetInt(int64(arrowValue))
-			return elem, nil
+			return nil
 		default:
-			return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to int", typedArrowArray.DataType().Name()))
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to int", typedArrowArray.DataType().Name()))
 		}
 	case reflect.String:
 		switch typedArrowArray := arrowArray.(type) {
@@ -134,9 +147,9 @@ func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayO
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetString(arrowValue)
-			return elem, nil
+			return nil
 		default:
-			return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to string", typedArrowArray.DataType().Name()))
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to string", typedArrowArray.DataType().Name()))
 		}
 	case reflect.Uint, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint8:
 		switch typedArrowArray := arrowArray.(type) {
@@ -144,43 +157,42 @@ func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayO
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetUint(uint64(arrowValue))
-			return elem, nil
+			return nil
 		case *array.Uint32:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetUint(uint64(arrowValue))
-			return elem, nil
+			return nil
 		case *array.Uint64:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetUint(arrowValue)
-			return elem, nil
+			return nil
 		case *array.Uint8:
 			arrowValue := typedArrowArray.Value(arrayOffset)
 			elem := traversePointersAndGetValue(goValue, true)
 			elem.SetUint(uint64(arrowValue))
-			return elem, nil
+			return nil
 		default:
-			return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to uint", typedArrowArray.DataType().Name()))
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to uint", typedArrowArray.DataType().Name()))
 		}
 	case reflect.Array, reflect.Slice:
-		var listLen int
+		var start, end int64
 		var values arrow.Array
 		switch typedArrowArray := arrowArray.(type) {
 		case *array.List:
+			start, end = typedArrowArray.ValueOffsets(arrayOffset)
 			values = typedArrowArray.ListValues()
-			listLen = typedArrowArray.Len()
 		case *array.FixedSizeList:
+			start, end = typedArrowArray.ValueOffsets(arrayOffset)
 			values = typedArrowArray.ListValues()
-			listLen = typedArrowArray.Len()
 		default:
-			return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to array/slice", typedArrowArray.DataType().Name()))
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to array/slice", typedArrowArray.DataType().Name()))
 		}
 		listElem := traversePointersAndGetValue(goValue, true)
-		// listElemType := reflect.PointerTo(goType.Elem())
-		for i := 0; i < listLen; i++ {
+		for i := 0; i < int(end-start); i++ {
 			entry := newReflectValueByType(goType.Elem())
-			goValueFromArrowArray(entry, values, i, goNamePrefix, goNameArrowIndexMap)
+			goValueFromArrowArray(entry, values, i+int(start), goNamePrefix, goNameArrowIndexMap)
 			listElem.Set(reflect.Append(listElem, entry.Elem()))
 		}
 	case reflect.Map:
@@ -190,33 +202,41 @@ func goValueFromArrowArray(goValue reflect.Value, arrowArray arrow.Array, arrayO
 			// mapElemType := reflect.PointerTo(goType.Elem())
 			keys := typedArrowArray.Keys()
 			items := typedArrowArray.Items()
-			for i := 0; i < keys.Len(); i++ {
+			var start, end int64
+			start, end = typedArrowArray.ValueOffsets(arrayOffset)
+			for i := 0; i < int(end-start); i++ {
 				entry := newReflectValueByType(goType.Elem())
-				goValueFromArrowArray(entry, items, i, goNamePrefix, goNameArrowIndexMap)
+				goValueFromArrowArray(entry, items, i+int(start), goNamePrefix, goNameArrowIndexMap)
 				key := newReflectValueByType(goType.Key())
-				goValueFromArrowArray(key, keys, i, goNamePrefix, goNameArrowIndexMap)
+				goValueFromArrowArray(key, keys, i+int(start), goNamePrefix, goNameArrowIndexMap)
 				mapElem.SetMapIndex(key.Elem(), entry.Elem())
 			}
 		default:
-			return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to map", typedArrowArray.DataType().Name()))
+			return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert %s to map", typedArrowArray.DataType().Name()))
 		}
 	case reflect.Struct:
 		switch typedArrowArray := arrowArray.(type) {
 		case *array.Struct:
-			arrowFields := make([]arrow.Array, typedArrowArray.NumField())
-			for i := 0; i < typedArrowArray.NumField(); i++ {
-				arrowFields[i] = typedArrowArray.Field(i)
-			}
-			_, err := goStructFromArrowArray(goValue, arrowFields, goNamePrefix, goNameArrowIndexMap)
-			if err != nil {
-				return reflect.Zero(goType), err
+			structElem := traversePointersAndGetValue(goValue, true)
+
+			for i := 0; i < goType.NumField(); i++ {
+				goFieldName := goNamePrefix + "." + goType.Field(i).Name
+				arrowIndex, ok := goNameArrowIndexMap[goFieldName]
+				if ok {
+					arrowField := typedArrowArray.Field(arrowIndex)
+					goField := structElem.FieldByName(goType.Field(i).Name)
+					err := goValueFromArrowArray(goField, arrowField, arrayOffset, goFieldName, goNameArrowIndexMap)
+					if err != nil {
+						return err
+					}
+				}
 			}
 		}
 	default:
-		return reflect.Zero(goType), errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert reflect type %s", goType.Kind().String()))
+		return errors.Join(ErrorArrowConversion, fmt.Errorf("unable to convert reflect type %s", goType.Kind().String()))
 	}
 
-	return reflect.Zero(goType), nil
+	return nil
 }
 
 func newReflectValueByType(elemType reflect.Type) reflect.Value {
@@ -242,13 +262,18 @@ func traversePointersAndGetValue(goValue reflect.Value, setNil bool) reflect.Val
 			continue
 		}
 		elemType := elem.Type().Elem()
-		if elem.IsNil() && elemType.Kind() == reflect.Map {
+		switch elemType.Kind() {
+		case reflect.Map:
 			newMap := reflect.MakeMap(elemType)
 			newMapPtr := reflect.New(elemType)
 			newMapPtr.Elem().Set(newMap)
 			elem.Set(newMapPtr)
-		}
-		if elemType.Kind() != reflect.Map {
+		case reflect.Slice:
+			newSlice := reflect.MakeSlice(elemType, 0, 10)
+			newSlicePtr := reflect.New(elemType)
+			newSlicePtr.Elem().Set(newSlice)
+			elem.Set(newSlicePtr)
+		default:
 			newElem := newReflectValueByType(elemType)
 			elem.Set(newElem)
 		}
@@ -261,10 +286,137 @@ func traversePointersAndGetValue(goValue reflect.Value, setNil bool) reflect.Val
 		newMap := newReflectValueByType(elem.Type())
 		elem.Set(newMap)
 	}
+	if elem.Type().Kind() == reflect.Slice && elem.IsNil() {
+		newSlice := newReflectValueByType(elem.Type())
+		elem.Set(newSlice)
+	}
 	if elem.Type().Kind() == reflect.Pointer && elem.Elem().IsValid() {
 		elem = elem.Elem()
 	}
 	return elem
+}
+
+func readAndProcessStructsFromParquet[T any](parquetBytes []byte, process func(*T) error) error {
+	bytesReader := bytes.NewReader(parquetBytes)
+	parquetReader, err := file.NewParquetReader(bytesReader)
+	if err != nil {
+		return err
+	}
+
+	defaultValue := new(T)
+
+	parquetSchema := parquetReader.MetaData().Schema
+
+	arrowSchema, err := pqarrow.FromParquet(parquetSchema, nil, nil)
+	if err != nil {
+		return err
+	}
+	arrowFieldList := arrowSchema.Fields()
+
+	// Get mappings between struct member names and parquet/arrow names so we don't have to look them up repeatedly
+	// during record assignments
+	structFieldNameToArrowIndexMappings := make(map[string]int, 100)
+	defaultType := reflect.TypeOf(defaultValue)
+	err = getStructFieldNameToArrowIndexMappings(defaultType, "Root", arrowFieldList, structFieldNameToArrowIndexMappings)
+	if err != nil {
+		return err
+	}
+	fileReader, err := pqarrow.NewFileReader(parquetReader, pqarrow.ArrowReadProperties{BatchSize: 1, Parallel: false}, memory.DefaultAllocator)
+	if err != nil {
+		return err
+	}
+	readCols := []int{}
+	for i := 0; i < fileReader.ParquetReader().MetaData().Schema.NumColumns(); i++ {
+		readCols = append(readCols, i)
+	}
+
+	// Read a row group at a time
+	for i := 0; i < fileReader.ParquetReader().NumRowGroups(); i++ {
+		tbl, err := fileReader.ReadRowGroups(context.TODO(), readCols, []int{i})
+		if err != nil {
+			return err
+		}
+		defer tbl.Release()
+
+		tableReader := array.NewTableReader(tbl, 0)
+		defer tableReader.Release()
+
+		for tableReader.Next() {
+			// the record contains a batch of rows
+			record := tableReader.Record()
+
+			entries := make([]*T, record.NumRows())
+			entryValues := make([]reflect.Value, record.NumRows())
+			for j := int64(0); j < record.NumRows(); j++ {
+				t := new(T)
+				entries[j] = t
+				entryValues[j] = reflect.ValueOf(t)
+			}
+
+			goStructFromArrowArrays(entryValues, record.Columns(), "Root", structFieldNameToArrowIndexMappings)
+			for j := int64(0); j < record.NumRows(); j++ {
+				err = process(entries[j])
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// Write helpers
+
+func writeStructsToParquetBytes[T any](values []T) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	defaultValue := new(T)
+	parquetSchema, err := schema.NewSchemaFromStruct(defaultValue)
+	if err != nil {
+		return nil, err
+	}
+	arrowSchema, err := pqarrow.FromParquet(parquetSchema, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	arrowFieldList := arrowSchema.Fields()
+
+	// Get mappings between struct member names and parquet/arrow names so we don't have to look them up repeatedly
+	// during record assignments
+	structFieldNameToArrowIndexMappings := make(map[string]int, 100)
+	valueType := reflect.TypeOf(defaultValue)
+	err = getStructFieldNameToArrowIndexMappings(valueType, "Root", arrowFieldList, structFieldNameToArrowIndexMappings)
+	if err != nil {
+		return nil, err
+	}
+
+	recordBuilder := array.NewStructBuilder(memory.DefaultAllocator, arrow.StructOf(arrowFieldList...))
+	recordBuilder.Resize(len(values))
+
+	for _, record := range values {
+		appendGoValueToArrowBuilder(reflect.ValueOf(record), recordBuilder, "Root", structFieldNameToArrowIndexMappings)
+	}
+
+	cols := make([]arrow.Column, 0, len(arrowFieldList))
+	for idx, field := range arrowFieldList {
+		arr := recordBuilder.FieldBuilder(idx).NewArray()
+		defer arr.Release()
+		chunked := arrow.NewChunked(field.Type, []arrow.Array{arr})
+		defer chunked.Release()
+		col := arrow.NewColumn(field, chunked)
+		defer col.Release()
+		cols = append(cols, *col)
+	}
+
+	tbl := array.NewTable(arrowSchema, cols, int64(len(values)))
+	props := parquet.NewWriterProperties(
+		parquet.WithCompression(compress.Codecs.Snappy),
+	)
+	err = pqarrow.WriteTable(tbl, buf, tbl.NumRows(), props, pqarrow.DefaultWriterProps())
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
 
 func appendGoValueToArrowBuilder(goValue reflect.Value, builder array.Builder, goNamePrefix string, goNameArrowIndexMap map[string]int) error {
@@ -402,8 +554,6 @@ func appendGoValueToArrowBuilder(goValue reflect.Value, builder array.Builder, g
 			if err != nil {
 				return err
 			}
-			test := fmt.Sprintf("key %v, value %v", key, goValue.MapIndex(key))
-			println(test)
 		}
 
 	case arrow.STRUCT:
@@ -483,9 +633,15 @@ func getStructFieldNameToArrowIndexMappings(goType reflect.Type, goNamePrefix st
 			}
 		}
 	case reflect.Array, reflect.Slice, reflect.Map:
+		// map: incoming is entries.
 		field := goType.Elem()
 		arrowField := arrowFields[0]
 		arrowStructMemberFields := arrowFieldsFromField(arrowField)
+		// map: fields are "key", "value". value fields are "anInt", "aString"
+		if goType.Kind() == reflect.Map {
+			// We need to get the map value
+			arrowStructMemberFields = arrowFieldsFromField(arrowStructMemberFields[1])
+		}
 		if arrowStructMemberFields != nil {
 			err := getStructFieldNameToArrowIndexMappings(field, goNamePrefix, arrowStructMemberFields, goNameArrowIndexMap)
 			if err != nil {

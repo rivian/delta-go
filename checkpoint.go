@@ -230,7 +230,7 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 		}
 		offsetRow += len(records)
 
-		parquetBytes, err := checkpointParquetBytes(records)
+		parquetBytes, err := writeStructsToParquetBytes(records)
 		if err != nil {
 			return err
 		}
