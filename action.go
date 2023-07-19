@@ -95,7 +95,7 @@ type Remove struct {
 	///
 	/// NOTE: Although it's defined as required in scala delta implementation, but some writes
 	/// it's still nullable so we keep it as Option<> for compatibly.
-	ExtendedFileMetadata *bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, repetition=OPTIONAL"`
+	ExtendedFileMetadata bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, repetition=OPTIONAL"`
 	/// A map from partition column to value for this file.
 	PartitionValues *map[string]string `json:"partitionValues" parquet:"name=partitionValues, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	/// Size of this file in bytes
@@ -306,7 +306,7 @@ func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, 
 	} else if marshalledAction, actionFound = unstructuredResult[string(TransactionActionKey)]; actionFound {
 		action = new(Txn)
 	} else if _, actionFound = unstructuredResult[string(CDCActionKey)]; actionFound {
-		return nil, ErrorCDCNotSupported
+		return nil, ErrCDCNotSupported
 	} else {
 		return nil, ErrActionUnknown
 	}

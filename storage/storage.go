@@ -16,22 +16,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"path/filepath"
 	"time"
 )
 
 var (
-	ErrObjectAlreadyExists error = errors.New("the object already exists")
-	ErrObjectDoesNotExist  error = errors.New("the object does not exist")
-	ErrObjectIsDir         error = errors.New("the object is a directory")
-	ErrCopyObject          error = errors.New("error while copying the object")
-	ErrPutObject           error = errors.New("error while putting the object")
-	ErrGetObject           error = errors.New("error while getting the object")
-	ErrHeadObject          error = errors.New("error while getting the object head")
-	ErrDeleteObject        error = errors.New("error while deleting the object")
-	ErrURLJoinPath         error = errors.New("error during url.JoinPath")
-	ErrListObjects         error = errors.New("error while listing objects")
+	ErrObjectAlreadyExists   error = errors.New("the object already exists")
+	ErrObjectDoesNotExist    error = errors.New("the object does not exist")
+	ErrObjectIsDir           error = errors.New("the object is a directory")
+	ErrCopyObject            error = errors.New("error while copying the object")
+	ErrPutObject             error = errors.New("error while putting the object")
+	ErrGetObject             error = errors.New("error while getting the object")
+	ErrHeadObject            error = errors.New("error while getting the object head")
+	ErrDeleteObject          error = errors.New("error while deleting the object")
+	ErrURLJoinPath           error = errors.New("error during url.JoinPath")
+	ErrListObjects           error = errors.New("error while listing objects")
+	ErrOperationNotSupported error = errors.New("the object store does not support this operation")
+	ErrWriter                error = errors.New("error while getting writer")
 )
 
 type DeltaStorageResult struct {
@@ -172,6 +175,9 @@ type ObjectStore interface {
 	// 	/// Delete the object at the specified location.
 	Delete(location Path) error
 
+	/// Delete the folder at the specified location.
+	DeleteFolder(location Path) error
+
 	/// List the objects with the given prefix.  This may be limited to a certain number of objects (e.g. 1000)
 	/// based on the underlying object storage's limitations.
 	/// If a previousResult is provided and the store supports paging, the next page of results will be returned.
@@ -230,6 +236,14 @@ type ObjectStore interface {
 
 	// Will return an error if the destination already has an object.
 	RenameIfNotExists(from Path, to Path) error
+
+	// Whether or not this store can be used as an io.Writer
+	SupportsWriter() bool
+
+	// Allow use of an ObjectStore as an io.Writer
+	// If error is nil, then the returned function should be called with a defer to close resources
+	// Writer may not be supported for all store types
+	Writer(to Path, flag int) (io.Writer, func(), error)
 }
 
 // / Wrapper around List that will perform paging if required
@@ -249,7 +263,7 @@ func NewListIterator(prefix Path, store ObjectStore) *ListIterator {
 }
 
 // / Return the next object in the list
-// / When there are no more objects, return nil and the error ErrorObjectDoesNotExist
+// / When there are no more objects, return nil and the error ErrObjectDoesNotExist
 func (listIterator *ListIterator) Next() (*ObjectMeta, error) {
 	// Fetch the first page, or the next page, if necessary
 	if listIterator.listResult == nil || (listIterator.nextIndex >= len(listIterator.listResult.Objects) && listIterator.listResult.NextToken != "") {
