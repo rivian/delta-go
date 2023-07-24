@@ -13,18 +13,12 @@
 package delta
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"reflect"
 	"sort"
 	"strconv"
 	"time"
-
-	"github.com/xitongsys/parquet-go-source/buffer"
-	"github.com/xitongsys/parquet-go/parquet"
-	"github.com/xitongsys/parquet-go/reader"
-	"github.com/xitongsys/parquet-go/writer"
 )
 
 type DeltaTableState[RowType any, PartitionType any] struct {
@@ -42,9 +36,9 @@ type DeltaTableState[RowType any, PartitionType any] struct {
 	MinWriterVersion      int32
 	// table metadata corresponding to current version
 	CurrentMetadata *DeltaTableMetaData
-	// retention period for tombstones in milli-seconds
+	// retention period for tombstones as time.Duration (nanoseconds)
 	TombstoneRetention time.Duration
-	// retention period for log entries in milli-seconds
+	// retention period for log entries as time.Duration (nanoseconds)
 	LogRetention            time.Duration
 	EnableExpiredLogCleanup bool
 }
@@ -57,6 +51,7 @@ var (
 	ErrorGeneratingCheckpoint     error = errors.New("unable to write checkpoint to buffer")
 	ErrorReadingCheckpoint        error = errors.New("unable to read checkpoint")
 	ErrorVersionOutOfOrder        error = errors.New("versions out of order during update")
+	ErrorUnexpectedSchemaFailure  error = errors.New("unexpected error converting schema")
 )
 
 // / Create an empty table state for the given version
@@ -251,90 +246,36 @@ func processCheckpointBytes[RowType any, PartitionType any](checkpointBytes []by
 }
 
 // / Update a table state with the contents of a checkpoint file
-func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) (returnErr error) {
-	bufferReader, err := buffer.NewBufferFile(checkpointBytes)
-	if err != nil {
-		return err
-	}
-	defer bufferReader.Close()
-	parquetReader, err := reader.NewParquetReader(bufferReader, nil, 4)
-	if err != nil {
-		return err
-	}
-	defer parquetReader.ReadStop()
+func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) error {
+	var processFunc = func(checkpointEntry *CheckpointEntry[RowType, PartitionType, AddType]) error {
+		var action Action
+		if checkpointEntry.Add != nil {
+			action = checkpointEntry.Add
+		}
+		if checkpointEntry.MetaData != nil {
+			action = checkpointEntry.MetaData
+		}
+		if checkpointEntry.Protocol != nil {
+			action = checkpointEntry.Protocol
+		}
+		if checkpointEntry.Remove != nil {
+			action = checkpointEntry.Remove
+		}
+		if checkpointEntry.Txn != nil {
+			action = checkpointEntry.Txn
+		}
 
-	maxBatchSize := 20000
-	var rowsRead int64 = 0
-	count := parquetReader.GetNumRows()
-	if count == 0 {
+		if action != nil {
+			err := tableState.processAction(action)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors.New("no action found in checkpoint record")
+		}
 		return nil
 	}
-	for rowsRead < count {
-		var batchSize int
-		if count-rowsRead > int64(maxBatchSize) {
-			batchSize = maxBatchSize
-		} else {
-			batchSize = int(count - rowsRead)
-		}
-		rows, err := parquetReader.ReadByNumber(batchSize)
-		if err != nil {
-			return err
-		}
-
-		for _, row := range rows {
-			var action Action
-			// t := reflect.TypeOf(row)
-			// for i := 0; i < t.NumField(); i++ {
-			// 	fmt.Printf("%+v\n", t.Field(i))
-			// }
-
-			rowValue := reflect.ValueOf(row)
-			add := rowValue.FieldByName("Add").Elem()
-			if add.IsValid() {
-				action, err = NewAddFromValue[RowType](add)
-				if err != nil {
-					return err
-				}
-			}
-			remove := rowValue.FieldByName("Remove").Elem()
-			if remove.IsValid() {
-				action, err = NewRemoveFromValue(remove)
-				if err != nil {
-					return err
-				}
-			}
-			metadata := rowValue.FieldByName("MetaData").Elem()
-			if metadata.IsValid() {
-				action, err = NewMetadataFromValue(metadata)
-				if err != nil {
-					return err
-				}
-			}
-			protocol := rowValue.FieldByName("Protocol").Elem()
-			if protocol.IsValid() {
-				action, err = NewProtocolFromValue(protocol)
-				if err != nil {
-					return err
-				}
-			}
-			txn := rowValue.FieldByName("Txn").Elem()
-			if txn.IsValid() {
-				action, err = NewTxnFromValue(txn)
-				if err != nil {
-					return err
-				}
-			}
-			if action != nil {
-				err = tableState.processAction(action)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		rowsRead += int64(batchSize)
-	}
-
-	return nil
+	return readAndProcessStructsFromParquet(checkpointBytes, processFunc)
 }
 
 // / Prepare the table state for checkpointing by updating tombstones
@@ -349,9 +290,9 @@ func (tableState *DeltaTableState[RowType, PartitionType]) prepareStateForCheckp
 	retentionTimestamp := time.Now().UnixMilli() - tableState.TombstoneRetention.Milliseconds()
 	unexpiredTombstones := make(map[string]Remove, len(tableState.Tombstones))
 	for path, remove := range tableState.Tombstones {
-		if *remove.DeletionTimestamp > retentionTimestamp {
+		if remove.DeletionTimestamp == nil || *remove.DeletionTimestamp > retentionTimestamp {
 			unexpiredTombstones[path] = remove
-			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && !*remove.ExtendedFileMetadata
+			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && (remove.ExtendedFileMetadata == nil || !*remove.ExtendedFileMetadata)
 		}
 	}
 
@@ -467,28 +408,4 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 	}
 
 	return checkpointRows, nil
-}
-
-// / Convert a slice of checkpoint entries into a checkpoint parquet file and return the bytes
-func checkpointParquetBytes[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointRows []CheckpointEntry[RowType, PartitionType, AddType]) ([]byte, error) {
-	buf := new(bytes.Buffer)
-	pw, err := writer.NewParquetWriterFromWriter(buf, new(CheckpointEntry[RowType, PartitionType, AddType]), 2)
-	if err != nil {
-		return nil, err
-	}
-	// TODO configuration option for compression type?
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
-
-	for _, record := range checkpointRows {
-		err = pw.Write(record)
-		if err != nil {
-			return nil, err
-		}
-	}
-	err = pw.WriteStop()
-	if err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
