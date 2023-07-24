@@ -16,12 +16,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 	"time"
 
-	"github.com/apache/arrow/go/v13/arrow"
-	"github.com/apache/arrow/go/v13/arrow/array"
 	"github.com/google/uuid"
 	"github.com/iancoleman/strcase"
 	"golang.org/x/exp/constraints"
@@ -120,102 +117,6 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	// StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed, repetition=OPTIONAL"`
 }
 
-// TODO partition version, and parsed fields
-func NewAddFromArrowRecord[RowType any](record arrow.Array) (*Add[RowType], error) {
-	add := new(Add[RowType])
-
-	switch arr := record.(type) {
-	case *array.Struct:
-		fields := arr.Data().DataType().(*arrow.StructType).Fields()
-
-		for i := 0; i < arr.NumField(); i++ {
-			switch fields[i].Name {
-			case "path":
-				err := typedValueFromArrowField(arr.Field(i), &add.Path)
-				if err != nil {
-					return nil, err
-				}
-			case "size":
-				err := typedValueFromArrowField(arr.Field(i), &add.Size)
-				if err != nil {
-					return nil, err
-				}
-			case "modificationTime":
-				err := typedValueFromArrowField(arr.Field(i), &add.ModificationTime)
-				if err != nil {
-					return nil, err
-				}
-			case "stats":
-				err := typedValueFromArrowField(arr.Field(i), &add.Stats)
-				if err != nil {
-					return nil, err
-				}
-			case "dataChange":
-				err := typedValueFromArrowField(arr.Field(i), &add.DataChange)
-				if err != nil {
-					return nil, err
-				}
-			case "baseRowId":
-				// ignore
-				// writer version 7 and delta.rowIds is true in writerFeatures
-			case "stats_parsed":
-				// TODO
-			case "tags":
-				// TODO
-			case "partitionValues":
-				// TODO
-			case "partitionValues_parsed":
-				// TODO
-			case "deletionVector":
-				// ignore
-				// writer version 7, reader version 3, must have deletionVectors in both readerFeatures and writerFeatures
-			default:
-				return nil, fmt.Errorf("unknown field name in add: %s, type %s", fields[i].Name, arr.Field(i).DataType())
-			}
-		}
-	default:
-		return nil, fmt.Errorf("not a struct: %v", record.DataType())
-	}
-
-	return add, nil
-}
-
-// / Helper function to retrieve a typed value from an arrow field
-func typedValueFromArrowField[V *int32 | int32 | string | *string | *int64 | int64 | *bool | bool](field arrow.Array, value *V) error {
-	// TODO maps, lists
-	switch pValue := any(value).(type) {
-	case *string:
-		switch typedField := field.(type) {
-		case *array.String:
-			*pValue = typedField.Value(0)
-		default:
-			return fmt.Errorf("invalid data type. Expected string, found %s", typedField.DataType())
-		}
-	case *int32:
-		switch typedField := field.(type) {
-		case *array.Int32:
-			*pValue = typedField.Value(0)
-		default:
-			return fmt.Errorf("invalid data type. Expected int32, found %s", typedField.DataType())
-		}
-	case *int64:
-		switch typedField := field.(type) {
-		case *array.Int64:
-			*pValue = typedField.Value(0)
-		default:
-			return fmt.Errorf("invalid data type. Expected int64, found %s", typedField.DataType())
-		}
-	case *bool:
-		switch typedField := field.(type) {
-		case *array.Boolean:
-			*pValue = typedField.Value(0)
-		default:
-			return fmt.Errorf("invalid data type. Expected bool, found %s", typedField.DataType())
-		}
-	}
-	return nil
-}
-
 // / Convenience function to copy data from an Add to an AddPartitioned
 func (addPartitioned *AddPartitioned[RowType, PartitionType]) fromAdd(add *Add[RowType]) {
 	addPartitioned.DataChange = add.DataChange
@@ -250,63 +151,6 @@ type Remove struct {
 	Tags *map[string]string `json:"tags" parquet:"-"`
 }
 
-func NewRemoveFromArrowRecord(record arrow.Array) (*Remove, error) {
-	remove := new(Remove)
-
-	switch arr := record.(type) {
-	case *array.Struct:
-		fields := arr.Data().DataType().(*arrow.StructType).Fields()
-
-		for i := 0; i < arr.NumField(); i++ {
-			switch fields[i].Name {
-			case "path":
-				err := typedValueFromArrowField(arr.Field(i), &remove.Path)
-				if err != nil {
-					return nil, err
-				}
-			case "size":
-				err := typedValueFromArrowField(arr.Field(i), &remove.Size)
-				if err != nil {
-					return nil, err
-				}
-			case "deletionTimestamp":
-				err := typedValueFromArrowField(arr.Field(i), &remove.DeletionTimestamp)
-				if err != nil {
-					return nil, err
-				}
-			case "dataChange":
-				err := typedValueFromArrowField(arr.Field(i), &remove.DataChange)
-				if err != nil {
-					return nil, err
-				}
-			case "extendedFileMetadata":
-				err := typedValueFromArrowField(arr.Field(i), &remove.ExtendedFileMetadata)
-				if err != nil {
-					return nil, err
-				}
-			case "baseRowId":
-				// ignore
-				// writer version 7 and delta.rowIds is true in writerFeatures
-			case "partitionValues":
-				// TODO
-			case "partitionValues_parsed":
-				// TODO
-			case "tags":
-				// TODO
-			case "deletionVector":
-				// ignore
-				// writer version 7, reader version 3, must have deletionVectors in both readerFeatures and writerFeatures
-			default:
-				return nil, fmt.Errorf("unknown field name in remove: %s, type %s", fields[i].Name, arr.Field(i).DataType())
-			}
-		}
-	default:
-		return nil, fmt.Errorf("not a struct: %v", record.DataType())
-	}
-
-	return remove, nil
-}
-
 // Describes the data format of files in the table.
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#format-specification
 type Format struct {
@@ -316,33 +160,6 @@ type Format struct {
 	/// A map containing configuration options for the format.
 	// Default: {}
 	Options map[string]string `json:"options" parquet:"name=options, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
-}
-
-func NewFormatFromArrowRecord(record arrow.Array) (*Format, error) {
-	format := new(Format)
-
-	switch arr := record.(type) {
-	case *array.Struct:
-		fields := arr.Data().DataType().(*arrow.StructType).Fields()
-
-		for i := 0; i < arr.NumField(); i++ {
-			switch fields[i].Name {
-			case "provider":
-				err := typedValueFromArrowField(arr.Field(i), &format.Provider)
-				if err != nil {
-					return nil, err
-				}
-			case "options":
-				// TODO
-			default:
-				return nil, fmt.Errorf("unknown field name in format: %s, type %s", fields[i].Name, arr.Field(i).DataType())
-			}
-		}
-	default:
-		return nil, fmt.Errorf("not a struct: %v", record.DataType())
-	}
-
-	return format, nil
 }
 
 // NewFormat provides the correct default format options as of Delta Lake 0.3.0
@@ -375,54 +192,6 @@ type MetaData struct {
 	Configuration map[string]string `json:"configuration" parquet:"name=configuration, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	/// The time when this metadata action is created, in milliseconds since the Unix epoch
 	CreatedTime *int64 `json:"createdTime" parquet:"name=createdTime, repetition=OPTIONAL"`
-}
-
-func NewMetaDataFromArrowRecord(record arrow.Array) (*MetaData, error) {
-	metadata := new(MetaData)
-
-	switch arr := record.(type) {
-	case *array.Struct:
-		fields := arr.Data().DataType().(*arrow.StructType).Fields()
-
-		for i := 0; i < arr.NumField(); i++ {
-			switch fields[i].Name {
-			case "name":
-				err := typedValueFromArrowField(arr.Field(i), &metadata.Name)
-				if err != nil {
-					return nil, err
-				}
-			case "description":
-				err := typedValueFromArrowField(arr.Field(i), &metadata.Description)
-				if err != nil {
-					return nil, err
-				}
-			case "format":
-				// TODO
-			case "id":
-				// TODO
-			case "partitionColumns":
-				// TODO
-			case "configuration":
-				// TODO
-			case "schemaString":
-				err := typedValueFromArrowField(arr.Field(i), &metadata.SchemaString)
-				if err != nil {
-					return nil, err
-				}
-			case "createdTime":
-				err := typedValueFromArrowField(arr.Field(i), &metadata.CreatedTime)
-				if err != nil {
-					return nil, err
-				}
-			default:
-				return nil, fmt.Errorf("unknown field name in metadata: %s, type %s", fields[i].Name, arr.Field(i).DataType())
-			}
-		}
-	default:
-		return nil, fmt.Errorf("not a struct: %v", record.DataType())
-	}
-
-	return metadata, nil
 }
 
 // MetaData.ToDeltaTableMetaData() converts a MetaData to DeltaTableMetaData
@@ -469,41 +238,6 @@ type Txn struct {
 	LastUpdated *int64 `json:"-" parquet:"name=lastUpdated, repetition=OPTIONAL"`
 }
 
-func NewTxnFromArrowRecord(record arrow.Array) (*Txn, error) {
-	txn := new(Txn)
-
-	switch arr := record.(type) {
-	case *array.Struct:
-		fields := arr.Data().DataType().(*arrow.StructType).Fields()
-
-		for i := 0; i < arr.NumField(); i++ {
-			switch fields[i].Name {
-			case "appId":
-				err := typedValueFromArrowField(arr.Field(i), &txn.AppId)
-				if err != nil {
-					return nil, err
-				}
-			case "version":
-				err := typedValueFromArrowField(arr.Field(i), &txn.Version)
-				if err != nil {
-					return nil, err
-				}
-			case "lastUpdated":
-				err := typedValueFromArrowField(arr.Field(i), &txn.LastUpdated)
-				if err != nil {
-					return nil, err
-				}
-			default:
-				return nil, fmt.Errorf("unknown field name in txn: %s, type %s", fields[i].Name, arr.Field(i).DataType())
-			}
-		}
-	default:
-		return nil, fmt.Errorf("not a struct: %v", record.DataType())
-	}
-
-	return txn, nil
-}
-
 // / Action used to increase the version of the Delta protocol required to read or write to the
 // / table.
 type Protocol struct {
@@ -513,38 +247,6 @@ type Protocol struct {
 	/// Minimum version of the Delta write protocol a client must implement to correctly read the
 	/// table.
 	MinWriterVersion int32 `json:"minWriterVersion" parquet:"name=minWriterVersion, repetition=OPTIONAL"`
-}
-
-func NewProtocolFromArrowRecord(record arrow.Array) (*Protocol, error) {
-	protocol := new(Protocol)
-
-	switch arr := record.(type) {
-	case *array.Struct:
-		fields := arr.Data().DataType().(*arrow.StructType).Fields()
-
-		for i := 0; i < arr.NumField(); i++ {
-			switch fields[i].Name {
-			case "minReaderVersion":
-				//				value, err := int32FromParquetField(arr.Field(i))
-				err := typedValueFromArrowField(arr.Field(i), &protocol.MinReaderVersion)
-				if err != nil {
-					return nil, err
-				}
-			case "minWriterVersion":
-				err := typedValueFromArrowField(arr.Field(i), &protocol.MinWriterVersion)
-				if err != nil {
-					return nil, err
-				}
-			default:
-				// Ignore extra fields
-				//				return nil, fmt.Errorf("unknown field name in protocol: %s, type %s", fields[i].Name, arr.Field(i).DataType())
-			}
-		}
-	default:
-		return nil, fmt.Errorf("not a struct: %v", record.DataType())
-	}
-
-	return protocol, nil
 }
 
 // / Default protocol versions are currently 1, 1 as we do not support any more advanced features yet
@@ -566,42 +268,6 @@ type Cdc struct {
 	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	/// Map containing metadata about this file
 	Tags *map[string]string `json:"tags,omitempty"`
-}
-
-func ActionFromArrowRecord[RowType any](record arrow.Record) (Action, error) {
-	// Find the non-null column for this row
-	col_idx := -1
-	var col_data arrow.Array
-	for idx, col := range record.Columns() {
-		if col.Len() != 1 {
-			return nil, errors.New("record length > 1")
-		}
-		if !col.IsNull(0) {
-			col_idx = idx
-			col_data = record.Column(idx)
-			break
-		}
-	}
-	if col_idx < 0 {
-		return nil, errors.New("could not find action field")
-	}
-
-	switch record.Schema().Field(col_idx).Name {
-	case "add":
-		return NewAddFromArrowRecord[RowType](col_data)
-	case "metaData":
-		return NewMetaDataFromArrowRecord(col_data)
-	case "remove":
-		return NewRemoveFromArrowRecord(col_data)
-	case "txn":
-		return NewTxnFromArrowRecord(col_data)
-	case "protocol":
-		return NewProtocolFromArrowRecord(col_data)
-	case "cdc":
-		return nil, ErrorCDCNotSupported
-	default:
-		return nil, errors.Join(ErrorActionUnknown, errors.New(record.Schema().Field(col_idx).Name))
-	}
 }
 
 func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, error) {
