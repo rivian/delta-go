@@ -33,7 +33,6 @@ import (
 	"github.com/rivian/delta-go/lock/nillock"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/state/localstate"
-	"github.com/segmentio/parquet-go"
 
 	"github.com/rivian/delta-go/storage"
 	"github.com/rivian/delta-go/storage/filestore"
@@ -750,13 +749,13 @@ func TestCreateWithParquet(t *testing.T) {
 }
 
 type testData struct {
-	Id     int64     `json:"id" parquet:"id,snappy"`
-	T1     int64     `json:"t1" parquet:"t1,timestamp(microsecond)"`
-	T2     time.Time `json:"t2" parquet:"t2,timestamp"`
-	Label  string    `json:"label" parquet:"label,dict,snappy"`
-	Value1 float64   `json:"value1" parquet:"value1,snappy" nullable:"false"`
-	Value2 *float64  `json:"value2" parquet:"value2,snappy" nullable:"true"`
-	Data   []byte    `json:"data" parquet:"data,plain,snappy" nullable:"true"`
+	Id int64 `json:"id" parquet:"name=id"`
+	T1 int64 `json:"t1" parquet:"name=t1, converted=timestamp_micros"`
+	// T2     time.Time `json:"t2" parquet:"name=t2, converted=timestamp_micros"` //`json:"t2" parquet:"name=t2,timestamp"`
+	Label  string   `json:"label" parquet:"name=label, converted=UTF8"`
+	Value1 float64  `json:"value1" parquet:"name=value1"`
+	Value2 *float64 `json:"value2" parquet:"name=value2"`
+	Data   []byte   `json:"data" parquet:"name=data"`
 }
 
 func (t *testData) UnmarshalJSON(data []byte) error {
@@ -773,8 +772,8 @@ func (t *testData) UnmarshalJSON(data []byte) error {
 		case "t1":
 			t.T1 = int64(v.(float64))
 		case "t2":
-			micros := int64(v.(float64))
-			t.T2 = time.Unix(micros/1e6, micros%1e6)
+			// micros := int64(v.(float64))
+			// t.T2 = time.Unix(micros/1e6, micros%1e6)
 		case "label":
 			t.Label = v.(string)
 		case "value1":
@@ -818,9 +817,9 @@ func makeTestData(n int) []testData {
 		b := make([]byte, 8)
 		binary.LittleEndian.PutUint64(b, uint64(rand.Int()))
 		row := testData{
-			Id:     int64(id),
-			T1:     time.Now().UnixMicro(),
-			T2:     time.Now(),
+			Id: int64(id),
+			T1: time.Now().UnixMicro(),
+			// T2:     time.Now(),
 			Label:  uuid.NewString(),
 			Value1: v,
 			Value2: v2,
@@ -837,8 +836,8 @@ func makeTestDataStats(data []testData) Stats {
 		stats.NumRecords++
 		UpdateStats(&stats, "id", &row.Id)
 		UpdateStats(&stats, "t1", &row.T1)
-		i := row.T2.UnixMicro()
-		UpdateStats(&stats, "t2", &i)
+		// i := row.T2.UnixMicro()
+		// UpdateStats(&stats, "t2", &i)
 		UpdateStats(&stats, "label", &row.Label)
 		UpdateStats(&stats, "value1", &row.Value1)
 		UpdateStats(&stats, "value2", row.Value2)
@@ -855,29 +854,27 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 
 	p := new(payload)
 
-	// if err := parquet.WriteFile(filename, data); err != nil {
-	// 	return p, err
-	// }
-
 	file, err := os.Create(filename)
 	if err != nil {
 		fmt.Println(err)
 	}
-	defer file.Close()
-
-	writer := parquet.NewGenericWriter[T](file)
-
-	i, err := writer.Write(data)
+	b, err := writeStructsToParquetBytes(data)
+	if err != nil {
+		return p, err
+	}
+	i, err := file.Write(b)
 	println(i)
 	if err != nil {
-		fmt.Println(err)
+		return p, err
 	}
-	if err := writer.Close(); err != nil {
-		fmt.Println(err)
-	}
+
 	info, _ := file.Stat()
 	p.Size = info.Size()
 	p.File = file
+
+	if err := file.Close(); err != nil {
+		return p, err
+	}
 	return p, nil
 }
 
