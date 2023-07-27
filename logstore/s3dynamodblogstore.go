@@ -305,6 +305,3 @@ func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
 func (ls *DynamoDBLogStore) getClient(cfg aws.Config) (*dynamodb.Client, error) {
 	return dynamodb.NewFromConfig(cfg), nil
 }
-
-// delta.go: commit to log store fn (handles write logic for commiting)
-//
