@@ -646,6 +646,40 @@ type DeltaTransaction[RowType any, PartitionType any] struct {
 	Options    *DeltaTransactionOptions
 }
 
+// Load the given file and return a list of actions.
+func (transaction *DeltaTransaction[RowType, PartitionType]) Read(path *storage.Path) error {
+
+}
+
+// Write the given `actions` to the given `path` with or without overwrite as indicated.
+// Implementation must throw FileAlreadyExistsException exception if the file already
+// exists and overwrite = false. Furthermore, if isPartialWriteVisible returns false,
+// implementation must ensure that the entire file is made visible atomically, that is,
+// it should not generate partial files.
+//
+// If overwrite=true, then write normally without any interaction with external store.
+// Else, to commit for delta version N:
+// - Step 0: Fail if N.json already exists in FileSystem.
+// - Step 1: Ensure that N-1.json exists. If not, perform a recovery.
+// - Step 2: PREPARE the commit.
+//   - Write `actions` into temp file T(N)
+//   - Write with mutual exclusion to external store and entry E(N, T(N), complete=false)
+//
+// - Step 3: COMMIT the commit to the delta log.
+//   - Copy T(N) into N.json
+//
+// - Step 4: ACKNOWLEDGE the commit.
+//   - Overwrite entry E in external store and set complete=true
+func (transaction *DeltaTransaction[RowType, PartitionType]) Write(path *storage.Path, actions []Action, overwrite bool) error {
+
+}
+
+// List the paths in the same directory that are lexicographically greater or equal to
+// (UTF-8 sorting) the given `path`. The result should also be sorted by the file name.
+func (transaction *DeltaTransaction[RowType, PartitionType]) ListFrom(path *storage.Path) error {
+
+}
+
 // / Creates a new delta transaction.
 // / Holds a mutable reference to the delta table to prevent outside mutation while a transaction commit is in progress.
 // / Transaction behavior may be customized by passing an instance of `DeltaTransactionOptions`.
