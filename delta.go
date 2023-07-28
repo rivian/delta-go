@@ -23,6 +23,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock"
+	"github.com/rivian/delta-go/lock/filelock"
+	"github.com/rivian/delta-go/logstore"
 	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/storage"
 	log "github.com/sirupsen/logrus"
@@ -40,6 +42,7 @@ var (
 	ErrorRetrieveLockBytes           error = errors.New("failed to retrieve bytes from lock")
 	ErrorLockDataEmpty               error = errors.New("lock data is empty")
 	ErrorExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
+	ErrorExceededReadRetryAttempts   error = errors.New("exceeded read retry attempts")
 	ErrorNotATable                   error = errors.New("not a Delta table")
 	ErrorInvalidVersion              error = errors.New("invalid version")
 	ErrorUnableToLoadVersion         error = errors.New("unable to load specified version")
@@ -47,6 +50,8 @@ var (
 	ErrorNotImplemented              error = errors.New("not implemented")
 	ErrorUnsupportedReaderVersion    error = errors.New("reader version is unsupported")
 	ErrorUnsupportedWriterVersion    error = errors.New("writer version is unsupported")
+	ErrorUnableToGetLogEntry         error = errors.New("unable to get log entry")
+	ErrorUnableToGetActions          error = errors.New("unable to get actions")
 )
 
 var (
@@ -642,19 +647,51 @@ func (dtmd *DeltaTableMetaData) GetPartitionColDataTypes() map[string]SchemaData
 // / `_delta_log/_commit_<uuid>.json` will orphaned in storage.
 type DeltaTransaction[RowType any, PartitionType any] struct {
 	DeltaTable    *DeltaTable[RowType, PartitionType]
-	KeyValueStore logstore.KeyValueStore
+	KeyValueStore logstore.LogStore
 	Actions       []Action
 	Options       *DeltaTransactionOptions
 }
 
 // Load the given file and return a list of actions.
-func (transaction *DeltaTransaction[RowType, PartitionType]) Read(path *storage.Path) error {
+func (transaction *DeltaTransaction[RowType, PartitionType]) Read(path *storage.Path) ([]Action, error) {
 	// With many concurrent readers/writers, there's a chance that concurrent 'recovery'
 	// operations occur on the same file, i.e. the same temp file T(N) is copied into the target
 	// N.json file more than once. Though data loss will *NOT* occur, readers of N.json may
 	// receive a RemoteFileChangedException from S3 as the ETag of N.json was changed. This is
 	// safe to retry, so we do so here.
+	attemptNumber := 0
+	for {
+		if attemptNumber > int(transaction.Options.MaxRetryReadAttempts)+1 {
+			log.Debugf("delta-go: Read attempt failed. Attempts exhausted beyond max_read_attempts of %d so failing.", transaction.Options.MaxRetryReadAttempts)
+			return nil, ErrorExceededReadRetryAttempts
+		}
 
+		logEntry, err := transaction.DeltaTable.Store.Get(path)
+		if err != nil {
+			if attemptNumber <= int(transaction.Options.MaxRetryReadAttempts)+1 {
+				attemptNumber += 1
+				log.Debugf("delta-go: Read attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
+				continue
+			} else {
+				log.Debugf("delta-go: Read attempt failed. Attempts exhausted beyond max_read_attempts of %d so failing.", transaction.Options.MaxRetryReadAttempts)
+				return nil, ErrorUnableToGetLogEntry
+			}
+		}
+
+		actions, err := ActionsFromLogEntries[RowType, PartitionType](logEntry)
+		if err != nil {
+			if attemptNumber <= int(transaction.Options.MaxRetryReadAttempts)+1 {
+				attemptNumber += 1
+				log.Debugf("delta-go: Read attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
+				continue
+			} else {
+				log.Debugf("delta-go: Read attempt failed. Attempts exhausted beyond max_read_attempts of %d so failing.", transaction.Options.MaxRetryReadAttempts)
+				return nil, ErrorUnableToGetActions
+			}
+		}
+
+		return actions, err
+	}
 }
 
 // Write the given `actions` to the given `path` with or without overwrite as indicated.
@@ -677,13 +714,20 @@ func (transaction *DeltaTransaction[RowType, PartitionType]) Read(path *storage.
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite entry E in external store and set complete=true
 func (transaction *DeltaTransaction[RowType, PartitionType]) Write(path *storage.Path, actions []Action, overwrite bool) error {
-
-}
-
-// List the paths in the same directory that are lexicographically greater or equal to
-// (UTF-8 sorting) the given `path`. The result should also be sorted by the file name.
-func (transaction *DeltaTransaction[RowType, PartitionType]) ListFrom(path *storage.Path) error {
-
+	// Prevent concurrent writers from either
+	// a) concurrently overwriting N.json if overwrite=true
+	// b) both checking if N-1.json exists and performing a "recovery" where they both
+	// copy T(N-1) into N-1.json
+	//
+	// Note that the mutual exclusion on writing into N.json with overwrite=false from
+	// different machines (which is the entire point of BaseExternalLogStore) is provided by the
+	// external cache, not by this lock, of course.
+	//
+	// Also note that this lock path (resolvedPath) is for N.json, while the lock path used
+	// below in the recovery `fixDeltaLog` path is for N-1.json. Thus, no deadlock.
+	parsedVersion, currentVersion := CommitVersionFromUri(path)
+	currentVersionLockClient := filelock.New(path, fmt.Sprintf("_delta_log/%s", CommitVersionFromUri(path.Raw)), filelock.LockOptions{TTL: 10 * time.Second})
+	return nil
 }
 
 // / Creates a new delta transaction.
@@ -897,6 +941,8 @@ type DeltaTransactionOptions struct {
 	MaxRetryCommitAttempts uint32
 	// RetryWaitDuration sets the amount of times between retry's on the transaction
 	RetryWaitDuration time.Duration
+	// number of retry attempts allowed when reading actions from a log entry
+	MaxRetryReadAttempts uint32
 }
 
 // NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS = 10000000
