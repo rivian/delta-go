@@ -641,13 +641,19 @@ func (dtmd *DeltaTableMetaData) GetPartitionColDataTypes() map[string]SchemaData
 // / Please not that in case of non-retryable error the temporary commit file such as
 // / `_delta_log/_commit_<uuid>.json` will orphaned in storage.
 type DeltaTransaction[RowType any, PartitionType any] struct {
-	DeltaTable *DeltaTable[RowType, PartitionType]
-	Actions    []Action
-	Options    *DeltaTransactionOptions
+	DeltaTable    *DeltaTable[RowType, PartitionType]
+	KeyValueStore logstore.KeyValueStore
+	Actions       []Action
+	Options       *DeltaTransactionOptions
 }
 
 // Load the given file and return a list of actions.
 func (transaction *DeltaTransaction[RowType, PartitionType]) Read(path *storage.Path) error {
+	// With many concurrent readers/writers, there's a chance that concurrent 'recovery'
+	// operations occur on the same file, i.e. the same temp file T(N) is copied into the target
+	// N.json file more than once. Though data loss will *NOT* occur, readers of N.json may
+	// receive a RemoteFileChangedException from S3 as the ETag of N.json was changed. This is
+	// safe to retry, so we do so here.
 
 }
 
