@@ -13,6 +13,7 @@
 package delta
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -21,9 +22,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock"
-	"github.com/rivian/delta-go/lock/filelock"
+	"github.com/rivian/delta-go/lock/dynamolock"
 	"github.com/rivian/delta-go/logstore"
 	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/storage"
@@ -726,7 +729,15 @@ func (transaction *DeltaTransaction[RowType, PartitionType]) Write(path *storage
 	// Also note that this lock path (resolvedPath) is for N.json, while the lock path used
 	// below in the recovery `fixDeltaLog` path is for N-1.json. Thus, no deadlock.
 	parsedVersion, currentVersion := CommitVersionFromUri(path)
-	currentVersionLockClient := filelock.New(path, fmt.Sprintf("_delta_log/%s", CommitVersionFromUri(path.Raw)), filelock.LockOptions{TTL: 10 * time.Second})
+	if !parsedVersion {
+		log.Debugf("delta-go: Failed to parse commit version from URI.")
+	}
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		log.Fatalf("failed to load SDK configuration %v", err)
+	}
+	dynamoDbClient := dynamodb.NewFromConfig(cfg)
+	currentVersionLockClient, err := dynamolock.New(dynamoDbClient, "delta_go_dynamo_lock", fmt.Sprintf("_delta_log/%s", currentVersion), dynamolock.LockOptions{TTL: 10 * time.Second})
 	return nil
 }
 
