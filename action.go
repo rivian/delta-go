@@ -40,8 +40,7 @@ type CommitInfo map[string]interface{}
 // An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
 // the correct schema without using reflection.
 // The Add variant is for a non-partitioned table; the PartitionValuesParsed field will be omitted.
-// When writing a partitioned table checkpoint, the AddPartitioned variant below is used instead.
-type Add[RowType any] struct {
+type Add struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
 	Path string `json:"path" parquet:"name=path, repetition=OPTIONAL, converted=UTF8"`
 	// A map from partition column to value for this file
@@ -66,41 +65,6 @@ type Add[RowType any] struct {
 	// This requires dropping writer version to 2.
 	// We likely need to re-implement using reflection.
 	//
-	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
-	// raw parquet format. This field needs to be written when statistics are available and the
-	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
-	//
-	// This field is only available in add action records read from / written to checkpoints
-	// StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed, repetition=OPTIONAL"`
-}
-
-// An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
-// the correct schema without using reflection.
-// The AddPartitioned variant is for a partitioned table; the PartitionValuesParsed field will consist of the partition struct.
-type AddPartitioned[RowType any, PartitionType any] struct {
-	// A relative path, from the root of the table, to a file that should be added to the table
-	Path string `json:"path" parquet:"name=path, repetition=OPTIONAL, converted=UTF8"`
-	// A map from partition column to value for this file
-	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
-	// The size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, repetition=OPTIONAL"`
-	// The time this file was created, as milliseconds since the epoch
-	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, repetition=OPTIONAL"`
-	// When false the file must already be present in the table or the records in the added file
-	// must be contained in one or more remove actions in the same version
-	//
-	// streaming queries that are tailing the transaction log can use this flag to skip actions
-	// that would not affect the final results.
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
-	// Map containing metadata about this file
-	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
-	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats *string `json:"stats" parquet:"name=stats, repetition=OPTIONAL, converted=UTF8"`
-
-	// TODO - parsed fields dropped after the parquet library switch.
-	// This requires dropping writer version to 2.
-	// We likely need to re-implement using reflection.
-
 	// Partition values stored in raw parquet struct format. In this struct, the column names
 	// correspond to the partition columns and the values are stored in their corresponding data
 	// type. This is a required field when the table is partitioned and the table property
@@ -114,18 +78,7 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	// StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed, repetition=OPTIONAL"`
-}
-
-// / Convenience function to copy data from an Add to an AddPartitioned
-func (addPartitioned *AddPartitioned[RowType, PartitionType]) fromAdd(add *Add[RowType]) {
-	addPartitioned.DataChange = add.DataChange
-	addPartitioned.ModificationTime = add.ModificationTime
-	addPartitioned.PartitionValues = add.PartitionValues
-	addPartitioned.Path = add.Path
-	addPartitioned.Size = add.Size
-	addPartitioned.Stats = add.Stats
-	addPartitioned.Tags = add.Tags
+	// StatsParsed *GenericStats `json:"-" parquet:"name=stats_parsed, repetition=OPTIONAL"`
 }
 
 // / Represents a tombstone (deleted file) in the Delta log.
@@ -270,7 +223,7 @@ type Cdc struct {
 	Tags *map[string]string `json:"tags,omitempty"`
 }
 
-func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, error) {
+func logEntryFromAction(action Action) ([]byte, error) {
 	var log []byte
 	m := make(map[string]any)
 
@@ -287,7 +240,7 @@ func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, 
 		key := strcase.ToLowerCamel(reflect.ValueOf(action).Elem().Type().Name())
 		m[key] = action
 		log, err = json.Marshal(m)
-	case AddPartitioned[RowType, PartitionType], *AddPartitioned[RowType, PartitionType]:
+	case Add, *Add:
 		key := string(AddActionKey)
 		m[key] = action
 		log, err = json.Marshal(m)
@@ -301,11 +254,11 @@ func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, 
 	return log, nil
 }
 
-func LogEntryFromActions[RowType any, PartitionType any](actions []Action) ([]byte, error) {
+func LogEntryFromActions(actions []Action) ([]byte, error) {
 	var jsons [][]byte
 
 	for _, action := range actions {
-		j, err := logEntryFromAction[RowType, PartitionType](action)
+		j, err := logEntryFromAction(action)
 		jsons = append(jsons, j)
 		if err != nil {
 			return bytes.Join(jsons, []byte("\n")), err
@@ -329,7 +282,7 @@ const (
 )
 
 // / Retrieve an action from a log entry
-func actionFromLogEntry[RowType any, PartitionType any](unstructuredResult map[string]json.RawMessage) (Action, error) {
+func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, error) {
 	if len(unstructuredResult) != 1 {
 		return nil, errors.Join(ErrorActionJSONFormat, errors.New("log entry JSON must have one value"))
 	}
@@ -339,7 +292,7 @@ func actionFromLogEntry[RowType any, PartitionType any](unstructuredResult map[s
 	var actionFound bool
 
 	if marshalledAction, actionFound = unstructuredResult[string(AddActionKey)]; actionFound {
-		action = new(AddPartitioned[RowType, PartitionType])
+		action = new(Add)
 	} else if marshalledAction, actionFound = unstructuredResult[string(RemoveActionKey)]; actionFound {
 		action = new(Remove)
 	} else if marshalledAction, actionFound = unstructuredResult[string(CommitInfoActionKey)]; actionFound {
@@ -367,7 +320,7 @@ func actionFromLogEntry[RowType any, PartitionType any](unstructuredResult map[s
 }
 
 // / Retrieve all actions in this log
-func ActionsFromLogEntries[RowType any, PartitionType any](logEntries []byte) ([]Action, error) {
+func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 	lines := bytes.Split(logEntries, []byte("\n"))
 	actions := make([]Action, 0, len(lines))
 	for _, currentLine := range lines {
@@ -379,7 +332,7 @@ func ActionsFromLogEntries[RowType any, PartitionType any](logEntries []byte) ([
 		if err != nil {
 			return nil, errors.Join(ErrorActionJSONFormat, err)
 		}
-		action, err := actionFromLogEntry[RowType, PartitionType](unstructuredResult)
+		action, err := actionFromLogEntry(unstructuredResult)
 		if err != nil {
 			return nil, err
 		}
@@ -514,14 +467,6 @@ type Stats struct {
 	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, repetition=OPTIONAL, keyconverted=UTF8, valuetype=INT64"`
 }
 
-type GenericStats[RowType any] struct {
-	NumRecords  int64            `json:"numRecords" parquet:"name=numRecords, repetition=OPTIONAL"`
-	TightBounds bool             `json:"tightBounds" parquet:"name=tightBounds, repetition=OPTIONAL"`
-	MinValues   RowType          `json:"minValues" parquet:"name=minValues, repetition=OPTIONAL"`
-	MaxValues   RowType          `json:"maxValues" parquet:"name=maxValues, repetition=OPTIONAL"`
-	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, repetition=OPTIONAL, keyconverted=UTF8, valuetype=INT64"`
-}
-
 func (s *Stats) Json() []byte {
 	b, _ := json.Marshal(s)
 	return b
@@ -534,35 +479,6 @@ func StatsFromJson(b []byte) (*Stats, error) {
 		err = json.Unmarshal(b, s)
 	}
 	return s, err
-}
-
-// / Convert untyped Stats object to a GenericStats object
-func statsAsGenericStats[RowType any](s *Stats) (*GenericStats[RowType], error) {
-	genericStats := new(GenericStats[RowType])
-	genericStats.NumRecords = s.NumRecords
-	genericStats.TightBounds = s.TightBounds
-	genericStats.NullCount = s.NullCount
-
-	// Convert min and max values via JSON rather than setting up the reflection manually
-	b, err := json.Marshal(s.MinValues)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(b, &genericStats.MinValues)
-	if err != nil {
-		return nil, err
-	}
-
-	b, err = json.Marshal(s.MaxValues)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(b, &genericStats.MaxValues)
-	if err != nil {
-		return nil, err
-	}
-
-	return genericStats, nil
 }
 
 // UpdateStats computes Stats.NullCount, Stats.MinValues, Stats.MaxValues for a given k,v struct property

@@ -37,9 +37,9 @@ type CheckPoint struct {
 }
 
 // / A single checkpoint entry in the checkpoint Parquet file
-type CheckpointEntry[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]] struct {
+type CheckpointEntry struct {
 	Txn      *Txn      `parquet:"name=txn"`
-	Add      *AddType  `parquet:"name=add"`
+	Add      *Add      `parquet:"name=add"`
 	Remove   *Remove   `parquet:"name=remove"`
 	MetaData *MetaData `parquet:"name=metaData"`
 	Protocol *Protocol `parquet:"name=protocol"`
@@ -184,20 +184,10 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 	return false, nil
 }
 
-func createCheckpointFor[RowType any, PartitionType any](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
-	// Determine whether partitioned
-	isPartitioned := !isPartitionTypeEmpty[PartitionType]()
-	if isPartitioned {
-		return createCheckpointWithAddType[RowType, PartitionType, AddPartitioned[RowType, PartitionType]](tableState, store, checkpointConfiguration)
-	} else {
-		return createCheckpointWithAddType[RowType, PartitionType, Add[RowType]](tableState, store, checkpointConfiguration)
-	}
-}
-
 // / Create a checkpoint for the given state in the given store
 // / Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
 // / Applies tombstone expiration first
-func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](tableState *DeltaTableState[RowType, PartitionType], store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
+func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
 	checkpointExists, err := doesCheckpointVersionExist(store, tableState.Version, false)
 	if err != nil {
 		return err
@@ -224,7 +214,7 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 	var totalBytes int64 = 0
 	offsetRow := 0
 	for part := int32(0); part < numParts; part++ {
-		records, err := checkpointRows[RowType, PartitionType, AddType](tableState, offsetRow, checkpointConfiguration.MaxRowsPerPart)
+		records, err := checkpointRows(tableState, offsetRow, checkpointConfiguration.MaxRowsPerPart)
 		if err != nil {
 			return err
 		}
@@ -280,50 +270,19 @@ func createCheckpointWithAddType[RowType any, PartitionType any, AddType AddPart
 }
 
 // / Generate an Add action for a checkpoint (with additional fields) from a basic Add action
-func checkpointAdd[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](add *AddPartitioned[RowType, PartitionType]) (*AddType, error) {
-	// stats, err := StatsFromJson([]byte(add.Stats))
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// parsedStats, err := statsAsGenericStats[RowType](stats)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	addDataChange := false
-	checkpointAdd := new(AddType)
-	switch typedAdd := any(checkpointAdd).(type) {
-	case *AddPartitioned[RowType, PartitionType]:
-		// *typedAdd = *add
-		typedAdd.DataChange = addDataChange
-		typedAdd.ModificationTime = add.ModificationTime
-		typedAdd.PartitionValues = add.PartitionValues
-		typedAdd.Path = add.Path
-		typedAdd.Size = add.Size
-		if typedAdd.Size == 0 {
-			return nil, errors.Join(ErrorCheckpointAddZeroSize, fmt.Errorf("zero size add for path %s", add.Path))
-		}
-		typedAdd.Stats = add.Stats
-		typedAdd.Tags = add.Tags
-		// typedAdd.StatsParsed = *parsedStats
-		// partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
-		// if err != nil {
-		// 	return checkpointAdd, err
-		// }
-		// typedAdd.PartitionValuesParsed = *partitionValuesParsed
-	case *Add[RowType]:
-		typedAdd.DataChange = addDataChange
-		typedAdd.ModificationTime = add.ModificationTime
-		typedAdd.PartitionValues = add.PartitionValues
-		typedAdd.Path = add.Path
-		typedAdd.Size = add.Size
-		if typedAdd.Size == 0 {
-			return nil, errors.Join(ErrorCheckpointAddZeroSize, fmt.Errorf("zero size add for path %s", add.Path))
-		}
-		typedAdd.Stats = add.Stats
-		typedAdd.Tags = add.Tags
-		// typedAdd.StatsParsed = *parsedStats
+func checkpointAdd(add *Add) (*Add, error) {
+	if add.Size == 0 {
+		return nil, errors.Join(ErrorCheckpointAddZeroSize, fmt.Errorf("zero size add for path %s", add.Path))
 	}
+
+	checkpointAdd := new(Add)
+	checkpointAdd.DataChange = false
+	checkpointAdd.ModificationTime = add.ModificationTime
+	checkpointAdd.PartitionValues = add.PartitionValues
+	checkpointAdd.Path = add.Path
+	checkpointAdd.Size = add.Size
+	checkpointAdd.Stats = add.Stats
+	checkpointAdd.Tags = add.Tags
 	return checkpointAdd, nil
 }
 
