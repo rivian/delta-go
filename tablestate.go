@@ -15,20 +15,19 @@ package delta
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strconv"
 	"time"
 )
 
-type DeltaTableState[RowType any, PartitionType any] struct {
+type DeltaTableState struct {
 	// current table version represented by this table state
 	Version int64
 	// A remove action should remain in the state of the table as a tombstone until it has expired.
 	// A tombstone expires when the creation timestamp of the delta file exceeds the expiration
 	Tombstones map[string]Remove
 	// active files for table state
-	Files map[string]AddPartitioned[RowType, PartitionType]
+	Files map[string]Add
 	// Information added to individual commits
 	CommitInfos           []CommitInfo
 	AppTransactionVersion map[string]int64
@@ -55,10 +54,10 @@ var (
 )
 
 // / Create an empty table state for the given version
-func NewDeltaTableState[RowType any, PartitionType any](version int64) *DeltaTableState[RowType, PartitionType] {
-	tableState := new(DeltaTableState[RowType, PartitionType])
+func NewDeltaTableState(version int64) *DeltaTableState {
+	tableState := new(DeltaTableState)
 	tableState.Version = version
-	tableState.Files = make(map[string]AddPartitioned[RowType, PartitionType])
+	tableState.Files = make(map[string]Add)
 	tableState.Tombstones = make(map[string]Remove)
 	tableState.AppTransactionVersion = make(map[string]int64)
 	// Default 7 days
@@ -70,7 +69,7 @@ func NewDeltaTableState[RowType any, PartitionType any](version int64) *DeltaTab
 }
 
 // / Get a configuration value from the table state, or return the default value if the configuration option is not present
-func (tableState *DeltaTableState[RowType, PartitionType]) ConfigurationOrDefault(configKey DeltaConfigKey, defaultValue string) string {
+func (tableState *DeltaTableState) ConfigurationOrDefault(configKey DeltaConfigKey, defaultValue string) string {
 	if tableState.CurrentMetadata == nil || tableState.CurrentMetadata.Configuration == nil {
 		return defaultValue
 	}
@@ -82,17 +81,17 @@ func (tableState *DeltaTableState[RowType, PartitionType]) ConfigurationOrDefaul
 }
 
 // / Generate a table state from a specific commit version
-func NewDeltaTableStateFromCommit[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], version int64) (*DeltaTableState[RowType, PartitionType], error) {
+func NewDeltaTableStateFromCommit(table *DeltaTable, version int64) (*DeltaTableState, error) {
 	actions, err := table.ReadCommitVersion(version)
 	if err != nil {
 		return nil, err
 	}
-	return NewDeltaTableStateFromActions[RowType, PartitionType](actions, version)
+	return NewDeltaTableStateFromActions(actions, version)
 }
 
 // / Generate a table state from a list of actions
-func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Action, version int64) (*DeltaTableState[RowType, PartitionType], error) {
-	tableState := NewDeltaTableState[RowType, PartitionType](version)
+func NewDeltaTableStateFromActions(actions []Action, version int64) (*DeltaTableState, error) {
+	tableState := NewDeltaTableState(version)
 	for _, action := range actions {
 		err := tableState.processAction(action)
 		if err != nil {
@@ -103,16 +102,10 @@ func NewDeltaTableStateFromActions[RowType any, PartitionType any](actions []Act
 }
 
 // / Update the table state by applying a single action
-func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionInterface Action) error {
+func (tableState *DeltaTableState) processAction(actionInterface Action) error {
 	switch action := actionInterface.(type) {
-	case *AddPartitioned[RowType, PartitionType]:
+	case *Add:
 		tableState.Files[action.Path] = *action
-	case *Add[RowType]:
-		// We're using the AddPartitioned type for storing our list of added files, so need to translate the type here
-		add := new(AddPartitioned[RowType, PartitionType])
-		// Copy details
-		add.fromAdd(action)
-		tableState.Files[action.Path] = *add
 	case *Remove:
 		// TODO - do we need to decode as in delta-rs?
 		tableState.Tombstones[action.Path] = *action
@@ -165,7 +158,7 @@ func (tableState *DeltaTableState[RowType, PartitionType]) processAction(actionI
 }
 
 // / Merges new state information into our state
-func (tableState *DeltaTableState[RowType, PartitionType]) merge(newTableState *DeltaTableState[RowType, PartitionType]) error {
+func (tableState *DeltaTableState) merge(newTableState *DeltaTableState) error {
 	// Remove deleted files from existing added files
 	for k := range newTableState.Tombstones {
 		delete(tableState.Files, k)
@@ -211,8 +204,8 @@ func (tableState *DeltaTableState[RowType, PartitionType]) merge(newTableState *
 	return nil
 }
 
-func stateFromCheckpoint[RowType any, PartitionType any](table *DeltaTable[RowType, PartitionType], checkpoint *CheckPoint) (*DeltaTableState[RowType, PartitionType], error) {
-	newState := NewDeltaTableState[RowType, PartitionType](checkpoint.Version)
+func stateFromCheckpoint(table *DeltaTable, checkpoint *CheckPoint) (*DeltaTableState, error) {
+	newState := NewDeltaTableState(checkpoint.Version)
 	checkpointDataPaths := table.GetCheckpointDataPaths(checkpoint)
 	for _, location := range checkpointDataPaths {
 		checkpointBytes, err := table.Store.Get(&location)
@@ -229,25 +222,9 @@ func stateFromCheckpoint[RowType any, PartitionType any](table *DeltaTable[RowTy
 	return newState, nil
 }
 
-func isPartitionTypeEmpty[PartitionType any]() bool {
-	testPartitionItem := new(PartitionType)
-	structType := reflect.TypeOf(*testPartitionItem)
-	return structType.NumField() == 0
-}
-
-func processCheckpointBytes[RowType any, PartitionType any](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) (returnErr error) {
-	// Determine whether partitioned
-	isPartitioned := !isPartitionTypeEmpty[PartitionType]()
-	if isPartitioned {
-		return processCheckpointBytesWithAddSpecified[RowType, PartitionType, AddPartitioned[RowType, PartitionType]](checkpointBytes, tableState, table)
-	} else {
-		return processCheckpointBytesWithAddSpecified[RowType, PartitionType, Add[RowType]](checkpointBytes, tableState, table)
-	}
-}
-
 // / Update a table state with the contents of a checkpoint file
-func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](checkpointBytes []byte, tableState *DeltaTableState[RowType, PartitionType], table *DeltaTable[RowType, PartitionType]) error {
-	var processFunc = func(checkpointEntry *CheckpointEntry[RowType, PartitionType, AddType]) error {
+func processCheckpointBytes(checkpointBytes []byte, tableState *DeltaTableState, table *DeltaTable) error {
+	var processFunc = func(checkpointEntry *CheckpointEntry) error {
 		var action Action
 		if checkpointEntry.Add != nil {
 			action = checkpointEntry.Add
@@ -279,7 +256,7 @@ func processCheckpointBytesWithAddSpecified[RowType any, PartitionType any, AddT
 }
 
 // / Prepare the table state for checkpointing by updating tombstones
-func (tableState *DeltaTableState[RowType, PartitionType]) prepareStateForCheckpoint() error {
+func (tableState *DeltaTableState) prepareStateForCheckpoint() error {
 	if tableState.CurrentMetadata == nil {
 		return ErrorMissingMetadata
 	}
@@ -311,12 +288,12 @@ func (tableState *DeltaTableState[RowType, PartitionType]) prepareStateForCheckp
 }
 
 // / Retrieve the next batch of checkpoint entries to write to Parquet
-func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowType, PartitionType] | Add[RowType]](tableState *DeltaTableState[RowType, PartitionType], startOffset int, maxRows int) ([]CheckpointEntry[RowType, PartitionType, AddType], error) {
+func checkpointRows(tableState *DeltaTableState, startOffset int, maxRows int) ([]CheckpointEntry, error) {
 	maxRowCount := 2 + len(tableState.AppTransactionVersion) + len(tableState.Tombstones) + len(tableState.Files)
 	if maxRows < maxRowCount {
 		maxRowCount = maxRows
 	}
-	checkpointRows := make([]CheckpointEntry[RowType, PartitionType, AddType], 0, maxRowCount)
+	checkpointRows := make([]CheckpointEntry, 0, maxRowCount)
 
 	currentOffset := 0
 
@@ -325,7 +302,7 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 		protocol := new(Protocol)
 		protocol.MinReaderVersion = tableState.MinReaderVersion
 		protocol.MinWriterVersion = tableState.MinWriterVersion
-		checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Protocol: protocol})
+		checkpointRows = append(checkpointRows, CheckpointEntry{Protocol: protocol})
 	}
 
 	currentOffset++
@@ -333,7 +310,7 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 	// Row 2: metadata
 	if startOffset <= currentOffset && len(checkpointRows) < maxRows {
 		metadata := tableState.CurrentMetadata.ToMetaData()
-		checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{MetaData: &metadata})
+		checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &metadata})
 	}
 
 	currentOffset++
@@ -351,7 +328,7 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 				txn.AppId = appId
 				version := tableState.AppTransactionVersion[appId]
 				txn.Version = version
-				checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Txn: txn})
+				checkpointRows = append(checkpointRows, CheckpointEntry{Txn: txn})
 
 				if len(checkpointRows) >= maxRows {
 					break
@@ -373,7 +350,7 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 			if startOffset <= currentOffset+i {
 				checkpointRemove := new(Remove)
 				*checkpointRemove = tableState.Tombstones[path]
-				checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Remove: checkpointRemove})
+				checkpointRows = append(checkpointRows, CheckpointEntry{Remove: checkpointRemove})
 
 				if len(checkpointRows) >= maxRows {
 					break
@@ -394,11 +371,11 @@ func checkpointRows[RowType any, PartitionType any, AddType AddPartitioned[RowTy
 		for i, path := range keys {
 			if startOffset <= currentOffset+i {
 				add := tableState.Files[path]
-				checkpointAdd, err := checkpointAdd[RowType, PartitionType, AddType](&add)
+				checkpointAdd, err := checkpointAdd(&add)
 				if err != nil {
 					return nil, errors.Join(ErrorConvertingCheckpointAdd, err)
 				}
-				checkpointRows = append(checkpointRows, CheckpointEntry[RowType, PartitionType, AddType]{Add: checkpointAdd})
+				checkpointRows = append(checkpointRows, CheckpointEntry{Add: checkpointAdd})
 
 				if len(checkpointRows) >= maxRows {
 					break
