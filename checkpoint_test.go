@@ -195,6 +195,27 @@ func TestSimpleCheckpoint(t *testing.T) {
 		t.Errorf("Found %d files, expected 12", len(table.State.Files))
 	}
 
+	// Spot check contents. This add is from version 4, whose JSON file has been removed, so
+	// it is certain to have been loaded from a checkpoint parquet file.
+	checkPath := "date=2020-06-01/part-00000-ee6161de-c5be-4117-9ffe-e09b7475dbc7.c000.snappy.parquet"
+	checkAdd, present := table.State.Files[checkPath]
+	if !present {
+		t.Errorf("Expected file at %s but not found", checkPath)
+	} else {
+		expectedStats := "{\"numRecords\":3,\"minValues\":{\"value\":\"c\",\"ts\":\"2021-07-29T18:11:33.223Z\"},\"maxValues\":{\"value\":\"y\",\"ts\":\"2021-08-31T13:01:45.876Z\"},\"nullCount\":{\"value\":1,\"ts\":0}}"
+		expectedAdd := Add{
+			Path:             checkPath,
+			PartitionValues:  map[string]string{"date": "2020-06-01"},
+			Size:             4567,
+			ModificationTime: 1627668694000,
+			DataChange:       false,
+			Stats:            &expectedStats,
+		}
+		if !reflect.DeepEqual(expectedAdd, checkAdd) {
+			t.Errorf("Add does not match: expected %v found %v", expectedAdd, checkAdd)
+		}
+	}
+
 	// Can't create a checkpoint if it already exists
 	_, err = CreateCheckpoint(store, checkpointLock, checkpointConfiguration, 10)
 	if !errors.Is(err, ErrorCheckpointAlreadyExists) {
