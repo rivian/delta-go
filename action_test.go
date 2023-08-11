@@ -169,7 +169,7 @@ func TestUpdateStats(t *testing.T) {
 	}
 
 	b, _ := json.Marshal(stats)
-	expectedStr := `{"numRecords":4,"tightBounds":false,"minValues":{"id":0,"label":"row0","value":1.23},"maxValues":{"id":3,"label":"row3","value":2.13},"nullCount":{"value":2}}`
+	expectedStr := `{"numRecords":4,"tightBounds":false,"minValues":{"id":0,"label":"row0","value":1.23},"maxValues":{"id":3,"label":"row3","value":2.13},"nullCount":{"id":0,"label":0,"value":2}}`
 	statsString := string(b)
 	if statsString != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", statsString, expectedStr)

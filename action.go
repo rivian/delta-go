@@ -487,10 +487,14 @@ func StatsFromJson(b []byte) (*Stats, error) {
 func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
 
 	var v T
+	if s.NullCount == nil {
+		s.NullCount = make(map[string]int64)
+	}
+	if _, hasPriorNullCount := s.NullCount[k]; !hasPriorNullCount {
+		s.NullCount[k] = 0
+	}
+
 	if vpt == nil {
-		if s.NullCount == nil {
-			s.NullCount = make(map[string]int64)
-		}
 		s.NullCount[k]++
 		//Value is nil, skip applying MinValues, MaxValues
 		return
