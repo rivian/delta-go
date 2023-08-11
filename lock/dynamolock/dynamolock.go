@@ -16,8 +16,8 @@ import (
 	"errors"
 	"time"
 
-	"cirello.io/dynamolock"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"cirello.io/dynamolock/v2"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/rivian/delta-go/lock"
 )
 
@@ -26,7 +26,7 @@ type DynamoLock struct {
 	LockClient   *dynamolock.Client
 	LockedItem   *dynamolock.Lock
 	Key          string
-	DynamoClient dynamodbiface.DynamoDBAPI
+	DynamoClient *dynamodb.Client
 	Options      LockOptions
 }
 
@@ -45,8 +45,7 @@ const (
 	HEARTBEAT time.Duration = 1 * time.Second
 )
 
-func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
-
+func New(client *dynamodb.Client, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
 	if opt.TTL == 0 {
 		opt.TTL = TTL
 	}
