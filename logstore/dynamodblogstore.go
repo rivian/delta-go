@@ -121,12 +121,12 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 	return ls, nil
 }
 
-func (ls *DynamoDBLogStore) getExpirationDelaySeconds() (uint64, error) {
+func (ls *DynamoDBLogStore) GetExpirationDelaySeconds() (uint64, error) {
 	return ls.expirationDelaySeconds, nil
 }
 
-func (ls *DynamoDBLogStore) PutExternalEntry(entry ExternalCommitEntry, overwrite bool) error {
-	log.Debugf("delta-go: PutItem (tablePath %s, fileName %s, tempPath %s, complete %t, expireTime %d, overwrite %t)", entry.tablePath, entry.fileName, entry.tempPath, entry.complete, entry.expireTime, overwrite)
+func (ls *DynamoDBLogStore) PutExternalEntry(entry *ExternalCommitEntry, overwrite bool) error {
+	log.Debugf("delta-go: PutItem (tablePath %s, fileName %s, tempPath %s, complete %t, expireTime %d, overwrite %t)", entry.TablePath, entry.FileName, entry.TempPath, entry.Complete, entry.ExpireTime, overwrite)
 
 	pir, err := ls.createPutItemRequest(entry, overwrite)
 	if err != nil {
@@ -172,7 +172,7 @@ func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath string) (*ExternalC
 	return ece, nil
 }
 
-// Map a DBB query result item to an ExternalCommitEntry
+// Maps a DBB query result item to an ExternalCommitEntry.
 func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.AttributeValue) (*ExternalCommitEntry, error) {
 	expireTimeAttr, err := strconv.ParseUint(item[attrExpireTime].(*types.AttributeValueMemberN).Value, 10, 64)
 	if err != nil {
@@ -188,11 +188,11 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 	)
 }
 
-func (ls *DynamoDBLogStore) createPutItemRequest(entry ExternalCommitEntry, overwrite bool) (*dynamodb.PutItemInput, error) {
-	attributes := map[string]types.AttributeValue{attrTablePath: &types.AttributeValueMemberS{Value: entry.tablePath}, attrFileName: &types.AttributeValueMemberS{Value: entry.fileName}, attrTempPath: &types.AttributeValueMemberS{Value: entry.tempPath}, attrComplete: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.complete))}}
+func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, overwrite bool) (*dynamodb.PutItemInput, error) {
+	attributes := map[string]types.AttributeValue{attrTablePath: &types.AttributeValueMemberS{Value: entry.TablePath}, attrFileName: &types.AttributeValueMemberS{Value: entry.FileName}, attrTempPath: &types.AttributeValueMemberS{Value: entry.TempPath}, attrComplete: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.Complete))}}
 
-	if entry.expireTime != 0 {
-		attributes[attrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(string(entry.expireTime))}
+	if entry.ExpireTime != 0 {
+		attributes[attrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(string(entry.ExpireTime))}
 	}
 
 	pir := &dynamodb.PutItemInput{

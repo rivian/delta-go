@@ -40,67 +40,31 @@ type CommitInfo map[string]interface{}
 // An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
 // the correct schema without using reflection.
 // The Add variant is for a non-partitioned table; the PartitionValuesParsed field will be omitted.
-// When writing a partitioned table checkpoint, the AddPartitioned variant below is used instead.
-type Add[RowType any] struct {
+type Add struct {
 	// A relative path, from the root of the table, to a file that should be added to the table
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Path string `json:"path" parquet:"name=path, repetition=OPTIONAL, converted=UTF8"`
 	// A map from partition column to value for this file
 	// This field is required even without a partition.
-	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	// The size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, type=INT64"`
+	Size int64 `json:"size" parquet:"name=size, repetition=OPTIONAL"`
 	// The time this file was created, as milliseconds since the epoch
-	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, type=INT64"`
+	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, repetition=OPTIONAL"`
 	// When false the file must already be present in the table or the records in the added file
 	// must be contained in one or more remove actions in the same version
 	//
 	// streaming queries that are tailing the transaction log can use this flag to skip actions
 	// that would not affect the final results.
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
+	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	// Map containing metadata about this file
-	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats *string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Stats *string `json:"stats" parquet:"name=stats, repetition=OPTIONAL, converted=UTF8"`
 
 	// TODO - parsed fields dropped after the parquet library switch.
 	// This requires dropping writer version to 2.
 	// We likely need to re-implement using reflection.
 	//
-	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
-	// raw parquet format. This field needs to be written when statistics are available and the
-	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
-	//
-	// This field is only available in add action records read from / written to checkpoints
-	// StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
-}
-
-// An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
-// the correct schema without using reflection.
-// The AddPartitioned variant is for a partitioned table; the PartitionValuesParsed field will consist of the partition struct.
-type AddPartitioned[RowType any, PartitionType any] struct {
-	// A relative path, from the root of the table, to a file that should be added to the table
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
-	// A map from partition column to value for this file
-	PartitionValues map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
-	// The size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, type=INT64"`
-	// The time this file was created, as milliseconds since the epoch
-	ModificationTime int64 `json:"modificationTime" parquet:"name=modificationTime, type=INT64"`
-	// When false the file must already be present in the table or the records in the added file
-	// must be contained in one or more remove actions in the same version
-	//
-	// streaming queries that are tailing the transaction log can use this flag to skip actions
-	// that would not affect the final results.
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
-	// Map containing metadata about this file
-	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
-	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats *string `json:"stats" parquet:"name=stats, type=BYTE_ARRAY, convertedtype=UTF8"`
-
-	// TODO - parsed fields dropped after the parquet library switch.
-	// This requires dropping writer version to 2.
-	// We likely need to re-implement using reflection.
-
 	// Partition values stored in raw parquet struct format. In this struct, the column names
 	// correspond to the partition columns and the values are stored in their corresponding data
 	// type. This is a required field when the table is partitioned and the table property
@@ -108,285 +72,36 @@ type AddPartitioned[RowType any, PartitionType any] struct {
 	// column can be omitted.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	// PartitionValuesParsed *PartitionType `json:"-" parquet:"name=partitionValues_parsed"`
+	// PartitionValuesParsed *PartitionType `json:"-" parquet:"name=partitionValues_parsed, repetition=OPTIONAL"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file in
 	// raw parquet format. This field needs to be written when statistics are available and the
 	// table property: delta.checkpoint.writeStatsAsStruct is set to true.
 	//
 	// This field is only available in add action records read from / written to checkpoints
-	// StatsParsed *GenericStats[RowType] `json:"-" parquet:"name=stats_parsed"`
-}
-
-// TODO partition version, and parsed fields
-func NewAddFromValue[RowType any](value reflect.Value) (*Add[RowType], error) {
-	add := new(Add[RowType])
-	var err error
-	add.DataChange, err = boolFromValue(value.FieldByName("DataChange"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read dataChange for Add"))
-	}
-	add.ModificationTime, err = intFromValue[int64](value.FieldByName("ModificationTime"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read modificationTime for Add"))
-	}
-	add.Path, err = stringFromValue(value.FieldByName("Path"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read path for Add"))
-	}
-	add.Size, err = intFromValue[int64](value.FieldByName("Size"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read size for Add"))
-	}
-	add.Stats, err = stringPtrFromValue(value.FieldByName("Stats"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read stats for Add"))
-	}
-	add.PartitionValues, err = stringMapFromValue(value.FieldByName("PartitionValues"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read partitionValues for Add"))
-	}
-	tags, err := stringMapFromValue(value.FieldByName("Tags"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read tags for Add"))
-	}
-	add.Tags = &tags
-	return add, nil
-}
-
-// Some reflect helper functions
-func boolFromValue(value reflect.Value) (bool, error) {
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			return false, ErrorActionConversion
-		}
-		value = value.Elem()
-	}
-	if value.Kind() == reflect.Bool {
-		return value.Bool(), nil
-	}
-	return false, ErrorActionConversion
-}
-
-func boolPtrFromValue(value reflect.Value) (*bool, error) {
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			return nil, nil
-		}
-		value = value.Elem()
-	}
-	if value.Kind() == reflect.Bool {
-		boolValue := value.Bool()
-		return &boolValue, nil
-	}
-	return nil, ErrorActionConversion
-}
-
-func intFromValue[IntType int32 | int64](value reflect.Value) (IntType, error) {
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			return 0, ErrorActionConversion
-		}
-		value = value.Elem()
-	}
-	if value.Kind() == reflect.Int8 || value.Kind() == reflect.Int16 || value.Kind() == reflect.Int || value.Kind() == reflect.Int32 || value.Kind() == reflect.Int64 {
-		return IntType(value.Int()), nil
-	}
-
-	return 0, ErrorActionConversion
-}
-
-func intPtrFromValue[IntType int32 | int64](value reflect.Value) (*IntType, error) {
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			return nil, nil
-		}
-		value = value.Elem()
-	}
-	if value.Kind() == reflect.Int8 || value.Kind() == reflect.Int16 || value.Kind() == reflect.Int || value.Kind() == reflect.Int32 || value.Kind() == reflect.Int64 {
-		typedValue := IntType(value.Int())
-		return &typedValue, nil
-	}
-
-	return nil, ErrorActionConversion
-}
-
-func stringFromValue(value reflect.Value) (string, error) {
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			return "", ErrorActionConversion
-		}
-		value = value.Elem()
-	}
-	if value.Kind() == reflect.String {
-		return value.String(), nil
-	}
-	return "", ErrorActionConversion
-}
-
-func stringPtrFromValue(value reflect.Value) (*string, error) {
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			return nil, nil
-		}
-		value = value.Elem()
-	}
-	if value.Kind() == reflect.String {
-		stringValue := value.String()
-		return &stringValue, nil
-	}
-	return nil, ErrorActionConversion
-}
-
-func stringMapFromValue(value reflect.Value) (map[string]string, error) {
-	var valueMap map[string]string
-	if value.IsValid() {
-		if value.Kind() == reflect.Ptr {
-			value = value.Elem()
-		}
-		if value.Kind() == reflect.Map {
-			valueMap = make(map[string]string, len(value.MapKeys()))
-			for _, key := range value.MapKeys() {
-				if key.Kind() == reflect.Ptr {
-					key = key.Elem()
-				}
-				if key.Kind() != reflect.String {
-					return nil, errors.Join(ErrorActionConversion, errors.New("map key is not a string"))
-				}
-				entry := value.MapIndex(key)
-				isNil := false
-				if entry.Kind() == reflect.Ptr {
-					if value.IsNil() {
-						isNil = true
-					} else {
-						entry = entry.Elem()
-					}
-				}
-				if !isNil && entry.Kind() != reflect.String {
-					return nil, errors.Join(ErrorActionConversion, errors.New("map entry is not a string"))
-				}
-				if isNil {
-					valueMap[key.String()] = ""
-				} else {
-					valueMap[key.String()] = entry.String()
-				}
-			}
-		} else {
-			return nil, errors.Join(ErrorActionConversion, errors.New("not a map"))
-		}
-	} else {
-		valueMap = make(map[string]string, 0)
-	}
-	return valueMap, nil
-}
-
-func stringSliceFromValue(value reflect.Value) ([]string, error) {
-	var valueSlice []string
-	if value.IsValid() {
-		if value.Kind() == reflect.Ptr {
-			value = value.Elem()
-		}
-		if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
-			valueSlice = make([]string, value.Len())
-			for i := 0; i < value.Len(); i++ {
-				entry := value.Index(i)
-				isNil := false
-				if entry.Kind() == reflect.Ptr {
-					if entry.IsNil() {
-						isNil = true
-					} else {
-						entry = entry.Elem()
-					}
-				}
-				if !isNil && entry.Kind() != reflect.String {
-					return nil, errors.Join(ErrorActionConversion, errors.New("slice entry is not a string"))
-				}
-				if isNil {
-					valueSlice[i] = ""
-				} else {
-					valueSlice[i] = entry.String()
-				}
-			}
-		} else {
-			return nil, errors.Join(ErrorActionConversion, errors.New("not a slice"))
-		}
-	} else {
-		valueSlice = make([]string, 0)
-	}
-	return valueSlice, nil
-}
-
-// / Convenience function to copy data from an Add to an AddPartitioned
-func (addPartitioned *AddPartitioned[RowType, PartitionType]) fromAdd(add *Add[RowType]) {
-	addPartitioned.DataChange = add.DataChange
-	addPartitioned.ModificationTime = add.ModificationTime
-	addPartitioned.PartitionValues = add.PartitionValues
-	addPartitioned.Path = add.Path
-	addPartitioned.Size = add.Size
-	addPartitioned.Stats = add.Stats
-	addPartitioned.Tags = add.Tags
+	// StatsParsed *GenericStats `json:"-" parquet:"name=stats_parsed, repetition=OPTIONAL"`
 }
 
 // / Represents a tombstone (deleted file) in the Delta log.
 // / This is a top-level action in Delta log entries.
 type Remove struct {
 	/// The path of the file that is removed from the table.
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Path string `json:"path" parquet:"name=path, repetition=OPTIONAL, converted=UTF8"`
 	/// The timestamp when the remove was added to table state.
-	DeletionTimestamp *int64 `json:"deletionTimestamp" parquet:"name=deletionTimestamp, type=INT64"`
+	DeletionTimestamp *int64 `json:"deletionTimestamp" parquet:"name=deletionTimestamp, repetition=OPTIONAL"`
 	/// Whether data is changed by the remove. A table optimize will report this as false for
 	/// example, since it adds and removes files by combining many files into one.
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
+	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	/// When true the fields partitionValues, size, and tags are present
 	///
 	/// NOTE: Although it's defined as required in scala delta implementation, but some writes
 	/// it's still nullable so we keep it as Option<> for compatibly.
-	ExtendedFileMetadata *bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, type=BOOLEAN"`
+	ExtendedFileMetadata *bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, repetition=OPTIONAL"`
 	/// A map from partition column to value for this file.
-	PartitionValues *map[string]string `json:"partitionValues" parquet:"name=partitionValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionValues *map[string]string `json:"partitionValues" parquet:"name=partitionValues, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	/// Size of this file in bytes
-	Size *int64 `json:"size" parquet:"name=size, type=INT64"`
+	Size *int64 `json:"size" parquet:"name=size, repetition=OPTIONAL"`
 	/// Map containing metadata about this file
-	Tags *map[string]string `json:"tags"`
-}
-
-func NewRemoveFromValue(value reflect.Value) (*Remove, error) {
-	remove := new(Remove)
-	var err error
-	remove.DataChange, err = boolFromValue(value.FieldByName("DataChange"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read dataChange for Remove"))
-	}
-	remove.DeletionTimestamp, err = intPtrFromValue[int64](value.FieldByName("DeletionTimestamp"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read deletionTimestamp for Remove"))
-	}
-	remove.ExtendedFileMetadata, err = boolPtrFromValue(value.FieldByName("ExtendedFileMetadata"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read extendedFileMetadata for Remove"))
-	}
-	if remove.ExtendedFileMetadata == nil {
-		removeExtendedFileMetadata := false
-		remove.ExtendedFileMetadata = &removeExtendedFileMetadata
-	}
-	partitionValues, err := stringMapFromValue(value.FieldByName("PartitionValues"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read partitionValues for Remove"))
-	}
-	remove.PartitionValues = &partitionValues
-	remove.Path, err = stringFromValue(value.FieldByName("Path"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read path for Remove"))
-	}
-	remove.Size, err = intPtrFromValue[int64](value.FieldByName("Size"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read size for Remove"))
-	}
-	tags, err := stringMapFromValue(value.FieldByName("Tags"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read tags for Remove"))
-	}
-	remove.Tags = &tags
-	return remove, nil
+	Tags *map[string]string `json:"tags" parquet:"-"`
 }
 
 // Describes the data format of files in the table.
@@ -394,27 +109,10 @@ func NewRemoveFromValue(value reflect.Value) (*Remove, error) {
 type Format struct {
 	/// Name of the encoding for files in this table.
 	// Default: "parquet"
-	Provider string `json:"provider" parquet:"name=provider, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Provider string `json:"provider" parquet:"name=provider, repetition=OPTIONAL, converted=UTF8"`
 	/// A map containing configuration options for the format.
 	// Default: {}
-	Options map[string]string `json:"options" parquet:"name=options, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
-}
-
-func NewFormatFromValue(value reflect.Value) (*Format, error) {
-	format := new(Format)
-	var err error
-	if value.Kind() == reflect.Ptr {
-		value = value.Elem()
-	}
-	format.Provider, err = stringFromValue(value.FieldByName("Provider"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read provider for Format"))
-	}
-	format.Options, err = stringMapFromValue(value.FieldByName("Options"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read options for Format"))
-	}
-	return format, nil
+	Options map[string]string `json:"options" parquet:"name=options, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 }
 
 // NewFormat provides the correct default format options as of Delta Lake 0.3.0
@@ -430,68 +128,23 @@ func (format *Format) Default() Format {
 // / This is a top-level action in Delta log entries.
 type MetaData struct {
 	/// Unique identifier for this table
-	Id uuid.UUID `json:"id"`
+	Id uuid.UUID `json:"id" parquet:"-"`
 	/// Parquet library cannot import to UUID
-	IdAsString string `json:"-" parquet:"name=id, type=BYTE_ARRAY, convertedtype=UTF8"`
+	IdAsString string `json:"-" parquet:"name=id, repetition=OPTIONAL, converted=UTF8"`
 	/// User-provided identifier for this table
-	Name *string `json:"name" parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Name *string `json:"name" parquet:"name=name, repetition=OPTIONAL, converted=UTF8"`
 	/// User-provided description for this table
-	Description *string `json:"description" parquet:"name=description, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Description *string `json:"description" parquet:"name=description, repetition=OPTIONAL, converted=UTF8"`
 	/// Specification of the encoding for the files stored in the table
-	Format Format `json:"format" parquet:"name=format"`
+	Format Format `json:"format" parquet:"name=format, repetition=OPTIONAL"`
 	/// Schema of the table
-	SchemaString string `json:"schemaString" parquet:"name=schemaString, type=BYTE_ARRAY, convertedtype=UTF8"`
+	SchemaString string `json:"schemaString" parquet:"name=schemaString, repetition=OPTIONAL, converted=UTF8"`
 	/// An array containing the names of columns by which the data should be partitioned
-	PartitionColumns []string `json:"partitionColumns" parquet:"name=partitionColumns, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	PartitionColumns []string `json:"partitionColumns" parquet:"name=partitionColumns, repetition=OPTIONAL, valueconverted=UTF8"`
 	/// A map containing configuration options for the table
-	Configuration map[string]string `json:"configuration" parquet:"name=configuration, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	Configuration map[string]string `json:"configuration" parquet:"name=configuration, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	/// The time when this metadata action is created, in milliseconds since the Unix epoch
-	CreatedTime *int64 `json:"createdTime" parquet:"name=createdTime, type=INT64"`
-}
-
-func NewMetadataFromValue(value reflect.Value) (*MetaData, error) {
-	metadata := new(MetaData)
-	var err error
-	metadata.IdAsString, err = stringFromValue(value.FieldByName("Id"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read id for MetaData"))
-	}
-	id, err := uuid.Parse(metadata.IdAsString)
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to parse id for MetaData"))
-	}
-	metadata.Id = id
-	metadata.Name, err = stringPtrFromValue(value.FieldByName("Name"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read name for MetaData"))
-	}
-	metadata.Description, err = stringPtrFromValue(value.FieldByName("Description"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read description for MetaData"))
-	}
-	format, err := NewFormatFromValue(value.FieldByName("Format"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read format for MetaData"))
-	}
-	metadata.Format = *format
-	metadata.SchemaString, err = stringFromValue(value.FieldByName("SchemaString"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read schemaString for MetaData"))
-	}
-	metadata.PartitionColumns, err = stringSliceFromValue(value.FieldByName("PartitionColumns"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read partitionColumns for MetaData"))
-	}
-	metadata.Configuration, err = stringMapFromValue(value.FieldByName("Configuration"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read configuration for MetaData"))
-	}
-	metadata.CreatedTime, err = intPtrFromValue[int64](value.FieldByName("CreatedTime"))
-	if err != nil {
-		return nil, err
-	}
-
-	return metadata, nil
+	CreatedTime *int64 `json:"createdTime" parquet:"name=createdTime, repetition=OPTIONAL"`
 }
 
 // MetaData.ToDeltaTableMetaData() converts a MetaData to DeltaTableMetaData
@@ -531,29 +184,11 @@ func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
 // / enable idempotency.
 type Txn struct {
 	/// A unique identifier for the application performing the transaction.
-	AppId string `json:"appId" parquet:"name=appId, type=BYTE_ARRAY, convertedtype=UTF8"`
+	AppId string `json:"appId" parquet:"name=appId, repetition=OPTIONAL, converted=UTF8"`
 	/// An application-specific numeric identifier for this transaction.
-	Version int64 `json:"version" parquet:"name=version, type=INT64"`
+	Version int64 `json:"version" parquet:"name=version, repetition=OPTIONAL"`
 	/// The time when this transaction action was created in milliseconds since the Unix epoch.
-	LastUpdated *int64 `json:"-" parquet:"name=lastUpdated, type=INT64"`
-}
-
-func NewTxnFromValue(value reflect.Value) (*Txn, error) {
-	txn := new(Txn)
-	var err error
-	txn.AppId, err = stringFromValue(value.FieldByName("AppId"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read appId for Txn"))
-	}
-	txn.Version, err = intFromValue[int64](value.FieldByName("Version"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read version for Txn"))
-	}
-	txn.LastUpdated, err = intPtrFromValue[int64](value.FieldByName("LastUpdated"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read lastUpdated for Txn"))
-	}
-	return txn, nil
+	LastUpdated *int64 `json:"-" parquet:"name=lastUpdated, repetition=OPTIONAL"`
 }
 
 // / Action used to increase the version of the Delta protocol required to read or write to the
@@ -561,10 +196,10 @@ func NewTxnFromValue(value reflect.Value) (*Txn, error) {
 type Protocol struct {
 	/// Minimum version of the Delta read protocol a client must implement to correctly read the
 	/// table.
-	MinReaderVersion int32 `json:"minReaderVersion" parquet:"name=minReaderVersion, type=INT32"`
+	MinReaderVersion int32 `json:"minReaderVersion" parquet:"name=minReaderVersion, repetition=OPTIONAL"`
 	/// Minimum version of the Delta write protocol a client must implement to correctly read the
 	/// table.
-	MinWriterVersion int32 `json:"minWriterVersion" parquet:"name=minWriterVersion, type=INT32"`
+	MinWriterVersion int32 `json:"minWriterVersion" parquet:"name=minWriterVersion, repetition=OPTIONAL"`
 }
 
 // / Default protocol versions are currently 1, 1 as we do not support any more advanced features yet
@@ -574,35 +209,21 @@ func (protocol *Protocol) Default() Protocol {
 	return *protocol
 }
 
-func NewProtocolFromValue(value reflect.Value) (*Protocol, error) {
-	protocol := new(Protocol)
-	var err error
-	protocol.MinReaderVersion, err = intFromValue[int32](value.FieldByName("MinReaderVersion"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read minReaderVersion for Protocol"))
-	}
-	protocol.MinWriterVersion, err = intFromValue[int32](value.FieldByName("MinWriterVersion"))
-	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to read minWriterVersion for Protocol"))
-	}
-	return protocol, nil
-}
-
 type Cdc struct {
 	/// A relative path, from the root of the table, or an
 	/// absolute path to a CDC file
-	Path string `json:"path" parquet:"name=path, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Path string `json:"path" parquet:"name=path, repetition=OPTIONAL, converted=UTF8"`
 	/// The size of this file in bytes
-	Size int64 `json:"size" parquet:"name=size, type=INT64"`
+	Size int64 `json:"size" parquet:"name=size, repetition=OPTIONAL"`
 	/// A map from partition column to value for this file
 	PartitionValues map[string]string `json:"partitionValues"`
 	/// Should always be set to false because they do not change the underlying data of the table
-	DataChange bool `json:"dataChange" parquet:"name=dataChange, type=BOOLEAN"`
+	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	/// Map containing metadata about this file
 	Tags *map[string]string `json:"tags,omitempty"`
 }
 
-func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, error) {
+func logEntryFromAction(action Action) ([]byte, error) {
 	var log []byte
 	m := make(map[string]any)
 
@@ -619,7 +240,7 @@ func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, 
 		key := strcase.ToLowerCamel(reflect.ValueOf(action).Elem().Type().Name())
 		m[key] = action
 		log, err = json.Marshal(m)
-	case AddPartitioned[RowType, PartitionType], *AddPartitioned[RowType, PartitionType]:
+	case Add, *Add:
 		key := string(AddActionKey)
 		m[key] = action
 		log, err = json.Marshal(m)
@@ -633,11 +254,11 @@ func logEntryFromAction[RowType any, PartitionType any](action Action) ([]byte, 
 	return log, nil
 }
 
-func LogEntryFromActions[RowType any, PartitionType any](actions []Action) ([]byte, error) {
+func LogEntryFromActions(actions []Action) ([]byte, error) {
 	var jsons [][]byte
 
 	for _, action := range actions {
-		j, err := logEntryFromAction[RowType, PartitionType](action)
+		j, err := logEntryFromAction(action)
 		jsons = append(jsons, j)
 		if err != nil {
 			return bytes.Join(jsons, []byte("\n")), err
@@ -661,7 +282,7 @@ const (
 )
 
 // / Retrieve an action from a log entry
-func actionFromLogEntry[RowType any, PartitionType any](unstructuredResult map[string]json.RawMessage) (Action, error) {
+func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, error) {
 	if len(unstructuredResult) != 1 {
 		return nil, errors.Join(ErrorActionJSONFormat, errors.New("log entry JSON must have one value"))
 	}
@@ -671,7 +292,7 @@ func actionFromLogEntry[RowType any, PartitionType any](unstructuredResult map[s
 	var actionFound bool
 
 	if marshalledAction, actionFound = unstructuredResult[string(AddActionKey)]; actionFound {
-		action = new(AddPartitioned[RowType, PartitionType])
+		action = new(Add)
 	} else if marshalledAction, actionFound = unstructuredResult[string(RemoveActionKey)]; actionFound {
 		action = new(Remove)
 	} else if marshalledAction, actionFound = unstructuredResult[string(CommitInfoActionKey)]; actionFound {
@@ -699,7 +320,7 @@ func actionFromLogEntry[RowType any, PartitionType any](unstructuredResult map[s
 }
 
 // / Retrieve all actions in this log
-func ActionsFromLogEntries[RowType any, PartitionType any](logEntries []byte) ([]Action, error) {
+func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 	lines := bytes.Split(logEntries, []byte("\n"))
 	actions := make([]Action, 0, len(lines))
 	for _, currentLine := range lines {
@@ -711,7 +332,7 @@ func ActionsFromLogEntries[RowType any, PartitionType any](logEntries []byte) ([
 		if err != nil {
 			return nil, errors.Join(ErrorActionJSONFormat, err)
 		}
-		action, err := actionFromLogEntry[RowType, PartitionType](unstructuredResult)
+		action, err := actionFromLogEntry(unstructuredResult)
 		if err != nil {
 			return nil, err
 		}
@@ -839,19 +460,11 @@ const (
 )
 
 type Stats struct {
-	NumRecords  int64            `json:"numRecords" parquet:"name=numRecords, type=INT64"`
-	TightBounds bool             `json:"tightBounds" parquet:"name=tightBounds, type=BOOLEAN"`
-	MinValues   map[string]any   `json:"minValues" parquet:"name=minValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
-	MaxValues   map[string]any   `json:"maxValues" parquet:"name=maxValues, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
-	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT64"`
-}
-
-type GenericStats[RowType any] struct {
-	NumRecords  int64            `json:"numRecords" parquet:"name=numRecords, type=INT64"`
-	TightBounds bool             `json:"tightBounds" parquet:"name=tightBounds, type=BOOLEAN"`
-	MinValues   RowType          `json:"minValues" parquet:"name=minValues"`
-	MaxValues   RowType          `json:"maxValues" parquet:"name=maxValues"`
-	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT64"`
+	NumRecords  int64            `json:"numRecords" parquet:"name=numRecords, repetition=OPTIONAL"`
+	TightBounds bool             `json:"tightBounds" parquet:"name=tightBounds, repetition=OPTIONAL"`
+	MinValues   map[string]any   `json:"minValues" parquet:"name=minValues, repetition=OPTIONAL, keyconverted=UTF8"`
+	MaxValues   map[string]any   `json:"maxValues" parquet:"name=maxValues, repetition=OPTIONAL, keyconverted=UTF8"`
+	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, repetition=OPTIONAL, keyconverted=UTF8, valuetype=INT64"`
 }
 
 func (s *Stats) Json() []byte {
@@ -868,45 +481,20 @@ func StatsFromJson(b []byte) (*Stats, error) {
 	return s, err
 }
 
-// / Convert untyped Stats object to a GenericStats object
-func statsAsGenericStats[RowType any](s *Stats) (*GenericStats[RowType], error) {
-	genericStats := new(GenericStats[RowType])
-	genericStats.NumRecords = s.NumRecords
-	genericStats.TightBounds = s.TightBounds
-	genericStats.NullCount = s.NullCount
-
-	// Convert min and max values via JSON rather than setting up the reflection manually
-	b, err := json.Marshal(s.MinValues)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(b, &genericStats.MinValues)
-	if err != nil {
-		return nil, err
-	}
-
-	b, err = json.Marshal(s.MaxValues)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(b, &genericStats.MaxValues)
-	if err != nil {
-		return nil, err
-	}
-
-	return genericStats, nil
-}
-
 // UpdateStats computes Stats.NullCount, Stats.MinValues, Stats.MaxValues for a given k,v struct property
 // the struct property is passed in as a pointer to ensure that it can be evaluated as nil[NULL]
 // TODO Handle struct types
 func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
 
 	var v T
+	if s.NullCount == nil {
+		s.NullCount = make(map[string]int64)
+	}
+	if _, hasPriorNullCount := s.NullCount[k]; !hasPriorNullCount {
+		s.NullCount[k] = 0
+	}
+
 	if vpt == nil {
-		if s.NullCount == nil {
-			s.NullCount = make(map[string]int64)
-		}
 		s.NullCount[k]++
 		//Value is nil, skip applying MinValues, MaxValues
 		return

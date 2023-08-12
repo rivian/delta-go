@@ -21,39 +21,39 @@ import (
 // Contains relevant fields and helper methods have been defined.
 type ExternalCommitEntry struct {
 	// Absolute path to this delta table
-	tablePath string
+	TablePath string
 	// File name of this commit, e.g. "000000N.json"
-	fileName string
+	FileName string
 	// Path to temp file for this commit, relative to the `_delta_log`
-	tempPath string
+	TempPath string
 	// true if Delta JSON file is successfully copied to its destination location, else false
-	complete bool
+	Complete bool
 	// If complete = true, epoch seconds at which this external commit entry is safe to be deleted.
 	// Else, null.
-	expireTime uint64
+	ExpireTime uint64
 }
 
 func NewExternalCommitEntry(tablePath string, fileName string, tempPath string, complete bool, expireTime uint64) (*ExternalCommitEntry, error) {
 	ece := new(ExternalCommitEntry)
-	ece.tablePath = tablePath
-	ece.fileName = fileName
-	ece.tempPath = tempPath
-	ece.complete = complete
-	ece.expireTime = expireTime
+	ece.TablePath = tablePath
+	ece.FileName = fileName
+	ece.TempPath = tempPath
+	ece.Complete = complete
+	ece.ExpireTime = expireTime
 	return ece, nil
 }
 
-// Returns this entry with `complete=true` and a valid `expireTime`
-func (ece *ExternalCommitEntry) asComplete(expirationDelaySeconds uint64) (*ExternalCommitEntry, error) {
-	return NewExternalCommitEntry(ece.tablePath, ece.fileName, ece.tempPath, true, uint64(time.Now().Unix())+expirationDelaySeconds)
+// Returns this entry with `complete=true` and a valid `expireTime`.
+func (ece *ExternalCommitEntry) AsComplete(expirationDelaySeconds uint64) (*ExternalCommitEntry, error) {
+	return NewExternalCommitEntry(ece.TablePath, ece.FileName, ece.TempPath, true, uint64(time.Now().Unix())+expirationDelaySeconds)
 }
 
-// Returns the absolute path to the file for this entry
-func (ece *ExternalCommitEntry) absoluteFilePath() (string, error) {
-	return filepath.Join(filepath.Join(ece.tablePath, "_delta_log"), ece.fileName), nil
+// Returns the absolute path to the file for this entry.
+func (ece *ExternalCommitEntry) AbsoluteFilePath() (string, error) {
+	return filepath.Join(filepath.Join(ece.TablePath, "_delta_log"), ece.FileName), nil
 }
 
-// Returns the absolute path to the temp file for this entry
-func (ece *ExternalCommitEntry) absoluteTempPath() (string, error) {
-	return filepath.Join(filepath.Join(ece.tablePath, "_delta_log"), ece.tempPath), nil
+// Returns the absolute path to the temp file for this entry.
+func (ece *ExternalCommitEntry) AbsoluteTempPath() (string, error) {
+	return filepath.Join(filepath.Join(ece.TablePath, "_delta_log"), ece.TempPath), nil
 }
