@@ -14,6 +14,7 @@ package logstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -21,17 +22,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/rivian/delta-go/storage/s3store"
 	log "github.com/sirupsen/logrus"
 )
 
-// Compile time check that DynamoDBLogStore implements KeyValueStore
-var _ LogStore = (*DynamoDBLogStore)(nil)
+var (
+	// Compile time check that DynamoDBLogStore implements KeyValueStore
+	_                             LogStore = (*DynamoDBLogStore)(nil)
+	ErrorUnableToGetExternalEntry error    = errors.New("unable to get external entry")
+)
 
 const (
-	// WARNING: setting this value too low can cause data loss. Defaults to a duration of 1 day.
-	ttlSeconds string = "ddb.ttl"
-
 	// DynamoDB table attribute keys
 	attrTablePath  string = "tablePath"
 	attrFileName   string = "fileName"
@@ -86,24 +86,23 @@ const (
 // -- complete (STRING, representing boolean, "true" or "false")
 // -- commitTime (NUMBER, epoch seconds)
 type DynamoDBLogStore struct {
-	ObjectStore            *s3store.S3ObjectStore
 	client                 *dynamodb.Client
 	tableName              string
 	expirationDelaySeconds uint64
 }
 
 type DynamoDBLogStoreOptions struct {
-	cfg                    aws.Config
-	tableName              string
-	expirationDelaySeconds uint64
+	Config                 aws.Config
+	TableName              string
+	ExpirationDelaySeconds uint64
 }
 
 func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error) {
 	ls := new(DynamoDBLogStore)
-	ls.tableName = lso.tableName
+	ls.tableName = lso.TableName
 
-	if lso.expirationDelaySeconds != 0 {
-		ls.expirationDelaySeconds = lso.expirationDelaySeconds
+	if lso.ExpirationDelaySeconds != 0 {
+		ls.expirationDelaySeconds = lso.ExpirationDelaySeconds
 	} else {
 		ls.expirationDelaySeconds = defaultExternalEntryExpirationDelaySeconds
 	}
@@ -112,9 +111,10 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 	log.Infof("delta-go: Using TTL (seconds) %d", ls.expirationDelaySeconds)
 
 	var err error
-	ls.client, err = ls.getClient(lso.cfg)
+	ls.client, err = ls.getClient(lso.Config)
 	if err != nil {
-		log.Errorf("delta-go: Failed to get DynamoDB client. %v", err)
+		log.Debugf("delta-go: Failed to get DynamoDB client. %v", err)
+		return nil, err
 	}
 	ls.tryEnsureTableExists()
 
@@ -130,7 +130,8 @@ func (ls *DynamoDBLogStore) PutExternalEntry(entry *ExternalCommitEntry, overwri
 
 	pir, err := ls.createPutItemRequest(entry, overwrite)
 	if err != nil {
-		log.Errorf("delta-go: Failed to create PutItem request. %v", err)
+		log.Debugf("delta-go: Failed to create PutItem request. %v", err)
+		return err
 	}
 
 	ls.client.PutItem(context.TODO(), pir)
@@ -143,14 +144,15 @@ func (ls *DynamoDBLogStore) GetExternalEntry(tablePath string, fileName string) 
 
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
 	gio, err := ls.client.GetItem(context.TODO(), &gii)
-	if err != nil {
-		log.Errorf("delta-go: Failed GetItem. %v", err)
-		return nil, err
+	if err != nil || gio.Item == nil {
+		log.Debugf("delta-go: Failed GetItem. %v", err)
+		return nil, errors.Join(err, ErrorUnableToGetExternalEntry)
 	}
 
 	ece, err := ls.dbResultToCommitEntry(gio.Item)
 	if err != nil {
-		log.Errorf("delta-go: Failed to map a DBB query result item to an ExternalCommitEntry. %v", err)
+		log.Debugf("delta-go: Failed to map a DBB query result item to an ExternalCommitEntry. %v", err)
+		return nil, err
 	}
 
 	return ece, err
@@ -160,13 +162,14 @@ func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath string) (*ExternalC
 	qi := dynamodb.QueryInput{ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1), KeyConditionExpression: aws.String(fmt.Sprintf("%s = :%s", attrTablePath, tablePath))}
 	qo, err := ls.client.Query(context.TODO(), &qi)
 	if err != nil {
-		log.Errorf("delta-go: Failed Query. %v", err)
+		log.Debugf("delta-go: Failed Query. %v", err)
 		return nil, err
 	}
 
 	ece, err := ls.dbResultToCommitEntry(qo.Items[0])
 	if err != nil {
-		log.Errorf("delta-go: Failed to map a DBB query result item to an ExternalCommitEntry. %v", err)
+		log.Debugf("delta-go: Failed to map a DBB query result item to an ExternalCommitEntry. %v", err)
+		return nil, err
 	}
 
 	return ece, nil
@@ -176,7 +179,8 @@ func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath string) (*ExternalC
 func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.AttributeValue) (*ExternalCommitEntry, error) {
 	expireTimeAttr, err := strconv.ParseUint(item[attrExpireTime].(*types.AttributeValueMemberN).Value, 10, 64)
 	if err != nil {
-		log.Errorf("delta-go: Failed to interpet expire time attribute as uint64. %v", err)
+		log.Debugf("delta-go: Failed to interpet expire time attribute as uint64. %v", err)
+		return nil, err
 	}
 
 	return NewExternalCommitEntry(
@@ -192,16 +196,17 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, ove
 	attributes := map[string]types.AttributeValue{attrTablePath: &types.AttributeValueMemberS{Value: entry.TablePath}, attrFileName: &types.AttributeValueMemberS{Value: entry.FileName}, attrTempPath: &types.AttributeValueMemberS{Value: entry.TempPath}, attrComplete: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.Complete))}}
 
 	if entry.ExpireTime != 0 {
-		attributes[attrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(string(entry.ExpireTime))}
+		attributes[attrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(entry.ExpireTime))}
 	}
 
 	pir := &dynamodb.PutItemInput{
 		TableName: aws.String(ls.tableName),
 		Item:      attributes}
 
-	if !overwrite {
-		pir.ConditionExpression = aws.String(fmt.Sprintf("%s = false", attrFileName))
-	}
+	// TODO: Take another look at the reason for this.
+	// if !overwrite {
+	// 	pir.ConditionExpression = aws.String(fmt.Sprintf("%s = false", attrFileName))
+	// }
 
 	return pir, nil
 }
@@ -248,9 +253,8 @@ func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
 				},
 				TableName: aws.String(ls.tableName),
 			})
-
 			if err != nil {
-				log.Errorf("delta-go: Table %s just created by concurrent process. %v", ls.tableName, err)
+				log.Debugf("delta-go: Table %s just created by concurrent process. %v", ls.tableName, err)
 			}
 		}
 
@@ -267,7 +271,7 @@ func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
 			log.Infof("delta-go: Waiting for %s table creation", ls.tableName)
 			time.Sleep(1000 * time.Millisecond)
 		} else {
-			log.Errorf("delta-go: Table %s status: %s. %v", ls.tableName, status, err)
+			log.Debugf("delta-go: Table %s status: %s. %v", ls.tableName, status, err)
 			break
 		}
 	}
@@ -275,6 +279,6 @@ func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
 	return nil
 }
 
-func (ls *DynamoDBLogStore) getClient(cfg aws.Config) (*dynamodb.Client, error) {
-	return dynamodb.NewFromConfig(cfg), nil
+func (ls *DynamoDBLogStore) getClient(config aws.Config) (*dynamodb.Client, error) {
+	return dynamodb.NewFromConfig(config), nil
 }

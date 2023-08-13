@@ -71,8 +71,8 @@ func PathFromIter(elem []string) Path {
 	return Path{Raw: s}
 }
 
-func (p *Path) Join(path *Path) Path {
-	return Path{Raw: filepath.Join(p.Raw, path.Raw)}
+func (p *Path) Join(path *Path) *Path {
+	return &Path{Raw: filepath.Join(p.Raw, path.Raw)}
 }
 
 type URL struct {
