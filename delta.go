@@ -76,8 +76,10 @@ type DeltaTable struct {
 	LastCheckPoint *CheckPoint
 	// table versions associated with timestamps
 	VersionTimestamp map[int64]time.Time
-	// log store to create multi-cluster support for object stores which do not provide a "put-if-absent" API
+	// Log store to create multi-cluster support for object stores which do not provide a "put-if-absent" API
 	LogStore *DeltaTableLogStore
+	// Delta table path
+	Path string
 }
 
 type DeltaTableLogStore struct {
@@ -127,7 +129,7 @@ func (table *DeltaTable) CreateTransaction(options *DeltaTransactionOptions) *De
 }
 
 // / Return the uri of commit version.
-func (table *DeltaTable) CommitUriFromVersion(version int64) *storage.Path {
+func CommitUriFromVersion(version int64) *storage.Path {
 	str := fmt.Sprintf("%020d.json", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
 	return &path
@@ -174,7 +176,7 @@ func CommitOrCheckpointVersionFromUri(path *storage.Path) (bool, int64) {
 func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add) error {
 	meta := metadata.ToMetaData()
 
-	// delta-go commit info will include the delta-go version and timestamp as of now
+	// delta-rs commit info will include the delta-rs version and timestamp as of now
 	enrichedCommitInfo := maps.Clone(commitInfo)
 	enrichedCommitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", DELTA_CLIENT_VERSION)
 	enrichedCommitInfo["timestamp"] = time.Now().UnixMilli()
@@ -190,7 +192,21 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 	}
 
 	transaction := table.CreateTransaction(nil)
-	transaction.Write(transaction.DeltaTable.CommitUriFromVersion(0), actions)
+	transaction.AddActions(actions)
+
+	preparedCommit, err := transaction.PrepareCommit(nil, nil)
+	if err != nil {
+		return err
+	}
+	//Set StateStore Version=-1 synced with the table State Version
+	zeroState := state.CommitState{
+		Version: table.State.Version,
+	}
+	transaction.DeltaTable.StateStore.Put(zeroState)
+	err = transaction.TryCommit(&preparedCommit)
+	if err != nil {
+		return err
+	}
 
 	// Merge state from new commit version
 	newState, err := NewDeltaTableStateFromCommit(table, table.State.Version)
@@ -212,7 +228,7 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 
 // / Exists checks if a DeltaTable with version 0 exists in the object store.
 func (table *DeltaTable) Exists() (bool, error) {
-	path := table.CommitUriFromVersion(0)
+	path := CommitUriFromVersion(0)
 
 	meta, err := table.Store.Head(path)
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
@@ -251,7 +267,7 @@ func (table *DeltaTable) Exists() (bool, error) {
 
 // / Read a commit log and return the actions from the log
 func (table *DeltaTable) ReadCommitVersion(version int64) ([]Action, error) {
-	path := table.CommitUriFromVersion(version)
+	path := CommitUriFromVersion(version)
 	return ReadCommitLog(table.Store, path)
 }
 
@@ -268,7 +284,7 @@ func (table *DeltaTable) LoadVersion(version *int64) error {
 	var err error
 	var checkpointLoadError error
 	if version != nil {
-		commitURI := table.CommitUriFromVersion(*version)
+		commitURI := CommitUriFromVersion(*version)
 		_, err := table.Store.Head(commitURI)
 		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 			return ErrorInvalidVersion
@@ -480,7 +496,7 @@ func (table *DeltaTable) updateIncremental(maxVersion *int64) error {
 // / If the next commit doesn't exist, returns false in the third return parameter
 func (table *DeltaTable) nextCommitDetails() (int64, []Action, bool, error) {
 	nextVersion := table.State.Version + 1
-	nextCommitURI := table.CommitUriFromVersion(nextVersion)
+	nextCommitURI := CommitUriFromVersion(nextVersion)
 	noMoreCommits := false
 	actions, err := ReadCommitLog(table.Store, nextCommitURI)
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
@@ -727,7 +743,7 @@ func (transaction *DeltaTransaction) Read(path *storage.Path) ([]Action, error) 
 //
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite entry E in external store and set complete=true
-func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action) (err error) {
+func (transaction *DeltaTransaction) Write(actions []Action) (err error) {
 	// Prevent concurrent writers from either
 	// a) concurrently overwriting N.json if overwrite=true
 	// b) both checking if N-1.json exists and performing a "recovery" where they both
@@ -739,7 +755,18 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 	//
 	// Also note that this lock path (resolvedPath) is for N.json, while the lock path used
 	// below in the recovery `fixDeltaLog` path is for N-1.json. Thus, no deadlock.
-	currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, path.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
+	previousCommitUri, err := transaction.DeltaTable.LogStore.KeyValueStore.GetLatestExternalEntry(transaction.DeltaTable.Path)
+	if err != nil {
+		log.Debugf("delta-go: Failed to get previous version commit URI. %v", err)
+		return err
+	}
+	parsedPreviousVersion, previousVersion := CommitVersionFromUri(storage.NewPath(previousCommitUri.FileName))
+	if !parsedPreviousVersion {
+		log.Debug("delta-go: Failed to parse previous commit version from URI.")
+	}
+	currentCommitUri := CommitUriFromVersion(previousVersion + 1)
+
+	currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, currentCommitUri.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
 	if err != nil {
 		log.Debugf("delta-go: Failed to create current version lock client. %v", err)
 		return err
@@ -753,26 +780,26 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 	}()
 
 	if transaction.DeltaTable.LogStore.Overwrite {
-		transaction.writeActions(path, actions)
+		transaction.writeActions(currentCommitUri, actions)
 	} else {
 		// Step 0: Fail if N.json already exists in FileSystem and overwrite=false.
-		_, err = transaction.DeltaTable.Store.Head(path)
+		_, err = transaction.DeltaTable.Store.Head(currentCommitUri)
 		if err == nil {
 			log.Debugf("delta-go: N.json already exists. %v", err)
 			return err
 		}
 	}
 
-	parsedVersion, currentVersion := CommitVersionFromUri(path)
-	if !parsedVersion {
-		log.Debug("delta-go: Failed to parse commit version from URI.")
+	parsedCurrentVersion, currentVersion := CommitVersionFromUri(currentCommitUri)
+	if !parsedCurrentVersion {
+		log.Debug("delta-go: Failed to parse current commit version from URI.")
 	}
 
 	// Step 1: Ensure that N-1.json exists.
-	var tablePath string = strings.Split(path.Raw, "_delta_log")[0]
+	var tablePath string = strings.Split(currentCommitUri.Raw, "_delta_log")[0]
 	if currentVersion > 0 {
-		prevFileName := path.CommitPathForVersion(currentVersion - 1)
-		prevEntry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(path.Raw, prevFileName)
+		prevFileName := currentCommitUri.CommitPathForVersion(currentVersion - 1)
+		prevEntry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(currentCommitUri.Raw, prevFileName)
 		if err != nil {
 			log.Debugf("delta-go: Previous commit doesn't exist. %v", err)
 			return err
@@ -784,23 +811,23 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 			}
 		}
 	} else {
-		entry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(tablePath, path.Raw)
+		entry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(tablePath, currentCommitUri.Raw)
 		if err == nil {
-			_, err = transaction.DeltaTable.Store.Head(path)
+			_, err = transaction.DeltaTable.Store.Head(currentCommitUri)
 			if entry.Complete && err != nil {
-				log.Debugf("delta-go: Old entries for table %s still exist in the external store. %v", path.Raw, err)
+				log.Debugf("delta-go: Old entries for table %s still exist in the external store. %v", currentCommitUri.Raw, err)
 				return err
 			}
 		}
 	}
 
 	// Step 2: Prepare the commit.
-	tempPath, err := transaction.createTemporaryPath(path)
+	tempPath, err := transaction.createTemporaryPath(currentCommitUri)
 	if err != nil {
 		log.Debugf("delta-go: Failed to create temporary path. %v", err)
 		return err
 	}
-	entry, err := logstore.NewExternalCommitEntry(tablePath, path.Raw, tempPath, false, 0)
+	entry, err := logstore.NewExternalCommitEntry(tablePath, currentCommitUri.Raw, tempPath, false, 0)
 	if err != nil {
 		log.Debugf("delta-go: Failed to create external commit entry. %v", err)
 		return err
@@ -827,7 +854,7 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 
 	// Step 3: Commit the commit to the delta log.
 	//         Copy T(N) -> N.json with overwrite=false.
-	err = transaction.writeCopyTempFile(storage.NewPath(absoluteTempPath), path)
+	err = transaction.writeCopyTempFile(storage.NewPath(absoluteTempPath), currentCommitUri)
 	if err != nil {
 		log.Debugf("delta-go: Failed to copy temporary file to N.json. %v", err)
 		return err
@@ -1130,7 +1157,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) (err erro
 
 		// 3) Try to Rename the file
 		from := storage.NewPath(commit.URI.Raw)
-		to := transaction.DeltaTable.CommitUriFromVersion(version)
+		to := CommitUriFromVersion(version)
 		err = transaction.DeltaTable.Store.RenameIfNotExists(from, to)
 		if err != nil {
 			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)

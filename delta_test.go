@@ -438,7 +438,7 @@ func TestDeltaTableExists(t *testing.T) {
 		t.Error(err)
 	}
 	// Delete original version file
-	commitPath := filepath.Join(tmpDir, table.CommitUriFromVersion(0).Raw)
+	commitPath := filepath.Join(tmpDir, CommitUriFromVersion(0).Raw)
 	err = os.Remove(commitPath)
 	if err != nil {
 		t.Error(err)
@@ -455,7 +455,7 @@ func TestDeltaTableExists(t *testing.T) {
 	}
 
 	// Move the new version file to a backup folder that starts with _delta_log
-	commitPath = filepath.Join(tmpDir, table.CommitUriFromVersion(1).Raw)
+	commitPath = filepath.Join(tmpDir, CommitUriFromVersion(1).Raw)
 	os.MkdirAll(filepath.Join(tmpDir, "_delta_log.bak"), 0700)
 	fakeCommitPath := filepath.Join(tmpDir, "_delta_log.bak/00000000000000000000.json")
 	err = os.Rename(commitPath, fakeCommitPath)
@@ -514,11 +514,11 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	}
 
 	//Some other process writes commit 0002.json
-	fakeCommit2 := filepath.Join(tmpDir, table.CommitUriFromVersion(2).Raw)
+	fakeCommit2 := filepath.Join(tmpDir, CommitUriFromVersion(2).Raw)
 	os.WriteFile(fakeCommit2, []byte("temp commit data"), 0700)
 
 	//Some other process writes commit 0003.json
-	fakeCommit3 := filepath.Join(tmpDir, table.CommitUriFromVersion(3).Raw)
+	fakeCommit3 := filepath.Join(tmpDir, CommitUriFromVersion(3).Raw)
 	os.WriteFile(fakeCommit3, []byte("temp commit data"), 0700)
 
 	//create the next commit, should be 004.json after trying 003.json
@@ -542,8 +542,8 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 		t.Errorf("want table.State.Version=4, has %d", table.State.Version)
 	}
 
-	if !fileExists(filepath.Join(tmpDir, table.CommitUriFromVersion(4).Raw)) {
-		t.Errorf("File %s should exist", table.CommitUriFromVersion(4).Raw)
+	if !fileExists(filepath.Join(tmpDir, CommitUriFromVersion(4).Raw)) {
+		t.Errorf("File %s should exist", CommitUriFromVersion(4).Raw)
 	}
 
 }
@@ -603,7 +603,7 @@ func TestCommitConcurrent(t *testing.T) {
 		t.Errorf("Final Version in lock should be 100")
 	}
 
-	lastCommitFile := filepath.Join(tmpDir, table.CommitUriFromVersion(100).Raw)
+	lastCommitFile := filepath.Join(tmpDir, CommitUriFromVersion(100).Raw)
 	if !fileExists(lastCommitFile) {
 		t.Errorf("File should exist")
 	}
@@ -713,7 +713,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		t.Errorf("Final Version in lock should be 100")
 	}
 
-	lastCommitFile := filepath.Join(tmpDir, table.CommitUriFromVersion(100).Raw)
+	lastCommitFile := filepath.Join(tmpDir, CommitUriFromVersion(100).Raw)
 	if !fileExists(lastCommitFile) {
 		t.Errorf("File should exist")
 	}
@@ -937,10 +937,8 @@ func TestCommitUriFromVersion(t *testing.T) {
 		{input: 1234567890123456789, want: "_delta_log/01234567890123456789.json"},
 	}
 
-	table, _, _ := setupTest(t)
-
 	for _, tc := range tests {
-		got := table.CommitUriFromVersion(tc.input)
+		got := CommitUriFromVersion(tc.input)
 		if got.Raw != tc.want {
 			t.Errorf("expected %s, got %s", tc.want, got)
 		}
@@ -1128,8 +1126,9 @@ func TestLogStoreSequential(t *testing.T) {
 		t.Error("failed to create DynamoDB log store")
 	}
 
+	var tablePath string = "s3://vehicle-telemetry-rivian-dev/tables/test/"
 	s3Client := s3.NewFromConfig(config)
-	s3Store, err := s3store.New(s3Client, storage.NewPath("s3://vehicle-telemetry-rivian-dev/tables/test/"))
+	s3Store, err := s3store.New(s3Client, storage.NewPath(tablePath))
 	if err != nil {
 		t.Error("failed to create S3 store")
 	}
@@ -1140,6 +1139,7 @@ func TestLogStoreSequential(t *testing.T) {
 	dynamoDbClient := dynamodb.New(sess)
 
 	deltaTable := NewDeltaTableWithLogStore(s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
+	deltaTable.Path = tablePath
 
 	transaction := NewDeltaTransaction(deltaTable, NewDeltaTransactionOptions())
 
@@ -1148,7 +1148,7 @@ func TestLogStoreSequential(t *testing.T) {
 		Size:             984,
 		ModificationTime: time.Now().UnixMilli(),
 	}
-	transaction.Write(s3Store.BaseURI.Join(deltaTable.CommitUriFromVersion(0)), []Action{add})
+	transaction.Write([]Action{add})
 }
 
 func TestLogStoreConcurrent(t *testing.T) {

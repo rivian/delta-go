@@ -136,7 +136,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 	}
 
 	// Remove the previous log to make sure we use the checkpoint when loading
-	err = store.Delete(table.CommitUriFromVersion(4))
+	err = store.Delete(CommitUriFromVersion(4))
 	if err != nil {
 		t.Error(err)
 	}
@@ -181,7 +181,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 		}
 	}
 	// Remove the previous log to make sure we use the checkpoint when loading
-	err = store.Delete(table.CommitUriFromVersion(9))
+	err = store.Delete(CommitUriFromVersion(9))
 	if err != nil {
 		t.Error(err)
 	}
@@ -295,7 +295,7 @@ func TestTombstones(t *testing.T) {
 
 	// Load the checkpoint
 	// Remove the previous log to make sure we use the checkpoint when loading
-	err = store.Delete(table.CommitUriFromVersion(1))
+	err = store.Delete(CommitUriFromVersion(1))
 	if err != nil {
 		t.Error(err)
 	}
@@ -615,7 +615,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 	}
 
 	// Remove the previous commit to make sure we load the checkpoint files
-	err = store.Delete(table.CommitUriFromVersion(11))
+	err = store.Delete(CommitUriFromVersion(11))
 	if err != nil {
 		t.Error(err)
 	}
@@ -925,15 +925,15 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			}
 			now := time.Now()
 			// With cleanup enabled, 25 and 15 minutes ago should be deleted, 5 should not
-			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1052,27 +1052,27 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 	// 3: 13 min ago
 	// 4: 12 min ago
 	// 5: 6 min ago
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(0).Raw), now.Add(-20*time.Minute), now.Add(-20*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(0).Raw), now.Add(-20*time.Minute), now.Add(-20*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(2).Raw), now.Add(-10*time.Minute), now.Add(-10*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(2).Raw), now.Add(-10*time.Minute), now.Add(-10*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(3).Raw), now.Add(-13*time.Minute), now.Add(-13*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(3).Raw), now.Add(-13*time.Minute), now.Add(-13*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(3).Raw), now.Add(-12*time.Minute), now.Add(-12*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(3).Raw), now.Add(-12*time.Minute), now.Add(-12*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, table.CommitUriFromVersion(3).Raw), now.Add(-6*time.Minute), now.Add(-6*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(3).Raw), now.Add(-6*time.Minute), now.Add(-6*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1098,21 +1098,21 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 		t.Fatal("did not remove version 1")
 	}
 	// We can't load versions 2 and 3 but the logs should persist
-	_, err = store.Head(table.CommitUriFromVersion(2))
+	_, err = store.Head(CommitUriFromVersion(2))
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 		t.Fatal("should not remove version 2")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.Head(table.CommitUriFromVersion(3))
+	_, err = store.Head(CommitUriFromVersion(3))
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 		t.Fatal("should not remove version 3")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.Head(table.CommitUriFromVersion(4))
+	_, err = store.Head(CommitUriFromVersion(4))
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 		t.Fatal("should not remove version 4")
 	}
