@@ -28,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	configv2 "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
@@ -1117,8 +1117,8 @@ func TestLoadVersion(t *testing.T) {
 	}
 }
 
-func TestKeyValueStoreSequential(t *testing.T) {
-	config, err := configv2.LoadDefaultConfig(context.TODO())
+func TestLogStoreSequential(t *testing.T) {
+	config, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		t.Error("failed to load default config")
 	}
@@ -1151,5 +1151,5 @@ func TestKeyValueStoreSequential(t *testing.T) {
 	transaction.Write(s3Store.BaseURI.Join(deltaTable.CommitUriFromVersion(0)), []Action{add})
 }
 
-func TestKeyValueStoreConcurrent(t *testing.T) {
+func TestLogStoreConcurrent(t *testing.T) {
 }

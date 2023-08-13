@@ -727,7 +727,7 @@ func (transaction *DeltaTransaction) Read(path *storage.Path) ([]Action, error) 
 //
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite entry E in external store and set complete=true
-func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action) error {
+func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action) (err error) {
 	// Prevent concurrent writers from either
 	// a) concurrently overwriting N.json if overwrite=true
 	// b) both checking if N-1.json exists and performing a "recovery" where they both
@@ -840,7 +840,7 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 		return err
 	}
 
-	return nil
+	return err
 }
 
 func (transaction *DeltaTransaction) writePutCompleteDbEntry(entry *logstore.ExternalCommitEntry) error {
@@ -859,6 +859,7 @@ func (transaction *DeltaTransaction) writePutCompleteDbEntry(entry *logstore.Ext
 		log.Debugf("delta-go: Failed to put external entry which acknowledges commit. %v", err)
 		return err
 	}
+
 	return nil
 }
 
@@ -871,7 +872,7 @@ func (transaction *DeltaTransaction) createTemporaryPath(path *storage.Path) (st
 	return fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid), nil
 }
 
-func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEntry) error {
+func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEntry) (err error) {
 	if entry.Complete {
 		return nil
 	}
