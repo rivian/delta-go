@@ -28,6 +28,7 @@ import (
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/dynamolock"
 	"github.com/rivian/delta-go/logstore"
+	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/storage"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/constraints"
@@ -66,14 +67,23 @@ var (
 type DeltaTable struct {
 	// The state of the table as of the most recent loaded Delta log entry.
 	State DeltaTableState
+	// The remote store of the state of the table as of the most recent loaded Delta log entry.
+	StateStore state.StateStore
 	// object store to access log and data files
 	Store storage.ObjectStore
-	// key value store to manage concurrent writes
-	KeyValueStore logstore.LogStore
+	// Locking client to ensure optimistic locked commits from distributed workers
+	LockClient lock.Locker
 	// file metadata for latest checkpoint
 	LastCheckPoint *CheckPoint
 	// table versions associated with timestamps
 	VersionTimestamp map[int64]time.Time
+	// log store to create multi-cluster support for stores which do not provide a "put-if-absent" API
+	LogStore *DeltaTableLogStore
+}
+
+type DeltaTableLogStore struct {
+	// key value store to manage concurrent writes
+	KeyValueStore logstore.LogStore
 	// AWS config
 	Config *aws.Config
 	// name of DynamoDB table for version locking
@@ -86,15 +96,27 @@ type DeltaTable struct {
 //
 // NOTE: This is for advanced users. If you don't know why you need to use this method, please
 // call one of the `open_table` helper methods instead.
-func NewDeltaTable(store storage.ObjectStore, keyValueStore logstore.LogStore, config *aws.Config, dynamoDbLockTableName string, overwrite bool) *DeltaTable {
+func NewDeltaTable(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore) *DeltaTable {
 	table := new(DeltaTable)
+	table.Store = store
+	table.StateStore = stateStore
+	table.LockClient = lock
+	table.LastCheckPoint = nil
+	table.State = *NewDeltaTableState(-1)
+	return table
+}
+
+func NewDeltaTableWithLogStore(store storage.ObjectStore, keyValueStore logstore.LogStore, Config *aws.Config, dynamoDbLockTableName string, overwrite bool) *DeltaTable {
+	table := new(DeltaTable)
+	logStore := new(DeltaTableLogStore)
 	table.Store = store
 	table.LastCheckPoint = nil
 	table.State = *NewDeltaTableState(-1)
-	table.KeyValueStore = keyValueStore
-	table.Config = config
-	table.DynamoDbLockTableName = dynamoDbLockTableName
-	table.Overwrite = overwrite
+	logStore.KeyValueStore = keyValueStore
+	logStore.Config = Config
+	logStore.DynamoDbLockTableName = dynamoDbLockTableName
+	logStore.Overwrite = overwrite
+	table.LogStore = logStore
 	return table
 }
 
@@ -483,7 +505,7 @@ func (table *DeltaTable) CreateCheckpoint(checkpointLock lock.Locker, checkpoint
 // / If the lock cannot be obtained, does not retry - if other processes are checkpointing there's no need to duplicate the effort
 func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version int64) (checkpointed bool, err error) {
 	// The table doesn't need a commit lock or state store as we are not going to perform any commits
-	table, err := OpenTableWithVersion(store, nil, nil, "", false, version)
+	table, err := OpenTableWithVersion(store, nil, nil, version)
 	if err != nil {
 		// If the UnsafeIgnoreUnsupportedReaderWriterVersionErrors option is true, we can ignore unsupported version errors
 		isUnsupportedVersionError := errors.Is(err, ErrorUnsupportedReaderVersion) || errors.Is(err, ErrorUnsupportedWriterVersion)
@@ -718,15 +740,15 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 	//
 	// Also note that this lock path (resolvedPath) is for N.json, while the lock path used
 	// below in the recovery `fixDeltaLog` path is for N-1.json. Thus, no deadlock.
-	dynamoDbClient := dynamodb.NewFromConfig(*transaction.DeltaTable.Config)
-	currentVersionLockClient, err := dynamolock.New(dynamoDbClient, transaction.DeltaTable.DynamoDbLockTableName, path.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
+	dynamoDbClient := dynamodb.NewFromConfig(*transaction.DeltaTable.LogStore.Config)
+	currentVersionLockClient, err := dynamolock.New(dynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, path.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
 	if err != nil {
 		log.Debugf("delta-go: Failed to create current version lock client. %v", err)
 		return err
 	}
 	currentVersionLockClient.TryLock()
 
-	if transaction.DeltaTable.Overwrite {
+	if transaction.DeltaTable.LogStore.Overwrite {
 		transaction.writeActions(path, actions)
 	} else {
 		// Step 0: Fail if N.json already exists in FileSystem and overwrite=false.
@@ -746,7 +768,7 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 	tablePath := strings.Split(path.Raw, "_delta_log")[0]
 	if currentVersion > 0 {
 		prevFileName := path.CommitPathForVersion(currentVersion - 1)
-		prevEntry, err := transaction.DeltaTable.KeyValueStore.GetExternalEntry(path.Raw, prevFileName)
+		prevEntry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(path.Raw, prevFileName)
 		if err != nil {
 			log.Debugf("delta-go: Previous commit doesn't exist. %v", err)
 			return err
@@ -758,7 +780,7 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 			}
 		}
 	} else {
-		entry, err := transaction.DeltaTable.KeyValueStore.GetExternalEntry(tablePath, path.Raw)
+		entry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(tablePath, path.Raw)
 		if err == nil {
 			_, err = transaction.DeltaTable.Store.Head(path)
 			if entry.Complete && err != nil {
@@ -789,7 +811,7 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 	transaction.writeActions(storage.NewPath(absoluteTempPath), actions)
 
 	// Step 2.2: Create externals store entry E(N, T(N), complete=false).
-	transaction.DeltaTable.KeyValueStore.PutExternalEntry(entry, transaction.DeltaTable.Overwrite) // overwrite=false
+	transaction.DeltaTable.LogStore.KeyValueStore.PutExternalEntry(entry, transaction.DeltaTable.LogStore.Overwrite) // overwrite=false
 
 	// Step 3: Commit the commit to the delta log.
 	//         Copy T(N) -> N.json with overwrite=false.
@@ -804,7 +826,7 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 }
 
 func (transaction *DeltaTransaction) writePutCompleteDbEntry(entry *logstore.ExternalCommitEntry) error {
-	expirationDelaySeconds, err := transaction.DeltaTable.KeyValueStore.GetExpirationDelaySeconds()
+	expirationDelaySeconds, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExpirationDelaySeconds()
 	if err != nil {
 		log.Debugf("delta-go: Failed to get number of expiration delay seconds. %v", err)
 		return err
@@ -814,7 +836,7 @@ func (transaction *DeltaTransaction) writePutCompleteDbEntry(entry *logstore.Ext
 		log.Debugf("delta-go: Failed to mark entry as complete. %v", err)
 		return err
 	}
-	transaction.DeltaTable.KeyValueStore.PutExternalEntry(completeEntry, true)
+	transaction.DeltaTable.LogStore.KeyValueStore.PutExternalEntry(completeEntry, true)
 	return nil
 }
 
@@ -837,8 +859,8 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 		log.Debugf("delta-go: Failed to get absolute file path. %v", err)
 	}
 
-	dynamoDbClient := dynamodb.NewFromConfig(*transaction.DeltaTable.Config)
-	currentVersionLockClient, err := dynamolock.New(dynamoDbClient, transaction.DeltaTable.DynamoDbLockTableName, targetPath, dynamolock.LockOptions{TTL: 10 * time.Second})
+	dynamoDbClient := dynamodb.NewFromConfig(*transaction.DeltaTable.LogStore.Config)
+	currentVersionLockClient, err := dynamolock.New(dynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, targetPath, dynamolock.LockOptions{TTL: 10 * time.Second})
 	if err != nil {
 		log.Debugf("delta-go: Failed to create current version lock client. %v", err)
 		return err
@@ -882,7 +904,7 @@ func (transaction *DeltaTransaction) fixDeltaLogCopyTempFile(src *storage.Path, 
 }
 
 func (transaction *DeltaTransaction) fixDeltaLogPutCompleteDbEntry(entry logstore.ExternalCommitEntry) error {
-	expirationDelaySeconds, err := transaction.DeltaTable.KeyValueStore.GetExpirationDelaySeconds()
+	expirationDelaySeconds, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExpirationDelaySeconds()
 	if err != nil {
 		log.Debugf("delta-go: Failed to get number of expiration delay seconds. %v", err)
 		return err
@@ -893,7 +915,7 @@ func (transaction *DeltaTransaction) fixDeltaLogPutCompleteDbEntry(entry logstor
 		return err
 	}
 
-	return transaction.DeltaTable.KeyValueStore.PutExternalEntry(completeEntry, transaction.DeltaTable.Overwrite)
+	return transaction.DeltaTable.LogStore.KeyValueStore.PutExternalEntry(completeEntry, transaction.DeltaTable.LogStore.Overwrite)
 }
 
 func (transaction *DeltaTransaction) writeActions(path *storage.Path, actions []Action) error {
@@ -924,6 +946,38 @@ func (transaction *DeltaTransaction) AddAction(action Action) {
 // / Add an arbitrary number of actions to the actions associated with this transaction
 func (transaction *DeltaTransaction) AddActions(actions []Action) {
 	transaction.Actions = append(transaction.Actions, actions...)
+}
+
+// Commits the given actions to the delta log.
+// This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `DeltaTransactionOptions`.
+func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadata map[string]any) (int64, error) {
+	// TODO: stubbing `operation` parameter (which will be necessary for writing the CommitInfo action),
+	// but leaving it unused for now. `CommitInfo` is a fairly dynamic data structure so we should work
+	// out the data structure approach separately.
+
+	// TODO: calculate isolation level to use when checking for conflicts.
+	// Leaving conflict checking unimplemented for now to get the "single writer" implementation off the ground.
+	// Leaving some commented code in place as a guidepost for the future.
+
+	// let no_data_changed = actions.iter().all(|a| match a {
+	//     Action::add(x) => !x.dataChange,
+	//     Action::remove(x) => !x.dataChange,
+	//     _ => false,
+	// });
+	// let isolation_level = if no_data_changed {
+	//     IsolationLevel::SnapshotIsolation
+	// } else {
+	//     IsolationLevel::Serializable
+	// };
+
+	PreparedCommit, err := transaction.PrepareCommit(operation, appMetadata)
+	if err != nil {
+		log.Debugf("delta-go: PrepareCommit attempt failed. %v", err)
+		return transaction.DeltaTable.State.Version, err
+	}
+
+	err = transaction.TryCommitLoop(&PreparedCommit)
+	return transaction.DeltaTable.State.Version, err
 }
 
 // / Low-level transaction API. Creates a temporary commit file. Once created,
@@ -974,6 +1028,96 @@ func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, app
 	return commit, nil
 }
 
+// TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
+func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error {
+	attemptNumber := 0
+	for {
+		if attemptNumber > 0 {
+			time.Sleep(transaction.Options.RetryWaitDuration)
+		}
+		if attemptNumber > int(transaction.Options.MaxRetryCommitAttempts)+1 {
+			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+			return ErrorExceededCommitRetryAttempts
+		}
+
+		err := transaction.TryCommit(commit)
+		//Reset local state with the version tried in the commit
+		//The next attempt should use the max of the remote state and local state, enables local incrimination if the remote state is stuck
+		if errors.Is(err, storage.ErrorObjectAlreadyExists) || errors.Is(err, lock.ErrorLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
+			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
+				attemptNumber += 1
+				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
+			} else {
+				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+				return err
+			}
+		} else {
+			// Everything went smooth... exit
+			log.Debugf("delta-go: Transaction succeeded on attempt number to %d", attemptNumber)
+			return err
+		}
+	}
+
+}
+
+// TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
+func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) (err error) {
+	// Step 1) Acquire Lock
+	locked, err := transaction.DeltaTable.LockClient.TryLock()
+	// Step 5) Always Release Lock
+	// defer transaction.DeltaTable.LockClient.Unlock()
+	defer func() {
+		// Defer the unlock and overwrite any errors if unlock fails
+		if unlockErr := transaction.DeltaTable.LockClient.Unlock(); unlockErr != nil {
+			log.Debugf("delta-go: Unlock attempt failed. %v", unlockErr)
+			err = unlockErr
+		}
+	}()
+	if err != nil {
+		log.Debugf("delta-go: Lock attempt failed. %v", err)
+		return errors.Join(lock.ErrorLockNotObtained, err)
+	}
+
+	if locked {
+		// 2) Lookup the latest prior state
+		priorState, err := transaction.DeltaTable.StateStore.Get()
+		if err != nil {
+			// Failed on state store get, fallback to using the local version
+			log.Debugf("delta-go: StateStore Get() attempt failed. %v", err)
+			// return max(remoteVersion, version), err
+		}
+
+		// 4) Update the state with the latest tried, even in the case that the
+		// RenameNotExists was unsuccessful, this ensures that the next try increments the version
+		// Take the max of the local state and remote state version in the case that the remote state is not accessible.
+		version := max(priorState.Version, transaction.DeltaTable.State.Version) + 1
+		transaction.DeltaTable.State.Version = version
+		newState := state.CommitState{
+			Version: version,
+		}
+		defer func() {
+			if putErr := transaction.DeltaTable.StateStore.Put(newState); putErr != nil {
+				log.Debugf("delta-go: StateStore Put() attempt failed. %v", putErr)
+				err = putErr
+			}
+		}()
+
+		// 3) Try to Rename the file
+		from := storage.NewPath(commit.URI.Raw)
+		to := transaction.DeltaTable.CommitUriFromVersion(version)
+		err = transaction.DeltaTable.Store.RenameIfNotExists(from, to)
+		if err != nil {
+			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
+			return err
+		}
+
+	} else {
+		log.Debug("delta-go: Lock not obtained")
+		return errors.Join(lock.ErrorLockNotObtained, err)
+	}
+	return nil
+}
+
 func max[T constraints.Ordered](a, b T) T {
 	if a > b {
 		return a
@@ -1006,8 +1150,8 @@ func NewDeltaTransactionOptions() *DeltaTransactionOptions {
 
 // / Open the table at this specific version
 // / If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
-func OpenTableWithVersion(store storage.ObjectStore, keyValueStore logstore.LogStore, config *aws.Config, dynamoDblockTableName string, overwrite bool, version int64) (*DeltaTable, error) {
-	table := NewDeltaTable(store, keyValueStore, config, dynamoDblockTableName, overwrite)
+func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64) (*DeltaTable, error) {
+	table := NewDeltaTable(store, lock, stateStore)
 	err := table.LoadVersion(&version)
 	if err != nil {
 		return nil, err
@@ -1026,8 +1170,8 @@ func OpenTableWithVersion(store storage.ObjectStore, keyValueStore logstore.LogS
 
 // / Open the latest version of the table
 // / If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
-func OpenTable(store storage.ObjectStore, keyValueStore logstore.LogStore, config *aws.Config, dynamoDblockTableName string, overwrite bool) (*DeltaTable, error) {
-	table := NewDeltaTable(store, keyValueStore, config, dynamoDblockTableName, overwrite)
+func OpenTable(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore) (*DeltaTable, error) {
+	table := NewDeltaTable(store, lock, stateStore)
 	err := table.LoadVersion(nil)
 	if err != nil {
 		return nil, err
