@@ -743,7 +743,7 @@ func (transaction *DeltaTransaction) Read(path *storage.Path) ([]Action, error) 
 //
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite entry E in external store and set complete=true
-func (transaction *DeltaTransaction) Write(actions []Action) (err error) {
+func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (err error) {
 	// Prevent concurrent writers from either
 	// a) concurrently overwriting N.json if overwrite=true
 	// b) both checking if N-1.json exists and performing a "recovery" where they both
@@ -755,16 +755,21 @@ func (transaction *DeltaTransaction) Write(actions []Action) (err error) {
 	//
 	// Also note that this lock path (resolvedPath) is for N.json, while the lock path used
 	// below in the recovery `fixDeltaLog` path is for N-1.json. Thus, no deadlock.
-	previousCommitUri, err := transaction.DeltaTable.LogStore.KeyValueStore.GetLatestExternalEntry(transaction.DeltaTable.Path)
-	if err != nil {
-		log.Debugf("delta-go: Failed to get previous version commit URI. %v", err)
-		return err
+	var currentCommitUri *storage.Path
+	if createTable {
+		currentCommitUri = CommitUriFromVersion(0)
+	} else {
+		previousCommitUri, err := transaction.DeltaTable.LogStore.KeyValueStore.GetLatestExternalEntry(transaction.DeltaTable.Path)
+		if err != nil {
+			log.Debugf("delta-go: Failed to get previous version commit URI. %v", err)
+			return err
+		}
+		parsedPreviousVersion, previousVersion := CommitVersionFromUri(storage.NewPath(previousCommitUri.FileName))
+		if !parsedPreviousVersion {
+			log.Debug("delta-go: Failed to parse previous commit version from URI.")
+		}
+		currentCommitUri = CommitUriFromVersion(previousVersion + 1)
 	}
-	parsedPreviousVersion, previousVersion := CommitVersionFromUri(storage.NewPath(previousCommitUri.FileName))
-	if !parsedPreviousVersion {
-		log.Debug("delta-go: Failed to parse previous commit version from URI.")
-	}
-	currentCommitUri := CommitUriFromVersion(previousVersion + 1)
 
 	currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, currentCommitUri.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
 	if err != nil {

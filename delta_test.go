@@ -1148,7 +1148,7 @@ func TestLogStoreSequential(t *testing.T) {
 		Size:             984,
 		ModificationTime: time.Now().UnixMilli(),
 	}
-	transaction.Write([]Action{add})
+	transaction.Write([]Action{add}, false)
 }
 
 func TestLogStoreConcurrent(t *testing.T) {
