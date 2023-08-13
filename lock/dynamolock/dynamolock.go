@@ -17,8 +17,11 @@ import (
 	"time"
 
 	"cirello.io/dynamolock"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/rivian/delta-go/lock"
+	log "github.com/sirupsen/logrus"
 )
 
 type DynamoLock struct {
@@ -30,8 +33,11 @@ type DynamoLock struct {
 	Options      LockOptions
 }
 
-// Compile time check that FileLock implements lock.Locker
-var _ lock.Locker = (*DynamoLock)(nil)
+var (
+	// Compile time check that FileLock implements lock.Locker
+	_                            lock.Locker = (*DynamoLock)(nil)
+	ErrorCreateDynamoDbLockTable error       = errors.New("failed to create DynamoDB lock table")
+)
 
 type LockOptions struct {
 	// The amount of time (in seconds) that the owner has this lock for.
@@ -68,6 +74,12 @@ func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt Loc
 	dl.LockClient = lc
 	dl.Options = opt
 	dl.DynamoClient = client
+
+	err = dl.tryEnsureTableExists()
+	if err != nil {
+		return nil, err
+	}
+
 	return dl, nil
 }
 
@@ -90,4 +102,52 @@ func (l *DynamoLock) Unlock() error {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 	return nil
+}
+
+func (l *DynamoLock) tryEnsureTableExists() error {
+	var retries int = 0
+	var created bool = false
+
+	for retries < 20 {
+		var status string = "CREATING"
+
+		result, err := l.DynamoClient.DescribeTable(&dynamodb.DescribeTableInput{
+			TableName: aws.String(l.TableName),
+		})
+		if err != nil {
+			var rcu int64 = 5
+			var wcu int64 = 5
+
+			log.Infof("delta-go: DynamoDB table %s does not exist. Creating it now with provisioned throughput of %d and %d WCUs.", l.TableName, rcu, wcu)
+			_, err := l.LockClient.CreateTable(l.TableName,
+				dynamolock.WithProvisionedThroughput(&dynamodb.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(5),
+					WriteCapacityUnits: aws.Int64(5),
+				}),
+				dynamolock.WithCustomPartitionKeyName("key"),
+			)
+			if err != nil {
+				log.Debugf("delta-go: Table %s just created by concurrent process. %v", l.TableName, err)
+			}
+		}
+
+		status = *result.Table.TableStatus
+		if status == "ACTIVE" {
+			if created {
+				log.Infof("delta-go: Successfully created DynamoDB table %s", l.TableName)
+			} else {
+				log.Infof("delta-go: Table %s already exists", l.TableName)
+			}
+			break
+		} else if status == "CREATING" {
+			retries += 1
+			log.Infof("delta-go: Waiting for %s table creation", l.TableName)
+			time.Sleep(1000 * time.Millisecond)
+		} else {
+			log.Debugf("delta-go: Table %s status: %s. %v", l.TableName, status, err)
+			break
+		}
+	}
+
+	return ErrorCreateDynamoDbLockTable
 }
