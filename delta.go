@@ -192,20 +192,24 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 	}
 
 	transaction := table.CreateTransaction(nil)
-	transaction.AddActions(actions)
+	if table.LogStore != nil {
+		transaction.Write(actions, true)
+	} else {
+		transaction.AddActions(actions)
 
-	preparedCommit, err := transaction.PrepareCommit(nil, nil)
-	if err != nil {
-		return err
-	}
-	//Set StateStore Version=-1 synced with the table State Version
-	zeroState := state.CommitState{
-		Version: table.State.Version,
-	}
-	transaction.DeltaTable.StateStore.Put(zeroState)
-	err = transaction.TryCommit(&preparedCommit)
-	if err != nil {
-		return err
+		preparedCommit, err := transaction.PrepareCommit(nil, nil)
+		if err != nil {
+			return err
+		}
+		//Set StateStore Version=-1 synced with the table State Version
+		zeroState := state.CommitState{
+			Version: table.State.Version,
+		}
+		transaction.DeltaTable.StateStore.Put(zeroState)
+		err = transaction.TryCommit(&preparedCommit)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Merge state from new commit version
