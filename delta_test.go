@@ -28,8 +28,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
+	configv2 "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
@@ -1116,7 +1118,7 @@ func TestLoadVersion(t *testing.T) {
 }
 
 func TestKeyValueStoreSequential(t *testing.T) {
-	config, err := config.LoadDefaultConfig(context.TODO())
+	config, err := configv2.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		t.Error("failed to load default config")
 	}
@@ -1132,7 +1134,12 @@ func TestKeyValueStoreSequential(t *testing.T) {
 		t.Error("failed to create S3 store")
 	}
 
-	deltaTable := NewDeltaTableWithLogStore(s3Store, dynamoDbLogStore, &config, "version_lock_store", false)
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+	dynamoDbClient := dynamodb.New(sess)
+
+	deltaTable := NewDeltaTableWithLogStore(s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
 
 	transaction := NewDeltaTransaction(deltaTable, NewDeltaTransactionOptions())
 

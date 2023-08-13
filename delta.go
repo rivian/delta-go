@@ -22,8 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/dynamolock"
@@ -77,18 +76,18 @@ type DeltaTable struct {
 	LastCheckPoint *CheckPoint
 	// table versions associated with timestamps
 	VersionTimestamp map[int64]time.Time
-	// log store to create multi-cluster support for stores which do not provide a "put-if-absent" API
+	// log store to create multi-cluster support for object stores which do not provide a "put-if-absent" API
 	LogStore *DeltaTableLogStore
 }
 
 type DeltaTableLogStore struct {
-	// key value store to manage concurrent writes
+	// Key value store which holds the version history
 	KeyValueStore logstore.LogStore
-	// AWS config
-	Config *aws.Config
-	// name of DynamoDB table for version locking
+	// DynamoDB client used to create version lock
+	DynamoDbClient dynamodbiface.DynamoDBAPI
+	// Name of DynamoDB table for version locking
 	DynamoDbLockTableName string
-	// true if the underlying file system supports atomic put if not exists
+	// true if the object store provides a "put-if-absent" API
 	Overwrite bool
 }
 
@@ -106,14 +105,14 @@ func NewDeltaTable(store storage.ObjectStore, lock lock.Locker, stateStore state
 	return table
 }
 
-func NewDeltaTableWithLogStore(store storage.ObjectStore, keyValueStore logstore.LogStore, Config *aws.Config, dynamoDbLockTableName string, overwrite bool) *DeltaTable {
+func NewDeltaTableWithLogStore(store storage.ObjectStore, keyValueStore logstore.LogStore, dynamoDbClient dynamodbiface.DynamoDBAPI, dynamoDbLockTableName string, overwrite bool) *DeltaTable {
 	table := new(DeltaTable)
 	logStore := new(DeltaTableLogStore)
 	table.Store = store
 	table.LastCheckPoint = nil
 	table.State = *NewDeltaTableState(-1)
 	logStore.KeyValueStore = keyValueStore
-	logStore.Config = Config
+	logStore.DynamoDbClient = dynamoDbClient
 	logStore.DynamoDbLockTableName = dynamoDbLockTableName
 	logStore.Overwrite = overwrite
 	table.LogStore = logStore
@@ -740,13 +739,18 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 	//
 	// Also note that this lock path (resolvedPath) is for N.json, while the lock path used
 	// below in the recovery `fixDeltaLog` path is for N-1.json. Thus, no deadlock.
-	dynamoDbClient := dynamodb.NewFromConfig(*transaction.DeltaTable.LogStore.Config)
-	currentVersionLockClient, err := dynamolock.New(dynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, path.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
+	currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, path.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
 	if err != nil {
 		log.Debugf("delta-go: Failed to create current version lock client. %v", err)
 		return err
 	}
-	currentVersionLockClient.TryLock()
+	defer func() {
+		// Defer the unlock and overwrite any errors if unlock fails
+		if unlockErr := currentVersionLock.Unlock(); unlockErr != nil {
+			log.Debugf("delta-go: Unlock attempt failed. %v", unlockErr)
+			err = unlockErr
+		}
+	}()
 
 	if transaction.DeltaTable.LogStore.Overwrite {
 		transaction.writeActions(path, actions)
@@ -765,7 +769,7 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 	}
 
 	// Step 1: Ensure that N-1.json exists.
-	tablePath := strings.Split(path.Raw, "_delta_log")[0]
+	var tablePath string = strings.Split(path.Raw, "_delta_log")[0]
 	if currentVersion > 0 {
 		prevFileName := path.CommitPathForVersion(currentVersion - 1)
 		prevEntry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(path.Raw, prevFileName)
@@ -808,19 +812,33 @@ func (transaction *DeltaTransaction) Write(path *storage.Path, actions []Action)
 		log.Debugf("delta-go: Failed to get absolute temporary path. %v", err)
 		return err
 	}
-	transaction.writeActions(storage.NewPath(absoluteTempPath), actions)
+	err = transaction.writeActions(storage.NewPath(absoluteTempPath), actions)
+	if err != nil {
+		log.Debugf("delta-go: Failed to write actions. %v", err)
+		return err
+	}
 
-	// Step 2.2: Create externals store entry E(N, T(N), complete=false).
-	transaction.DeltaTable.LogStore.KeyValueStore.PutExternalEntry(entry, transaction.DeltaTable.LogStore.Overwrite) // overwrite=false
+	// Step 2.2: Create external store entry E(N, T(N), complete=false).
+	err = transaction.DeltaTable.LogStore.KeyValueStore.PutExternalEntry(entry, transaction.DeltaTable.LogStore.Overwrite) // overwrite=false
+	if err != nil {
+		log.Debugf("delta-go: Failed to put external entry. %v", err)
+		return err
+	}
 
 	// Step 3: Commit the commit to the delta log.
 	//         Copy T(N) -> N.json with overwrite=false.
-	transaction.writeCopyTempFile(storage.NewPath(absoluteTempPath), path)
+	err = transaction.writeCopyTempFile(storage.NewPath(absoluteTempPath), path)
+	if err != nil {
+		log.Debugf("delta-go: Failed to copy temporary file to N.json. %v", err)
+		return err
+	}
 
 	// Step 4: Acknowledge the commit.
-	transaction.writePutCompleteDbEntry(entry)
-
-	currentVersionLockClient.Unlock()
+	err = transaction.writePutCompleteDbEntry(entry)
+	if err != nil {
+		log.Debugf("delta-go: Failed to acknowledge the commit. %v", err)
+		return err
+	}
 
 	return nil
 }
@@ -837,6 +855,10 @@ func (transaction *DeltaTransaction) writePutCompleteDbEntry(entry *logstore.Ext
 		return err
 	}
 	transaction.DeltaTable.LogStore.KeyValueStore.PutExternalEntry(completeEntry, true)
+	if err != nil {
+		log.Debugf("delta-go: Failed to put external entry which acknowledges commit. %v", err)
+		return err
+	}
 	return nil
 }
 
@@ -845,7 +867,7 @@ func (transaction *DeltaTransaction) writeCopyTempFile(src *storage.Path, dst *s
 }
 
 func (transaction *DeltaTransaction) createTemporaryPath(path *storage.Path) (string, error) {
-	uuid := uuid.New().String()
+	var uuid string = uuid.New().String()
 	return fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid), nil
 }
 
@@ -859,16 +881,21 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 		log.Debugf("delta-go: Failed to get absolute file path. %v", err)
 	}
 
-	dynamoDbClient := dynamodb.NewFromConfig(*transaction.DeltaTable.LogStore.Config)
-	currentVersionLockClient, err := dynamolock.New(dynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, targetPath, dynamolock.LockOptions{TTL: 10 * time.Second})
+	currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, targetPath, dynamolock.LockOptions{TTL: 10 * time.Second})
 	if err != nil {
 		log.Debugf("delta-go: Failed to create current version lock client. %v", err)
 		return err
 	}
-	currentVersionLockClient.TryLock()
+	defer func() {
+		// Defer the unlock and overwrite any errors if unlock fails
+		if unlockErr := currentVersionLock.Unlock(); unlockErr != nil {
+			log.Debugf("delta-go: Unlock attempt failed. %v", unlockErr)
+			err = unlockErr
+		}
+	}()
 
-	retry := 0
-	copied := false
+	var retry int = 0
+	var copied bool = false
 	for {
 		log.Infof("delta-go: Trying to fix %s.", entry.FileName)
 
@@ -893,8 +920,6 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 			break
 		}
 	}
-
-	currentVersionLockClient.Unlock()
 
 	return err
 }
