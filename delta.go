@@ -668,7 +668,7 @@ type DeltaTransaction struct {
 }
 
 // Load the given file and return a list of actions.
-func (transaction *DeltaTransaction) read(path *storage.Path) ([]Action, error) {
+func (transaction *DeltaTransaction) Read(path *storage.Path) ([]Action, error) {
 	// With many concurrent readers/writers, there's a chance that concurrent 'recovery'
 	// operations occur on the same file, i.e. the same temp file T(N) is copied into the target
 	// N.json file more than once. Though data loss will *NOT* occur, readers of N.json may
