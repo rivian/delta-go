@@ -934,6 +934,10 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 	var retry int = 0
 	var copied bool = false
 	for {
+		if retry > 3 {
+			break
+		}
+
 		log.Infof("delta-go: Trying to fix %s.", entry.FileName)
 
 		_, err = transaction.DeltaTable.Store.Head(storage.NewPath(targetPath))
@@ -941,21 +945,26 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 			tempPath, err := entry.AbsoluteTempPath()
 			if err != nil {
 				log.Debugf("delta-go: Failed to get absolute temp path. %v", err)
+				retry++
+				continue
 			}
 			err = transaction.fixDeltaLogCopyTempFile(storage.NewPath(tempPath), storage.NewPath(targetPath))
 			if err != nil {
 				log.Debugf("delta-go: File %s already copied. %v", entry.FileName, err)
 				copied = true
+				retry++
+				continue
 			}
 			copied = true
 		}
-		transaction.fixDeltaLogPutCompleteDbEntry(entry)
-		log.Infof("delta-go: Fixed file %s", entry.FileName)
-
-		retry++
-		if retry > 3 {
-			break
+		err = transaction.fixDeltaLogPutCompleteDbEntry(entry)
+		if err != nil {
+			log.Debugf("delta-go: Failed to complete DynamoDB entry. %v", err)
+			retry++
+			continue
 		}
+
+		log.Infof("delta-go: Fixed file %s.", entry.FileName)
 	}
 
 	return err
