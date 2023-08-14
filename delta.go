@@ -1221,7 +1221,7 @@ type PreparedCommit struct {
 const (
 	DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS uint32 = 10000000
 	DEFAULT_DELTA_MAX_WRITE_COMMIT_ATTEMPTS uint32 = 10000000
-	DEFAULT_MAX_FIX_DELTA_LOG_ATTEMPTS      uint32 = 3
+	DEFAULT_MAX_FIX_DELTA_LOG_ATTEMPTS      uint16 = 3
 )
 
 // Options for customizing behavior of a `DeltaTransaction`
@@ -1235,7 +1235,7 @@ type DeltaTransactionOptions struct {
 	// Number of retry attempts allowed when writing actions to a log entry
 	MaxRetryWriteAttempts uint32
 	// Number of retry attempts allowed when fixing the Delta log
-	MaxRetryFixDeltaLogAttempts uint32
+	MaxRetryFixDeltaLogAttempts uint16
 }
 
 // NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS = 10000000, the default MaxRetryWriteCommitAttempts to DEFAULT_DELTA_MAX_WRITE_COMMIT_ATTEMPTS, and the default MaxRetryFixDeltaLogAttempts to DEFAULT_MAX_FIX_DELTA_LOG_ATTEMPTS

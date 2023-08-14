@@ -35,15 +35,16 @@ type DynamoLock struct {
 
 var (
 	// Compile time check that FileLock implements lock.Locker
-	_                            lock.Locker = (*DynamoLock)(nil)
-	ErrorCreateDynamoDbLockTable error       = errors.New("failed to create DynamoDB lock table")
+	_                                     lock.Locker = (*DynamoLock)(nil)
+	ErrorExceededTableCreateRetryAttempts error       = errors.New("failed to create table")
 )
 
 type LockOptions struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
-	TTL       time.Duration
-	HeartBeat time.Duration
+	TTL                         time.Duration
+	HeartBeat                   time.Duration
+	maxRetryTableCreateAttempts uint16
 }
 
 const (
@@ -105,10 +106,15 @@ func (l *DynamoLock) Unlock() error {
 }
 
 func (l *DynamoLock) tryEnsureTableExists() error {
-	var retries int = 0
+	var attemptNumber int = 0
 	var created bool = false
 
-	for retries < 20 {
+	for {
+		if attemptNumber >= int(l.Options.maxRetryTableCreateAttempts) {
+			log.Debugf("delta-go: Table create attempt failed. Attempts exhausted beyond maxRetryDynamoDbTableCreateAttempts of %d so failing.", l.Options.maxRetryTableCreateAttempts)
+			return ErrorExceededTableCreateRetryAttempts
+		}
+
 		var status string = "CREATING"
 
 		result, err := l.DynamoClient.DescribeTable(&dynamodb.DescribeTableInput{
@@ -138,16 +144,16 @@ func (l *DynamoLock) tryEnsureTableExists() error {
 			} else {
 				log.Infof("delta-go: Table %s already exists", l.TableName)
 			}
-			break
 		} else if status == "CREATING" {
-			retries += 1
+			attemptNumber++
 			log.Infof("delta-go: Waiting for %s table creation", l.TableName)
 			time.Sleep(1000 * time.Millisecond)
 		} else {
-			log.Debugf("delta-go: Table %s status: %s. %v", l.TableName, status, err)
-			break
+			attemptNumber++
+			log.Debugf("delta-go: Table %s status: %s. Incrementing attempt number to %d and retrying. %v", l.TableName, status, attemptNumber, err)
+			continue
 		}
-	}
 
-	return ErrorCreateDynamoDbLockTable
+		return nil
+	}
 }

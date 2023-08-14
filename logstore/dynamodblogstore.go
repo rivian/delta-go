@@ -27,8 +27,9 @@ import (
 
 var (
 	// Compile time check that DynamoDBLogStore implements KeyValueStore
-	_                             LogStore = (*DynamoDBLogStore)(nil)
-	ErrorUnableToGetExternalEntry error    = errors.New("unable to get external entry")
+	_                                     LogStore = (*DynamoDBLogStore)(nil)
+	ErrorExceededTableCreateRetryAttempts error    = errors.New("failed to create table")
+	ErrorUnableToGetExternalEntry         error    = errors.New("unable to get external entry")
 )
 
 const (
@@ -71,6 +72,7 @@ const (
 
 	// By using an expiration delay of 1 day, we ensure one of the steps at t9 or t12 will fail.
 	defaultExternalEntryExpirationDelaySeconds uint64 = 86400
+	defaultMaxRetryTableCreateAttempts         uint16 = 20
 )
 
 // A concrete implementation of LogStore that uses an external DynamoDB table
@@ -86,15 +88,17 @@ const (
 // -- complete (STRING, representing boolean, "true" or "false")
 // -- commitTime (NUMBER, epoch seconds)
 type DynamoDBLogStore struct {
-	client                 *dynamodb.Client
-	tableName              string
-	expirationDelaySeconds uint64
+	client                      *dynamodb.Client
+	tableName                   string
+	expirationDelaySeconds      uint64
+	maxRetryTableCreateAttempts uint16
 }
 
 type DynamoDBLogStoreOptions struct {
-	Config                 aws.Config
-	TableName              string
-	ExpirationDelaySeconds uint64
+	Config                      aws.Config
+	TableName                   string
+	ExpirationDelaySeconds      uint64
+	MaxRetryTableCreateAttempts uint16
 }
 
 func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error) {
@@ -105,6 +109,12 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 		ls.expirationDelaySeconds = lso.ExpirationDelaySeconds
 	} else {
 		ls.expirationDelaySeconds = defaultExternalEntryExpirationDelaySeconds
+	}
+
+	if lso.MaxRetryTableCreateAttempts != 0 {
+		ls.maxRetryTableCreateAttempts = lso.MaxRetryTableCreateAttempts
+	} else {
+		ls.maxRetryTableCreateAttempts = defaultMaxRetryTableCreateAttempts
 	}
 
 	log.Infof("delta-go: Using table name %s", ls.tableName)
@@ -211,10 +221,15 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, ove
 }
 
 func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
-	var retries int = 0
+	var attemptNumber int = 0
 	var created bool = false
 
-	for retries < 20 {
+	for {
+		if attemptNumber >= int(ls.maxRetryTableCreateAttempts) {
+			log.Debugf("delta-go: Table create attempt failed. Attempts exhausted beyond maxRetryDynamoDbTableCreateAttempts of %d so failing.", ls.maxRetryTableCreateAttempts)
+			return ErrorExceededTableCreateRetryAttempts
+		}
+
 		var status string = "CREATING"
 
 		result, err := ls.client.DescribeTable(context.TODO(), &dynamodb.DescribeTableInput{
@@ -264,18 +279,18 @@ func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
 			} else {
 				log.Infof("delta-go: Table %s already exists", ls.tableName)
 			}
-			break
 		} else if status == "CREATING" {
-			retries += 1
+			attemptNumber++
 			log.Infof("delta-go: Waiting for %s table creation", ls.tableName)
 			time.Sleep(1000 * time.Millisecond)
 		} else {
-			log.Debugf("delta-go: Table %s status: %s. %v", ls.tableName, status, err)
-			break
+			attemptNumber++
+			log.Debugf("delta-go: Table %s status: %s. Incrementing attempt number to %d and retrying. %v", ls.tableName, status, attemptNumber, err)
+			continue
 		}
-	}
 
-	return nil
+		return nil
+	}
 }
 
 func (ls *DynamoDBLogStore) getClient(config aws.Config) (*dynamodb.Client, error) {
