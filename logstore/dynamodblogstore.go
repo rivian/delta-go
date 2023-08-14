@@ -76,7 +76,7 @@ const (
 )
 
 // A concrete implementation of LogStore that uses an external DynamoDB table
-// to provide the mutual exclusion during calls to `putExternalEntry`.
+// to provide the mutual exclusion during calls to `PutExternalEntry`.
 
 // DynamoDB entries are of form
 // - key
