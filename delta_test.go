@@ -1138,10 +1138,15 @@ func TestLogStoreSequential(t *testing.T) {
 	}))
 	dynamoDbClient := dynamodb.New(sess)
 
-	deltaTable := NewDeltaTableWithLogStore(s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
-	deltaTable.Path = tablePath
+	table := NewDeltaTableWithLogStore(s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
+	table.Path = tablePath
 
-	transaction := NewDeltaTransaction(deltaTable, NewDeltaTransactionOptions())
+	err = table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	if err != nil {
+		t.Error("failed to create table")
+	}
+
+	transaction := NewDeltaTransaction(table, NewDeltaTransactionOptions())
 
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",

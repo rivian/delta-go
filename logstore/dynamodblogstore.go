@@ -203,10 +203,9 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, ove
 		TableName: aws.String(ls.tableName),
 		Item:      attributes}
 
-	// TODO: Take another look at the reason for this.
-	// if !overwrite {
-	// 	pir.ConditionExpression = aws.String(fmt.Sprintf("%s = false", attrFileName))
-	// }
+	if !overwrite {
+		pir.ConditionExpression = aws.String(fmt.Sprintf("attribute_not_exists(%s)", attrFileName))
+	}
 
 	return pir, nil
 }
