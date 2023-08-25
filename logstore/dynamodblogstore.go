@@ -285,7 +285,15 @@ func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
 			}
 		}
 
-		status = string(result.Table.TableStatus)
+		if result == nil || result.Table == nil {
+			attemptNumber++
+			log.Infof("delta-go: Waiting for %s table creation", ls.tableName)
+			time.Sleep(1 * time.Second)
+			continue
+		} else {
+			status = string(result.Table.TableStatus)
+		}
+
 		if status == "ACTIVE" {
 			if created {
 				log.Infof("delta-go: Successfully created DynamoDB table %s", ls.tableName)
@@ -295,7 +303,7 @@ func (ls *DynamoDBLogStore) tryEnsureTableExists() error {
 		} else if status == "CREATING" {
 			attemptNumber++
 			log.Infof("delta-go: Waiting for %s table creation", ls.tableName)
-			time.Sleep(1000 * time.Millisecond)
+			time.Sleep(1 * time.Second)
 		} else {
 			attemptNumber++
 			log.Debugf("delta-go: Table %s status: %s. Incrementing attempt number to %d and retrying. %v", ls.tableName, status, attemptNumber, err)

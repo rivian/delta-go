@@ -141,7 +141,15 @@ func (l *DynamoLock) tryEnsureTableExists() error {
 			}
 		}
 
-		status = *result.Table.TableStatus
+		if result == nil || result.Table == nil {
+			attemptNumber++
+			log.Infof("delta-go: Waiting for %s table creation", l.TableName)
+			time.Sleep(1 * time.Second)
+			continue
+		} else {
+			status = string(*result.Table.TableStatus)
+		}
+
 		if status == "ACTIVE" {
 			if created {
 				log.Infof("delta-go: Successfully created DynamoDB table %s", l.TableName)
