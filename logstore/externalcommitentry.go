@@ -13,8 +13,9 @@
 package logstore
 
 import (
-	"path/filepath"
 	"time"
+
+	"github.com/rivian/delta-go/storage"
 )
 
 // Wrapper struct representing an entry in an external store for a given commit into the Delta log.
@@ -49,11 +50,11 @@ func (ece *ExternalCommitEntry) AsComplete(expirationDelaySeconds uint64) (*Exte
 }
 
 // Returns the absolute path to the file for this entry.
-func (ece *ExternalCommitEntry) AbsoluteFilePath() (string, error) {
-	return filepath.Join(filepath.Join(ece.TablePath, "_delta_log"), ece.FileName), nil
+func (ece *ExternalCommitEntry) AbsoluteFilePath() (storage.Path, error) {
+	return storage.PathFromIter([]string{ece.TablePath, "_delta_log", ece.FileName}), nil
 }
 
 // Returns the absolute path to the temp file for this entry.
-func (ece *ExternalCommitEntry) AbsoluteTempPath() (string, error) {
-	return filepath.Join(filepath.Join(ece.TablePath, "_delta_log"), ece.TempPath), nil
+func (ece *ExternalCommitEntry) AbsoluteTempPath() (storage.Path, error) {
+	return storage.PathFromIter([]string{ece.TablePath, "_delta_log", ece.TempPath}), nil
 }

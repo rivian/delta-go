@@ -48,8 +48,9 @@ type LockOptions struct {
 }
 
 const (
-	TTL       time.Duration = 60 * time.Second
-	HEARTBEAT time.Duration = 1 * time.Second
+	TTL                         time.Duration = 60 * time.Second
+	HEARTBEAT                   time.Duration = 1 * time.Second
+	MaxRetryTableCreateAttempts               = 20
 )
 
 func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
@@ -58,6 +59,9 @@ func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt Loc
 	}
 	if opt.HeartBeat == 0 {
 		opt.HeartBeat = HEARTBEAT
+	}
+	if opt.maxRetryTableCreateAttempts == 0 {
+		opt.maxRetryTableCreateAttempts = MaxRetryTableCreateAttempts
 	}
 
 	lc, err := dynamolock.New(client,

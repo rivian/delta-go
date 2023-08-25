@@ -12,15 +12,17 @@
 // limitations under the License.
 package logstore
 
+import "github.com/rivian/delta-go/storage"
+
 type LogStore interface {
 	// Writes to external store in exclusive way.
 	PutExternalEntry(entry *ExternalCommitEntry, overwrite bool) error
 
 	// Returns external store entry corresponding to delta log file with given `tablePath` and `fileName`.
-	GetExternalEntry(tablePath string, fileName string) (*ExternalCommitEntry, error)
+	GetExternalEntry(tablePath *storage.Path, fileName *storage.Path) (*ExternalCommitEntry, error)
 
 	// Returns the latest external store entry corresponding to the delta log for given `tablePath`.
-	GetLatestExternalEntry(tablePath string) (*ExternalCommitEntry, error)
+	GetLatestExternalEntry(tablePath *storage.Path) (*ExternalCommitEntry, error)
 
 	// Returns the number of expiration delay seconds.
 	GetExpirationDelaySeconds() (uint64, error)

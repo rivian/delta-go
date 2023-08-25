@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/rivian/delta-go/storage"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -149,8 +150,8 @@ func (ls *DynamoDBLogStore) PutExternalEntry(entry *ExternalCommitEntry, overwri
 	return err
 }
 
-func (ls *DynamoDBLogStore) GetExternalEntry(tablePath string, fileName string) (*ExternalCommitEntry, error) {
-	attributes := map[string]types.AttributeValue{attrTablePath: &types.AttributeValueMemberS{Value: tablePath}, attrFileName: &types.AttributeValueMemberS{Value: fileName}}
+func (ls *DynamoDBLogStore) GetExternalEntry(tablePath *storage.Path, fileName *storage.Path) (*ExternalCommitEntry, error) {
+	attributes := map[string]types.AttributeValue{attrTablePath: &types.AttributeValueMemberS{Value: tablePath.Raw}, attrFileName: &types.AttributeValueMemberS{Value: fileName.Raw}}
 
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
 	gio, err := ls.client.GetItem(context.TODO(), &gii)
@@ -168,8 +169,10 @@ func (ls *DynamoDBLogStore) GetExternalEntry(tablePath string, fileName string) 
 	return ece, err
 }
 
-func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath string) (*ExternalCommitEntry, error) {
-	qi := dynamodb.QueryInput{ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1), KeyConditionExpression: aws.String(fmt.Sprintf("%s = :%s", attrTablePath, tablePath))}
+func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath *storage.Path) (*ExternalCommitEntry, error) {
+	qi := dynamodb.QueryInput{TableName: &ls.tableName, ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1), ExpressionAttributeValues: map[string]types.AttributeValue{
+		":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw},
+	}, KeyConditionExpression: aws.String(fmt.Sprintf("%s = :partitionKey", attrTablePath))}
 	qo, err := ls.client.Query(context.TODO(), &qi)
 	if err != nil {
 		log.Debugf("delta-go: Failed Query. %v", err)

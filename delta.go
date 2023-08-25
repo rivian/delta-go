@@ -81,7 +81,7 @@ type DeltaTable struct {
 	// Log store to create multi-cluster support for object stores which do not provide a "put-if-absent" API
 	LogStore *DeltaTableLogStore
 	// Delta table path
-	Path string
+	Path *storage.Path
 }
 
 type DeltaTableLogStore struct {
@@ -109,8 +109,9 @@ func NewDeltaTable(store storage.ObjectStore, lock lock.Locker, stateStore state
 	return table
 }
 
-func NewDeltaTableWithLogStore(store storage.ObjectStore, keyValueStore logstore.LogStore, dynamoDbClient dynamodbiface.DynamoDBAPI, dynamoDbLockTableName string, overwrite bool) *DeltaTable {
+func NewDeltaTableWithLogStore(tablePath storage.Path, store storage.ObjectStore, keyValueStore logstore.LogStore, dynamoDbClient dynamodbiface.DynamoDBAPI, dynamoDbLockTableName string, overwrite bool) *DeltaTable {
 	table := new(DeltaTable)
+	table.Path = storage.NewPath(strings.TrimSuffix(tablePath.Raw, "/"))
 	logStore := new(DeltaTableLogStore)
 	table.Store = store
 	table.LastCheckPoint = nil
@@ -193,7 +194,7 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 		actions = append(actions, add)
 	}
 
-	transaction := table.CreateTransaction(nil)
+	transaction := table.CreateTransaction(NewDeltaTransactionOptions())
 	if table.LogStore != nil {
 		transaction.Write(actions, true)
 	} else {
@@ -776,11 +777,18 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			}
 			currentCommitUri = CommitUriFromVersion(previousVersion + 1)
 		}
+		var fileName *storage.Path = storage.NewPath(strings.Split(currentCommitUri.Raw, "_delta_log/")[1])
 
-		currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, currentCommitUri.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
+		currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, transaction.DeltaTable.Path.Join(currentCommitUri).Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
 		if err != nil {
 			attemptNumber++
 			log.Debugf("delta-go: Failed to create current version lock client. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
+			continue
+		}
+		_, err = currentVersionLock.TryLock()
+		if err != nil {
+			attemptNumber++
+			log.Debugf("delta-go: Failed to acquire current version lock. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 			continue
 		}
 
@@ -790,6 +798,15 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			// Step 0: Fail if N.json already exists in FileSystem and overwrite=false.
 			_, err = transaction.DeltaTable.Store.Head(currentCommitUri)
 			if err == nil {
+				// Release the lock and overwrite any errors if unlock fails.
+				err = currentVersionLock.Unlock()
+				if err != nil {
+					log.Debugf("delta-go: Unlock attempt failed. %v", err)
+					return err
+				}
+
+				createTable = false
+
 				attemptNumber++
 				log.Debugf("delta-go: N.json already exists. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 				continue
@@ -804,27 +821,50 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 		}
 
 		// Step 1: Ensure that N-1.json exists.
-		var tablePath string = strings.Split(currentCommitUri.Raw, "_delta_log")[0]
+		// var tablePath string = strings.Split(currentCommitUri.Raw, "_delta_log")[0]
 		if currentVersion > 0 {
-			prevFileName := currentCommitUri.CommitPathForVersion(currentVersion - 1)
-			prevEntry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(currentCommitUri.Raw, prevFileName)
+			var prevFileName *storage.Path = storage.NewPath(strings.Split(CommitUriFromVersion(currentVersion-1).Raw, "_delta_log/")[1])
+			prevEntry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(transaction.DeltaTable.Path, prevFileName)
 			if err != nil {
+				// Release the lock and overwrite any errors if unlock fails.
+				err = currentVersionLock.Unlock()
+				if err != nil {
+					log.Debugf("delta-go: Unlock attempt failed. %v", err)
+					return err
+				}
+
 				attemptNumber++
 				log.Debugf("delta-go: Previous commit doesn't exist. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 				continue
 			} else if !prevEntry.Complete {
 				err = transaction.fixDeltaLog(*prevEntry)
 				if err != nil {
+					// Release the lock and overwrite any errors if unlock fails.
+					err = currentVersionLock.Unlock()
+					if err != nil {
+						log.Debugf("delta-go: Unlock attempt failed. %v", err)
+						return err
+					}
+
 					attemptNumber++
 					log.Debugf("delta-go: Failed to fix delta log. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 					continue
 				}
 			}
 		} else {
-			entry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(tablePath, currentCommitUri.Raw)
+			entry, err := transaction.DeltaTable.LogStore.KeyValueStore.GetExternalEntry(transaction.DeltaTable.Path, fileName)
 			if err == nil {
 				_, err = transaction.DeltaTable.Store.Head(currentCommitUri)
 				if entry.Complete && err != nil {
+					// Release the lock and overwrite any errors if unlock fails.
+					err = currentVersionLock.Unlock()
+					if err != nil {
+						log.Debugf("delta-go: Unlock attempt failed. %v", err)
+						return err
+					}
+
+					createTable = false
+
 					attemptNumber++
 					log.Debugf("delta-go: Old entries for table %s still exist in the external store. Incrementing attempt number to %d and retrying. %v", currentCommitUri.Raw, attemptNumber, err)
 					continue
@@ -833,28 +873,43 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 		}
 
 		// Step 2: Prepare the commit.
-		tempPath, err := transaction.createTemporaryPath(currentCommitUri)
+		tempPath, err := transaction.createTemporaryPath(fileName)
+		var relativeTempPath *storage.Path = storage.NewPath("_delta_log").Join(tempPath)
 		if err != nil {
+			// Release the lock and overwrite any errors if unlock fails.
+			err = currentVersionLock.Unlock()
+			if err != nil {
+				log.Debugf("delta-go: Unlock attempt failed. %v", err)
+				return err
+			}
+
 			attemptNumber++
 			log.Debugf("delta-go: Failed to create temporary path. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 			continue
 		}
-		entry, err := logstore.NewExternalCommitEntry(tablePath, currentCommitUri.Raw, tempPath, false, 0)
+		entry, err := logstore.NewExternalCommitEntry(transaction.DeltaTable.Path.Raw, fileName.Raw, tempPath.Raw, false, 0)
 		if err != nil {
+			// Release the lock and overwrite any errors if unlock fails.
+			err = currentVersionLock.Unlock()
+			if err != nil {
+				log.Debugf("delta-go: Unlock attempt failed. %v", err)
+				return err
+			}
+
 			attemptNumber++
 			log.Debugf("delta-go: Failed to create external commit entry. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 			continue
 		}
 
-		// Step 2.1: Create temp file T(N).
-		absoluteTempPath, err := entry.AbsoluteTempPath()
+		err = transaction.writeActions(relativeTempPath, actions)
 		if err != nil {
-			attemptNumber++
-			log.Debugf("delta-go: Failed to get absolute temporary path. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
-			continue
-		}
-		err = transaction.writeActions(storage.NewPath(absoluteTempPath), actions)
-		if err != nil {
+			// Release the lock and overwrite any errors if unlock fails.
+			err = currentVersionLock.Unlock()
+			if err != nil {
+				log.Debugf("delta-go: Unlock attempt failed. %v", err)
+				return err
+			}
+
 			attemptNumber++
 			log.Debugf("delta-go: Failed to write actions. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 			continue
@@ -863,6 +918,13 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 		// Step 2.2: Create external store entry E(N, T(N), complete=false).
 		err = transaction.DeltaTable.LogStore.KeyValueStore.PutExternalEntry(entry, transaction.DeltaTable.LogStore.Overwrite) // overwrite=false
 		if err != nil {
+			// Release the lock and overwrite any errors if unlock fails.
+			err = currentVersionLock.Unlock()
+			if err != nil {
+				log.Debugf("delta-go: Unlock attempt failed. %v", err)
+				return err
+			}
+
 			attemptNumber++
 			log.Debugf("delta-go: Failed to put external entry. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 			continue
@@ -870,8 +932,15 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 
 		// Step 3: Commit the commit to the delta log.
 		//         Copy T(N) -> N.json with overwrite=false.
-		err = transaction.writeCopyTempFile(storage.NewPath(absoluteTempPath), currentCommitUri)
+		err = transaction.writeCopyTempFile(relativeTempPath, currentCommitUri)
 		if err != nil {
+			// Release the lock and overwrite any errors if unlock fails.
+			err = currentVersionLock.Unlock()
+			if err != nil {
+				log.Debugf("delta-go: Unlock attempt failed. %v", err)
+				return err
+			}
+
 			attemptNumber++
 			log.Debugf("delta-go: Failed to copy temporary file to N.json. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 			continue
@@ -880,12 +949,19 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 		// Step 4: Acknowledge the commit.
 		err = transaction.writePutCompleteDbEntry(entry)
 		if err != nil {
+			// Release the lock and overwrite any errors if unlock fails.
+			err = currentVersionLock.Unlock()
+			if err != nil {
+				log.Debugf("delta-go: Unlock attempt failed. %v", err)
+				return err
+			}
+
 			attemptNumber++
 			log.Debugf("delta-go: Failed to acknowledge the commit. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 			continue
 		}
 
-		// Defers the unlock and overwrite any errors if unlock fails.
+		// Release the lock and overwrite any errors if unlock fails.
 		err = currentVersionLock.Unlock()
 		if err != nil {
 			log.Debugf("delta-go: Unlock attempt failed. %v", err)
@@ -920,9 +996,9 @@ func (transaction *DeltaTransaction) writeCopyTempFile(src *storage.Path, dst *s
 	return transaction.DeltaTable.Store.RenameIfNotExists(src, dst)
 }
 
-func (transaction *DeltaTransaction) createTemporaryPath(path *storage.Path) (string, error) {
+func (transaction *DeltaTransaction) createTemporaryPath(path *storage.Path) (*storage.Path, error) {
 	var uuid string = uuid.New().String()
-	return fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid), nil
+	return storage.NewPath(fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid)), nil
 }
 
 func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEntry) (err error) {
@@ -935,7 +1011,7 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 		log.Debugf("delta-go: Failed to get absolute file path. %v", err)
 	}
 
-	currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, targetPath, dynamolock.LockOptions{TTL: 10 * time.Second})
+	currentVersionLock, err := dynamolock.New(transaction.DeltaTable.LogStore.DynamoDbClient, transaction.DeltaTable.LogStore.DynamoDbLockTableName, targetPath.Raw, dynamolock.LockOptions{TTL: 10 * time.Second})
 	if err != nil {
 		log.Debugf("delta-go: Failed to create current version lock client. %v", err)
 		return err
@@ -957,7 +1033,7 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 
 		log.Infof("delta-go: Trying to fix %s.", entry.FileName)
 
-		_, err = transaction.DeltaTable.Store.Head(storage.NewPath(targetPath))
+		_, err = transaction.DeltaTable.Store.Head(&targetPath)
 		if !copied && err != nil {
 			tempPath, err := entry.AbsoluteTempPath()
 			if err != nil {
@@ -965,7 +1041,7 @@ func (transaction *DeltaTransaction) fixDeltaLog(entry logstore.ExternalCommitEn
 				log.Debugf("delta-go: Failed to get absolute temp path. Incrementing attempt number to %d and retrying. %v", attemptNumber, err)
 				continue
 			}
-			err = transaction.fixDeltaLogCopyTempFile(storage.NewPath(tempPath), storage.NewPath(targetPath))
+			err = transaction.fixDeltaLogCopyTempFile(&tempPath, &targetPath)
 			if err != nil {
 				attemptNumber++
 				log.Debugf("delta-go: File %s already copied. Incrementing attempt number to %d and retrying. %v", entry.FileName, attemptNumber, err)

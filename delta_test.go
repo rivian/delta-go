@@ -1126,9 +1126,9 @@ func TestLogStoreSequential(t *testing.T) {
 		t.Error("failed to create DynamoDB log store")
 	}
 
-	var tablePath string = "s3://vehicle-telemetry-rivian-dev/tables/test/"
+	var tablePath storage.Path = *storage.NewPath("s3://vehicle-telemetry-rivian-dev/tables/test/test_dynamo/")
 	s3Client := s3.NewFromConfig(config)
-	s3Store, err := s3store.New(s3Client, storage.NewPath(tablePath))
+	s3Store, err := s3store.New(s3Client, &tablePath)
 	if err != nil {
 		t.Error("failed to create S3 store")
 	}
@@ -1138,8 +1138,7 @@ func TestLogStoreSequential(t *testing.T) {
 	}))
 	dynamoDbClient := dynamodb.New(sess)
 
-	table := NewDeltaTableWithLogStore(s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
-	table.Path = tablePath
+	table := NewDeltaTableWithLogStore(tablePath, s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
 
 	err = table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	if err != nil {
