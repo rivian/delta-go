@@ -15,6 +15,7 @@ package delta
 import (
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -194,9 +195,15 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 		actions = append(actions, add)
 	}
 
+	var version int64
+	var err error
+
 	transaction := table.CreateTransaction(NewDeltaTransactionOptions())
 	if table.LogStore != nil {
-		transaction.Write(actions, true)
+		version, err = transaction.Write(actions, true)
+		if err != nil {
+			return err
+		}
 	} else {
 		transaction.AddActions(actions)
 
@@ -213,10 +220,12 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 		if err != nil {
 			return err
 		}
+
+		version = table.State.Version
 	}
 
 	// Merge state from new commit version
-	newState, err := NewDeltaTableStateFromCommit(table, table.State.Version)
+	newState, err := NewDeltaTableStateFromCommit(table, version)
 	if err != nil {
 		return err
 	}
@@ -740,7 +749,7 @@ func (transaction *DeltaTransaction) Read(path *storage.Path) ([]Action, error) 
 //
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite entry E in external store and set complete=true
-func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (err error) {
+func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (version int64, err error) {
 	// Prevent concurrent writers from either
 	// a) concurrently overwriting N.json if overwrite=true
 	// b) both checking if N-1.json exists and performing a "recovery" where they both
@@ -756,7 +765,7 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 	for {
 		if attemptNumber >= int(transaction.Options.MaxRetryWriteAttempts) {
 			log.Debugf("delta-go: Write attempt failed. Attempts exhausted beyond MaxRetryWriteAttempts of %d so failing.", transaction.Options.MaxRetryWriteAttempts)
-			return ErrorExceededWriteRetryAttempts
+			return math.MinInt64, ErrorExceededWriteRetryAttempts
 		}
 
 		var currentCommitUri *storage.Path
@@ -802,7 +811,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 				err = currentVersionLock.Unlock()
 				if err != nil {
 					log.Debugf("delta-go: Unlock attempt failed. %v", err)
-					return err
 				}
 
 				createTable = false
@@ -830,7 +838,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 				err = currentVersionLock.Unlock()
 				if err != nil {
 					log.Debugf("delta-go: Unlock attempt failed. %v", err)
-					return err
 				}
 
 				attemptNumber++
@@ -843,7 +850,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 					err = currentVersionLock.Unlock()
 					if err != nil {
 						log.Debugf("delta-go: Unlock attempt failed. %v", err)
-						return err
 					}
 
 					attemptNumber++
@@ -860,7 +866,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 					err = currentVersionLock.Unlock()
 					if err != nil {
 						log.Debugf("delta-go: Unlock attempt failed. %v", err)
-						return err
 					}
 
 					createTable = false
@@ -880,7 +885,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			err = currentVersionLock.Unlock()
 			if err != nil {
 				log.Debugf("delta-go: Unlock attempt failed. %v", err)
-				return err
 			}
 
 			attemptNumber++
@@ -893,7 +897,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			err = currentVersionLock.Unlock()
 			if err != nil {
 				log.Debugf("delta-go: Unlock attempt failed. %v", err)
-				return err
 			}
 
 			attemptNumber++
@@ -907,7 +910,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			err = currentVersionLock.Unlock()
 			if err != nil {
 				log.Debugf("delta-go: Unlock attempt failed. %v", err)
-				return err
 			}
 
 			attemptNumber++
@@ -922,7 +924,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			err = currentVersionLock.Unlock()
 			if err != nil {
 				log.Debugf("delta-go: Unlock attempt failed. %v", err)
-				return err
 			}
 
 			attemptNumber++
@@ -938,7 +939,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			err = currentVersionLock.Unlock()
 			if err != nil {
 				log.Debugf("delta-go: Unlock attempt failed. %v", err)
-				return err
 			}
 
 			attemptNumber++
@@ -953,7 +953,6 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 			err = currentVersionLock.Unlock()
 			if err != nil {
 				log.Debugf("delta-go: Unlock attempt failed. %v", err)
-				return err
 			}
 
 			attemptNumber++
@@ -965,10 +964,9 @@ func (transaction *DeltaTransaction) Write(actions []Action, createTable bool) (
 		err = currentVersionLock.Unlock()
 		if err != nil {
 			log.Debugf("delta-go: Unlock attempt failed. %v", err)
-			return err
 		}
 
-		return nil
+		return currentVersion, nil
 	}
 }
 

@@ -190,10 +190,18 @@ func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath *storage.Path) (*Ex
 
 // Maps a DBB query result item to an ExternalCommitEntry.
 func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.AttributeValue) (*ExternalCommitEntry, error) {
-	expireTimeAttr, err := strconv.ParseUint(item[attrExpireTime].(*types.AttributeValueMemberN).Value, 10, 64)
-	if err != nil {
-		log.Debugf("delta-go: Failed to interpet expire time attribute as uint64. %v", err)
-		return nil, err
+	var expireTimeAttr uint64
+	var err error
+
+	_, ok := item[attrExpireTime]
+	if !ok {
+		expireTimeAttr = 0
+	} else {
+		expireTimeAttr, err = strconv.ParseUint(item[attrExpireTime].(*types.AttributeValueMemberN).Value, 10, 64)
+		if err != nil {
+			log.Debugf("delta-go: Failed to interpet expire time attribute as uint64. %v", err)
+			return nil, err
+		}
 	}
 
 	return NewExternalCommitEntry(
@@ -210,6 +218,8 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, ove
 
 	if entry.ExpireTime != 0 {
 		attributes[attrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(entry.ExpireTime))}
+	} else {
+		attributes[attrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(strconv.FormatUint(ls.expirationDelaySeconds, 10))}
 	}
 
 	pir := &dynamodb.PutItemInput{
