@@ -29,11 +29,15 @@ type RedisLock struct {
 	redsyncMutex *redsync.Mutex
 }
 
-type Options struct {
+type LockOptions struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	TTL time.Duration
 	// Maximum number of tries when trying to acquire a lock
 	MaxTries int
+}
+
+type LockMetadata struct {
+	Client goredislib.UniversalClient
 }
 
 // Compile time check that MutexWrapper implements lock.Locker
@@ -48,7 +52,7 @@ const (
 	maxRandomNoiseMilliSec float64       = 250
 )
 
-func (opt *Options) setOptionsDefaults() {
+func (opt *LockOptions) setOptionsDefaults() {
 	// Set default options
 	if opt.TTL == 0 {
 		opt.TTL = TTL
@@ -58,16 +62,25 @@ func (opt *Options) setOptionsDefaults() {
 	}
 }
 
-func NewFromClient(client goredislib.UniversalClient, key string, opt *Options) *RedisLock {
+func (*RedisLock) NewLock(key string, opt interface{}, metadata interface{}) (interface{}, error) {
+	pool := goredis.NewPool(metadata.(LockMetadata).Client)
+	rs := redsync.New(pool)
+
+	mutex := New(rs, key, &LockOptions{TTL: opt.(LockOptions).TTL, MaxTries: opt.(LockOptions).MaxTries})
+
+	return mutex, nil
+}
+
+func NewFromClient(client goredislib.UniversalClient, key string, opt *LockOptions) *RedisLock {
 	pool := goredis.NewPool(client)
 	rs := redsync.New(pool)
 
-	mutex := New(rs, key, &Options{TTL: opt.TTL, MaxTries: opt.MaxTries})
+	mutex := New(rs, key, &LockOptions{TTL: opt.TTL, MaxTries: opt.MaxTries})
 
 	return mutex
 }
 
-func New(rs *redsync.Redsync, key string, opt *Options) *RedisLock {
+func New(rs *redsync.Redsync, key string, opt *LockOptions) *RedisLock {
 	opt.setOptionsDefaults()
 
 	// Obtain a new mutex by using the same name for all instances wanting the
@@ -79,19 +92,19 @@ func New(rs *redsync.Redsync, key string, opt *Options) *RedisLock {
 	return mutex
 }
 
-func (mutex *RedisLock) TryLock() (bool, error) {
+func (rl *RedisLock) TryLock() (bool, error) {
 	// Obtain a lock for our given mutex. After this is successful, no one else
 	// can obtain the same lock (the same mutex name) until we unlock it.
-	if err := mutex.redsyncMutex.Lock(); err != nil {
+	if err := rl.redsyncMutex.Lock(); err != nil {
 		return false, errors.Join(lock.ErrorLockNotObtained, err)
 	}
 
 	return true, nil
 }
 
-func (mutex *RedisLock) Unlock() error {
+func (rl *RedisLock) Unlock() error {
 	// Release the lock so other processes or threads can obtain a lock.
-	if ok, err := mutex.redsyncMutex.Unlock(); !ok || err != nil {
+	if ok, err := rl.redsyncMutex.Unlock(); !ok || err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 

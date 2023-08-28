@@ -41,21 +41,37 @@ type LockOptions struct {
 	Block bool
 }
 
+type LockMetadata struct {
+	BaseURI *storage.Path
+}
+
 const (
 	TTL time.Duration = 60 * time.Second
 )
+
+func (*FileLock) NewLock(key string, opt interface{}, metadata interface{}) (interface{}, error) {
+	l := new(FileLock)
+	l.BaseURI = metadata.(LockMetadata).BaseURI
+	l.Key = key
+
+	if opt.(LockOptions).TTL == 0 {
+		l.Options.TTL = TTL
+	}
+	l.Options.Block = opt.(LockOptions).Block
+
+	return l, nil
+}
 
 func New(baseURI *storage.Path, key string, opt LockOptions) *FileLock {
 	l := new(FileLock)
 	l.BaseURI = baseURI
 	l.Key = key
-	// if opt == nil {
-	// 	opt = LockOptions{TTL: TTL, Block: false}
-	// }
+
 	if opt.TTL == 0 {
-		opt.TTL = TTL
+		l.Options.TTL = TTL
 	}
-	l.Options = opt
+	l.Options.Block = opt.Block
+
 	return l
 }
 

@@ -22,7 +22,6 @@ import (
 )
 
 func TestTryLock(t *testing.T) {
-
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
@@ -56,8 +55,41 @@ func TestTryLock(t *testing.T) {
 
 }
 
-func TestTryLockBlocking(t *testing.T) {
+func TestNewLock(t *testing.T) {
+	tmpDir := t.TempDir()
 
+	tmpPath := storage.NewPath(tmpDir)
+	fl, _ := (&FileLock{}).NewLock("_commit.lock", LockOptions{TTL: 2 * time.Second}, LockMetadata{BaseURI: tmpPath})
+
+	locked, err := fl.(*FileLock).TryLock()
+	if err != nil {
+		t.Errorf("err = %e;", err)
+	}
+	if !locked {
+		t.Errorf("locked = %v; want true", locked)
+	}
+
+	otherFileLock := FileLock{BaseURI: tmpPath, Key: "_commit.lock"}
+	hasLock, err := otherFileLock.TryLock()
+	if !errors.Is(err, lock.ErrorLockNotObtained) {
+		t.Errorf("err = %e; expected %e", err, lock.ErrorLockNotObtained)
+	}
+	if hasLock {
+		t.Errorf("hasLock = %v; want false", hasLock)
+	}
+
+	fl.(*FileLock).Unlock()
+	hasLock, err = otherFileLock.TryLock()
+	if err != nil {
+		t.Errorf("err = %e;", err)
+	}
+	if !hasLock {
+		t.Errorf("hasLock = %v; want true", hasLock)
+	}
+
+}
+
+func TestTryLockBlocking(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
@@ -88,5 +120,4 @@ func TestTryLockBlocking(t *testing.T) {
 	if !hasLock {
 		t.Errorf("hasLock = %v; want true", hasLock)
 	}
-
 }

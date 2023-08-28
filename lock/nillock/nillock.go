@@ -32,6 +32,10 @@ type NilLock struct {
 // Compile time check that NilLock implements lock.Locker
 var _ lock.Locker = (*NilLock)(nil)
 
+func (*NilLock) NewLock(key string, opt interface{}, metadata interface{}) (interface{}, error) {
+	return new(NilLock), nil
+}
+
 func New() *NilLock {
 	return new(NilLock)
 }

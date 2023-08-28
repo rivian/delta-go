@@ -41,7 +41,6 @@ func (m *mockDynamoDBClient) UpdateItemWithContext(ctx context.Context, input *d
 }
 
 func TestLock(t *testing.T) {
-
 	client := &mockDynamoDBClient{}
 	options := LockOptions{
 		TTL:       2 * time.Second,
@@ -70,5 +69,35 @@ func TestLock(t *testing.T) {
 	if !isExpired {
 		t.Errorf("Lock should be expired")
 	}
+}
 
+func TestNewLock(t *testing.T) {
+	client := &mockDynamoDBClient{}
+	options := LockOptions{
+		TTL:       2 * time.Second,
+		HeartBeat: 10 * time.Millisecond,
+	}
+	lockObj, err := (&DynamoLock{}).NewLock("_commit.lock", options, LockMetadata{Client: client})
+
+	if err != nil {
+		t.Error("error occurred.")
+	}
+	haslock, err := lockObj.(*DynamoLock).TryLock()
+	if err != nil {
+		t.Error("error occurred.")
+	}
+	if haslock {
+		t.Logf("Passed.")
+	}
+	lockObj.(*DynamoLock).Unlock()
+
+	//TODO Check into why the lock is expired before one second.
+	isExpired := lockObj.(*DynamoLock).LockedItem.IsExpired()
+	// if isExpired {
+	// 	t.Errorf("Lock should not yet be expired")
+	// }
+	time.Sleep(1 * time.Second)
+	if !isExpired {
+		t.Errorf("Lock should be expired")
+	}
 }

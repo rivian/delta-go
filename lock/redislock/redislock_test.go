@@ -63,14 +63,12 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	// Create an instance of redisync to be used to obtain a mutual exclusion
 	// lock.
 	rs := redsync.New(pools...)
-	mutex := New(rs, "multiple-pools-mutex", &Options{})
+	mutex := New(rs, "multiple-pools-mutex", &LockOptions{})
 
 	locked, err := mutex.TryLock()
-
 	if !locked {
 		t.Error("TryLock failed")
 	}
-
 	if err != nil {
 		t.Error(err)
 	}
@@ -79,7 +77,6 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	fmt.Println(mutex.Key + ": I have a lock!")
 
 	err = mutex.Unlock()
-
 	if err != nil {
 		t.Error(err)
 	}
@@ -90,14 +87,12 @@ func TestRedsyncSimpleClient(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	mutex := NewFromClient(client, "simple-client-mutex", &Options{TTL: 100 * time.Second})
+	mutex := NewFromClient(client, "simple-client-mutex", &LockOptions{TTL: 100 * time.Second})
 
 	locked, err := mutex.TryLock()
-
 	if !locked {
 		t.Error("TryLock failed")
 	}
-
 	if err != nil {
 		t.Error(err)
 	}
@@ -105,7 +100,29 @@ func TestRedsyncSimpleClient(t *testing.T) {
 	fmt.Println(mutex.Key + ": I have a lock!")
 
 	err = mutex.Unlock()
+	if err != nil {
+		t.Error(err)
+	}
+}
 
+func TestNewLock(t *testing.T) {
+	client := goredislib.NewUniversalClient(&goredislib.UniversalOptions{
+		Addrs: []string{servers[0].Socket()},
+	})
+
+	mutex, _ := (&RedisLock{}).NewLock("simple-client-mutex", LockOptions{TTL: 100 * time.Second}, LockMetadata{Client: client})
+
+	locked, err := mutex.(*RedisLock).TryLock()
+	if !locked {
+		t.Error("TryLock failed")
+	}
+	if err != nil {
+		t.Error(err)
+	}
+
+	fmt.Println(mutex.(*RedisLock).Key + ": I have a lock!")
+
+	err = mutex.(*RedisLock).Unlock()
 	if err != nil {
 		t.Error(err)
 	}

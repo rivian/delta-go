@@ -40,13 +40,43 @@ type LockOptions struct {
 	HeartBeat time.Duration
 }
 
+type LockMetadata struct {
+	Client    dynamodbiface.DynamoDBAPI
+	TableName string
+}
+
 const (
 	TTL       time.Duration = 60 * time.Second
 	HEARTBEAT time.Duration = 1 * time.Second
 )
 
-func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
+func (*DynamoLock) NewLock(key string, opt interface{}, metadata interface{}) (interface{}, error) {
+	dl := new(DynamoLock)
+	dl.Key = key
+	dl.DynamoClient = metadata.(LockMetadata).Client
+	dl.TableName = metadata.(LockMetadata).TableName
 
+	if opt.(LockOptions).TTL == 0 {
+		dl.Options.TTL = TTL
+	}
+	if opt.(LockOptions).HeartBeat == 0 {
+		dl.Options.HeartBeat = HEARTBEAT
+	}
+
+	lc, err := dynamolock.New(metadata.(LockMetadata).Client,
+		metadata.(LockMetadata).TableName,
+		dynamolock.WithLeaseDuration(opt.(LockOptions).TTL),
+		dynamolock.WithHeartbeatPeriod(opt.(LockOptions).HeartBeat),
+	)
+	if err != nil {
+		return nil, err
+	}
+	dl.LockClient = lc
+
+	return dl, nil
+}
+
+func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
 	if opt.TTL == 0 {
 		opt.TTL = TTL
 	}
