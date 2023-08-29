@@ -142,7 +142,7 @@ func TestNewLock(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	rlExpiryTime := rl.redsyncMutex.Until()
-	if !time.Unix(time.Now().Unix(), 0).Before(rlExpiryTime) {
+	if time.Unix(time.Now().Unix(), 0).After(rlExpiryTime) {
 		t.Error("Old lock should still be valid")
 	}
 
@@ -154,7 +154,7 @@ func TestNewLock(t *testing.T) {
 
 	time.Sleep(10 * time.Second)
 
-	if !time.Unix(time.Now().Unix(), 0).After(rlExpiryTime) {
+	if time.Unix(time.Now().Unix(), 0).Before(rlExpiryTime) {
 		t.Error("Old lock should not be valid")
 	}
 }
