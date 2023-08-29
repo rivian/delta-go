@@ -42,8 +42,18 @@ type Options struct {
 
 const (
 	TTL       time.Duration = 60 * time.Second
-	HEARTBEAT time.Duration = 1 * time.Second
+	Heartbeat time.Duration = 1 * time.Second
 )
+
+func (options *Options) setOptionsDefaults() {
+	// Set default options
+	if options.TTL == 0 {
+		options.TTL = TTL
+	}
+	if options.HeartBeat == 0 {
+		options.HeartBeat = Heartbeat
+	}
+}
 
 func (dl *DynamoLock) NewLock(key string) (lock.Locker, error) {
 	newDl := new(DynamoLock)
@@ -56,18 +66,13 @@ func (dl *DynamoLock) NewLock(key string) (lock.Locker, error) {
 	return newDl, nil
 }
 
-func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt Options) (*DynamoLock, error) {
-	if opt.TTL == 0 {
-		opt.TTL = TTL
-	}
-	if opt.HeartBeat == 0 {
-		opt.HeartBeat = HEARTBEAT
-	}
+func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, options Options) (*DynamoLock, error) {
+	options.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
 		tableName,
-		dynamolock.WithLeaseDuration(opt.TTL),
-		dynamolock.WithHeartbeatPeriod(opt.HeartBeat),
+		dynamolock.WithLeaseDuration(options.TTL),
+		dynamolock.WithHeartbeatPeriod(options.HeartBeat),
 	)
 	if err != nil {
 		return nil, err
@@ -77,7 +82,7 @@ func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt Opt
 	dl.TableName = tableName
 	dl.Key = key
 	dl.lockClient = lc
-	dl.Options = opt
+	dl.Options = options
 	dl.DynamoClient = client
 	return dl, nil
 }

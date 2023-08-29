@@ -64,7 +64,7 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	// Create an instance of redisync to be used to obtain a mutual exclusion
 	// lock.
 	rs := redsync.New(pools...)
-	rl := New(rs, "multiple-pools-mutex", &Options{})
+	rl := New(rs, "multiple-pools-mutex", Options{})
 
 	locked, err := rl.TryLock()
 	if !locked {
@@ -88,7 +88,7 @@ func TestRedsyncSimpleClient(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	rl := NewFromClient(client, "simple-client-mutex", &Options{TTL: 100 * time.Second})
+	rl := NewFromClient(client, "simple-client-mutex", Options{TTL: 100 * time.Second})
 
 	locked, err := rl.TryLock()
 	if !locked {
@@ -111,7 +111,7 @@ func TestNewLock(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	rl := NewFromClient(client, "simple-client-mutex", &Options{TTL: 100 * time.Second})
+	rl := NewFromClient(client, "simple-client-mutex", Options{TTL: 100 * time.Second})
 	newRl, err := rl.NewLock("new-simple-client-mutex")
 	if err != nil {
 		t.Error(err)

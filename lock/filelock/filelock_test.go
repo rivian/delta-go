@@ -76,7 +76,7 @@ func TestNewLock(t *testing.T) {
 		t.Errorf("locked = %v; want true", locked)
 	}
 
-	otherFileLock := FileLock{BaseURI: tmpPath, Key: "_commit.lock"}
+	otherFileLock := FileLock{BaseURI: tmpPath, Key: "_new_commit.lock"}
 	hasLock, err := otherFileLock.TryLock()
 	if !errors.Is(err, lock.ErrorLockNotObtained) {
 		t.Errorf("err = %e; expected %e", err, lock.ErrorLockNotObtained)

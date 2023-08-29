@@ -68,16 +68,16 @@ func (rl *RedisLock) NewLock(key string) (lock.Locker, error) {
 	return newRl, nil
 }
 
-func NewFromClient(client goredislib.UniversalClient, key string, options *Options) *RedisLock {
+func NewFromClient(client goredislib.UniversalClient, key string, options Options) *RedisLock {
 	pool := goredis.NewPool(client)
 	rs := redsync.New(pool)
 
-	rl := New(rs, key, &Options{TTL: options.TTL, MaxTries: options.MaxTries})
+	rl := New(rs, key, Options{TTL: options.TTL, MaxTries: options.MaxTries})
 
 	return rl
 }
 
-func New(rs *redsync.Redsync, key string, options *Options) *RedisLock {
+func New(rs *redsync.Redsync, key string, options Options) *RedisLock {
 	options.setOptionsDefaults()
 
 	// Obtain a new mutex by using the same name for all instances wanting the
@@ -86,7 +86,7 @@ func New(rs *redsync.Redsync, key string, options *Options) *RedisLock {
 	rl.Key = key
 	rl.redsyncInstance = rs
 	rl.redsyncMutex = rs.NewMutex(key, redsync.WithExpiry(options.TTL), redsync.WithTries(options.MaxTries))
-	rl.Options = *options
+	rl.Options = options
 
 	return rl
 }

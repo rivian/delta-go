@@ -45,6 +45,13 @@ const (
 	TTL time.Duration = 60 * time.Second
 )
 
+func (options *Options) setOptionsDefaults() {
+	// Set default options
+	if options.TTL == 0 {
+		options.TTL = TTL
+	}
+}
+
 func (fl *FileLock) NewLock(key string) (lock.Locker, error) {
 	newFl := new(FileLock)
 	newFl.BaseURI = fl.BaseURI
@@ -54,15 +61,13 @@ func (fl *FileLock) NewLock(key string) (lock.Locker, error) {
 	return newFl, nil
 }
 
-func New(baseURI *storage.Path, key string, opt Options) *FileLock {
+func New(baseURI *storage.Path, key string, options Options) *FileLock {
+	options.setOptionsDefaults()
+
 	fl := new(FileLock)
 	fl.BaseURI = baseURI
 	fl.Key = key
-
-	if opt.TTL == 0 {
-		fl.Options.TTL = TTL
-	}
-	fl.Options.Block = opt.Block
+	fl.Options = options
 
 	return fl
 }
