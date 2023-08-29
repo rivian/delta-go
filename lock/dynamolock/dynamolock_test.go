@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/stretchr/testify/assert"
 )
 
 type mockDynamoDBClient struct {
@@ -89,6 +90,8 @@ func TestNewLock(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+
+	assert.Equal(t, newDl.(*DynamoLock).Key, "_new_commit.lock", "The name of the key should be updated.")
 
 	haslock, err := newDl.TryLock()
 	if err != nil {
