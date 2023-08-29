@@ -26,13 +26,13 @@ type FileLock struct {
 	BaseURI *storage.Path
 	Key     string
 	lock    *flock.Flock
-	Options LockOptions
+	Options Options
 }
 
 // Compile time check that FileLock implements lock.Locker
 var _ lock.Locker = (*FileLock)(nil)
 
-type LockOptions struct {
+type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
 	TTL time.Duration
@@ -41,60 +41,52 @@ type LockOptions struct {
 	Block bool
 }
 
-type LockMetadata struct {
-	BaseURI *storage.Path
-}
-
 const (
 	TTL time.Duration = 60 * time.Second
 )
 
-func (*FileLock) NewLock(key string, opt interface{}, metadata interface{}) (interface{}, error) {
-	l := new(FileLock)
-	l.BaseURI = metadata.(LockMetadata).BaseURI
-	l.Key = key
+func (fl *FileLock) NewLock(key string) (lock.Locker, error) {
+	newFl := new(FileLock)
+	newFl.BaseURI = fl.BaseURI
+	newFl.Key = key
+	newFl.Options = fl.Options
 
-	if opt.(LockOptions).TTL == 0 {
-		l.Options.TTL = TTL
-	}
-	l.Options.Block = opt.(LockOptions).Block
-
-	return l, nil
+	return newFl, nil
 }
 
-func New(baseURI *storage.Path, key string, opt LockOptions) *FileLock {
-	l := new(FileLock)
-	l.BaseURI = baseURI
-	l.Key = key
+func New(baseURI *storage.Path, key string, opt Options) *FileLock {
+	fl := new(FileLock)
+	fl.BaseURI = baseURI
+	fl.Key = key
 
 	if opt.TTL == 0 {
-		l.Options.TTL = TTL
+		fl.Options.TTL = TTL
 	}
-	l.Options.Block = opt.Block
+	fl.Options.Block = opt.Block
 
-	return l
+	return fl
 }
 
-func (l *FileLock) TryLock() (bool, error) {
-	lockPath := filepath.Join(l.BaseURI.Raw, l.Key)
-	if l.lock == nil {
-		l.lock = flock.New(lockPath)
+func (fl *FileLock) TryLock() (bool, error) {
+	lockPath := filepath.Join(fl.BaseURI.Raw, fl.Key)
+	if fl.lock == nil {
+		fl.lock = flock.New(lockPath)
 	}
 
 	// locked, err := l.lock.TryLock()
 	var err error
 	var locked bool
-	switch l.Options.Block {
+	switch fl.Options.Block {
 	case true:
-		err = l.lock.Lock()
+		err = fl.lock.Lock()
 		//Enforce a TTL
 		go func() {
-			time.Sleep(l.Options.TTL)
-			l.Unlock()
+			time.Sleep(fl.Options.TTL)
+			fl.Unlock()
 		}()
 		locked = true
 	case false:
-		locked, err = l.lock.TryLock()
+		locked, err = fl.lock.TryLock()
 	}
 
 	if err != nil || !locked {
@@ -103,8 +95,8 @@ func (l *FileLock) TryLock() (bool, error) {
 	return locked, err
 }
 
-func (l *FileLock) Unlock() error {
-	err := l.lock.Unlock()
+func (fl *FileLock) Unlock() error {
+	err := fl.lock.Unlock()
 	if err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}

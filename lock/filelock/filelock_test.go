@@ -19,13 +19,14 @@ import (
 
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/storage"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTryLock(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	fl := New(tmpPath, "_commit.lock", LockOptions{TTL: 2 * time.Second})
+	fl := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second})
 
 	locked, err := fl.TryLock()
 	if err != nil {
@@ -59,9 +60,15 @@ func TestNewLock(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	fl, _ := (&FileLock{}).NewLock("_commit.lock", LockOptions{TTL: 2 * time.Second}, LockMetadata{BaseURI: tmpPath})
+	fl := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second})
+	newFl, err := fl.NewLock("_new_commit.lock")
+	if err != nil {
+		t.Error(err)
+	}
 
-	locked, err := fl.(*FileLock).TryLock()
+	assert.Equal(t, newFl.(*FileLock).Key, "_new_commit.lock", "The name of the key should be updated.")
+
+	locked, err := newFl.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
 	}
@@ -78,7 +85,7 @@ func TestNewLock(t *testing.T) {
 		t.Errorf("hasLock = %v; want false", hasLock)
 	}
 
-	fl.(*FileLock).Unlock()
+	newFl.(*FileLock).Unlock()
 	hasLock, err = otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
@@ -93,7 +100,7 @@ func TestTryLockBlocking(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	fl := New(tmpPath, "_commit.lock", LockOptions{TTL: 2 * time.Second, Block: true})
+	fl := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second, Block: true})
 
 	locked, err := fl.TryLock()
 	if err != nil {
@@ -103,7 +110,7 @@ func TestTryLockBlocking(t *testing.T) {
 		t.Errorf("locked = %v; want true", locked)
 	}
 
-	otherFileLock := New(tmpPath, "_commit.lock", LockOptions{TTL: 2 * time.Second, Block: true})
+	otherFileLock := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second, Block: true})
 	hasLock, err := otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)

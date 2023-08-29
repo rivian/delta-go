@@ -42,26 +42,30 @@ func (m *mockDynamoDBClient) UpdateItemWithContext(ctx context.Context, input *d
 
 func TestLock(t *testing.T) {
 	client := &mockDynamoDBClient{}
-	options := LockOptions{
+	options := Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
-	lockObj, err := New(client, "delta_lock_table", "_commit.lock", options)
-
+	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
 		t.Error("error occurred.")
 	}
-	haslock, err := lockObj.TryLock()
+
+	haslock, err := dl.TryLock()
 	if err != nil {
 		t.Error("error occurred.")
 	}
 	if haslock {
 		t.Logf("Passed.")
 	}
-	lockObj.Unlock()
+
+	err = dl.Unlock()
+	if err != nil {
+		t.Error(err)
+	}
 
 	//TODO Check into why the lock is expired before one second.
-	isExpired := lockObj.LockedItem.IsExpired()
+	isExpired := dl.LockedItem.IsExpired()
 	// if isExpired {
 	// 	t.Errorf("Lock should not yet be expired")
 	// }
@@ -73,26 +77,34 @@ func TestLock(t *testing.T) {
 
 func TestNewLock(t *testing.T) {
 	client := &mockDynamoDBClient{}
-	options := LockOptions{
+	options := Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
-	lockObj, err := (&DynamoLock{}).NewLock("_commit.lock", options, LockMetadata{Client: client})
-
+	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
 		t.Error("error occurred.")
 	}
-	haslock, err := lockObj.(*DynamoLock).TryLock()
+	newDl, err := dl.NewLock("_new_commit.lock")
+	if err != nil {
+		t.Error(err)
+	}
+
+	haslock, err := newDl.TryLock()
 	if err != nil {
 		t.Error("error occurred.")
 	}
 	if haslock {
 		t.Logf("Passed.")
 	}
-	lockObj.(*DynamoLock).Unlock()
+
+	err = newDl.Unlock()
+	if err != nil {
+		t.Error(err)
+	}
 
 	//TODO Check into why the lock is expired before one second.
-	isExpired := lockObj.(*DynamoLock).LockedItem.IsExpired()
+	isExpired := newDl.(*DynamoLock).LockedItem.IsExpired()
 	// if isExpired {
 	// 	t.Errorf("Lock should not yet be expired")
 	// }

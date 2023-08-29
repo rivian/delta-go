@@ -23,6 +23,7 @@ import (
 	"github.com/go-redsync/redsync/v4/redis"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	goredislib "github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"github.com/stvp/tempredis"
 )
 
@@ -63,9 +64,9 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	// Create an instance of redisync to be used to obtain a mutual exclusion
 	// lock.
 	rs := redsync.New(pools...)
-	mutex := New(rs, "multiple-pools-mutex", &LockOptions{})
+	rl := New(rs, "multiple-pools-mutex", &Options{})
 
-	locked, err := mutex.TryLock()
+	locked, err := rl.TryLock()
 	if !locked {
 		t.Error("TryLock failed")
 	}
@@ -74,9 +75,9 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	}
 
 	// Perform an operation.
-	fmt.Println(mutex.Key + ": I have a lock!")
+	fmt.Println(rl.Key + ": I have a lock!")
 
-	err = mutex.Unlock()
+	err = rl.Unlock()
 	if err != nil {
 		t.Error(err)
 	}
@@ -87,9 +88,9 @@ func TestRedsyncSimpleClient(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	mutex := NewFromClient(client, "simple-client-mutex", &LockOptions{TTL: 100 * time.Second})
+	rl := NewFromClient(client, "simple-client-mutex", &Options{TTL: 100 * time.Second})
 
-	locked, err := mutex.TryLock()
+	locked, err := rl.TryLock()
 	if !locked {
 		t.Error("TryLock failed")
 	}
@@ -97,9 +98,9 @@ func TestRedsyncSimpleClient(t *testing.T) {
 		t.Error(err)
 	}
 
-	fmt.Println(mutex.Key + ": I have a lock!")
+	fmt.Println(rl.Key + ": I have a lock!")
 
-	err = mutex.Unlock()
+	err = rl.Unlock()
 	if err != nil {
 		t.Error(err)
 	}
@@ -110,9 +111,15 @@ func TestNewLock(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	mutex, _ := (&RedisLock{}).NewLock("simple-client-mutex", LockOptions{TTL: 100 * time.Second}, LockMetadata{Client: client})
+	rl := NewFromClient(client, "simple-client-mutex", &Options{TTL: 100 * time.Second})
+	newRl, err := rl.NewLock("new-simple-client-mutex")
+	if err != nil {
+		t.Error(err)
+	}
 
-	locked, err := mutex.(*RedisLock).TryLock()
+	assert.Equal(t, newRl.(*RedisLock).Key, "new-simple-client-mutex", "The name of the key should be updated.")
+
+	locked, err := newRl.(*RedisLock).TryLock()
 	if !locked {
 		t.Error("TryLock failed")
 	}
@@ -120,9 +127,9 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
-	fmt.Println(mutex.(*RedisLock).Key + ": I have a lock!")
+	fmt.Println(newRl.(*RedisLock).Key + ": I have a lock!")
 
-	err = mutex.(*RedisLock).Unlock()
+	err = newRl.(*RedisLock).Unlock()
 	if err != nil {
 		t.Error(err)
 	}

@@ -25,19 +25,17 @@ import (
 )
 
 type RedisLock struct {
-	Key          string
-	redsyncMutex *redsync.Mutex
+	Key             string
+	redsyncInstance *redsync.Redsync
+	redsyncMutex    *redsync.Mutex
+	Options         Options
 }
 
-type LockOptions struct {
+type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	TTL time.Duration
 	// Maximum number of tries when trying to acquire a lock
 	MaxTries int
-}
-
-type LockMetadata struct {
-	Client goredislib.UniversalClient
 }
 
 // Compile time check that MutexWrapper implements lock.Locker
@@ -52,44 +50,45 @@ const (
 	maxRandomNoiseMilliSec float64       = 250
 )
 
-func (opt *LockOptions) setOptionsDefaults() {
+func (options *Options) setOptionsDefaults() {
 	// Set default options
-	if opt.TTL == 0 {
-		opt.TTL = TTL
+	if options.TTL == 0 {
+		options.TTL = TTL
 	}
-	if opt.MaxTries == 0 {
-		opt.MaxTries = maxTries
+	if options.MaxTries == 0 {
+		options.MaxTries = maxTries
 	}
 }
 
-func (*RedisLock) NewLock(key string, opt interface{}, metadata interface{}) (interface{}, error) {
-	pool := goredis.NewPool(metadata.(LockMetadata).Client)
-	rs := redsync.New(pool)
+func (rl *RedisLock) NewLock(key string) (lock.Locker, error) {
+	newRl := new(RedisLock)
+	newRl.redsyncMutex = rl.redsyncInstance.NewMutex(key, redsync.WithExpiry(rl.Options.TTL), redsync.WithTries(rl.Options.MaxTries))
+	newRl.Key = key
 
-	mutex := New(rs, key, &LockOptions{TTL: opt.(LockOptions).TTL, MaxTries: opt.(LockOptions).MaxTries})
-
-	return mutex, nil
+	return newRl, nil
 }
 
-func NewFromClient(client goredislib.UniversalClient, key string, opt *LockOptions) *RedisLock {
+func NewFromClient(client goredislib.UniversalClient, key string, options *Options) *RedisLock {
 	pool := goredis.NewPool(client)
 	rs := redsync.New(pool)
 
-	mutex := New(rs, key, &LockOptions{TTL: opt.TTL, MaxTries: opt.MaxTries})
+	rl := New(rs, key, &Options{TTL: options.TTL, MaxTries: options.MaxTries})
 
-	return mutex
+	return rl
 }
 
-func New(rs *redsync.Redsync, key string, opt *LockOptions) *RedisLock {
-	opt.setOptionsDefaults()
+func New(rs *redsync.Redsync, key string, options *Options) *RedisLock {
+	options.setOptionsDefaults()
 
 	// Obtain a new mutex by using the same name for all instances wanting the
 	// same lock.
-	mutex := new(RedisLock)
-	mutex.redsyncMutex = rs.NewMutex(key, redsync.WithExpiry(opt.TTL), redsync.WithTries(opt.MaxTries))
-	mutex.Key = key
+	rl := new(RedisLock)
+	rl.Key = key
+	rl.redsyncInstance = rs
+	rl.redsyncMutex = rs.NewMutex(key, redsync.WithExpiry(options.TTL), redsync.WithTries(options.MaxTries))
+	rl.Options = *options
 
-	return mutex
+	return rl
 }
 
 func (rl *RedisLock) TryLock() (bool, error) {

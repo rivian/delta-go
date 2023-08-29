@@ -26,7 +26,7 @@ var (
 // the prior lock client version.
 type Locker interface {
 	// Creates a new lock with an existing lock client
-	NewLock(string, interface{}, interface{}) (interface{}, error)
+	NewLock(string) (Locker, error)
 
 	// Releases the lock
 	// Otherwise returns ErrorUnableToUnlock.

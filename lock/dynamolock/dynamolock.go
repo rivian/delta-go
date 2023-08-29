@@ -23,26 +23,21 @@ import (
 
 type DynamoLock struct {
 	TableName    string
-	LockClient   *dynamolock.Client
+	lockClient   *dynamolock.Client
 	LockedItem   *dynamolock.Lock
 	Key          string
 	DynamoClient dynamodbiface.DynamoDBAPI
-	Options      LockOptions
+	Options      Options
 }
 
 // Compile time check that FileLock implements lock.Locker
 var _ lock.Locker = (*DynamoLock)(nil)
 
-type LockOptions struct {
+type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
 	TTL       time.Duration
 	HeartBeat time.Duration
-}
-
-type LockMetadata struct {
-	Client    dynamodbiface.DynamoDBAPI
-	TableName string
 }
 
 const (
@@ -50,33 +45,18 @@ const (
 	HEARTBEAT time.Duration = 1 * time.Second
 )
 
-func (*DynamoLock) NewLock(key string, opt interface{}, metadata interface{}) (interface{}, error) {
-	dl := new(DynamoLock)
-	dl.Key = key
-	dl.DynamoClient = metadata.(LockMetadata).Client
-	dl.TableName = metadata.(LockMetadata).TableName
+func (dl *DynamoLock) NewLock(key string) (lock.Locker, error) {
+	newDl := new(DynamoLock)
+	newDl.TableName = dl.TableName
+	newDl.lockClient = dl.lockClient
+	newDl.Key = key
+	newDl.DynamoClient = dl.DynamoClient
+	newDl.Options = dl.Options
 
-	if opt.(LockOptions).TTL == 0 {
-		dl.Options.TTL = TTL
-	}
-	if opt.(LockOptions).HeartBeat == 0 {
-		dl.Options.HeartBeat = HEARTBEAT
-	}
-
-	lc, err := dynamolock.New(metadata.(LockMetadata).Client,
-		metadata.(LockMetadata).TableName,
-		dynamolock.WithLeaseDuration(opt.(LockOptions).TTL),
-		dynamolock.WithHeartbeatPeriod(opt.(LockOptions).HeartBeat),
-	)
-	if err != nil {
-		return nil, err
-	}
-	dl.LockClient = lc
-
-	return dl, nil
+	return newDl, nil
 }
 
-func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
+func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt Options) (*DynamoLock, error) {
 	if opt.TTL == 0 {
 		opt.TTL = TTL
 	}
@@ -96,14 +76,14 @@ func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt Loc
 	dl := new(DynamoLock)
 	dl.TableName = tableName
 	dl.Key = key
-	dl.LockClient = lc
+	dl.lockClient = lc
 	dl.Options = opt
 	dl.DynamoClient = client
 	return dl, nil
 }
 
 func (l *DynamoLock) TryLock() (bool, error) {
-	lItem, err := l.LockClient.AcquireLock(l.Key)
+	lItem, err := l.lockClient.AcquireLock(l.Key)
 	l.LockedItem = lItem
 	if err != nil {
 		return false, errors.Join(lock.ErrorLockNotObtained, err)
@@ -112,11 +92,11 @@ func (l *DynamoLock) TryLock() (bool, error) {
 }
 
 func (l *DynamoLock) Unlock() error {
-	success, err := l.LockClient.ReleaseLock(l.LockedItem)
+	success, err := l.lockClient.ReleaseLock(l.LockedItem)
 	if !success {
 		return lock.ErrorUnableToUnlock
 	}
-	l.LockClient.Close()
+	l.lockClient.Close()
 	if err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
