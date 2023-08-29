@@ -111,7 +111,7 @@ func TestNewLock(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	rl := NewFromClient(client, "simple-client-mutex", Options{TTL: 100 * time.Second})
+	rl := NewFromClient(client, "simple-client-mutex", Options{TTL: 10 * time.Second})
 	newRl, err := rl.NewLock("new-simple-client-mutex")
 	if err != nil {
 		t.Error(err)
@@ -127,11 +127,35 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
+	// The new and old lock, created using the same lock client, don't conflict.
+	locked, err = rl.TryLock()
+	if !locked {
+		t.Error("TryLock failed")
+	}
+	if err != nil {
+		t.Error(err)
+	}
+
+	fmt.Println(rl.Key + ": I have a lock!")
 	fmt.Println(newRl.(*RedisLock).Key + ": I have a lock!")
 
+	time.Sleep(5 * time.Second)
+
+	rlExpiryTime := rl.redsyncMutex.Until()
+	if !time.Unix(time.Now().Unix(), 0).Before(rlExpiryTime) {
+		t.Error("Old lock should still be valid")
+	}
+
+	// Release the new lock before it expires.
 	err = newRl.(*RedisLock).Unlock()
 	if err != nil {
 		t.Error(err)
+	}
+
+	time.Sleep(10 * time.Second)
+
+	if !time.Unix(time.Now().Unix(), 0).After(rlExpiryTime) {
+		t.Error("Old lock should not be valid")
 	}
 }
 
