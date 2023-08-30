@@ -100,7 +100,6 @@ func TestNewLock(t *testing.T) {
 	}
 
 	time.Sleep(2 * time.Second)
-	newDl.(*DynamoLock).LockedItem.IsExpired()
 
 	isExpired = newDl.(*DynamoLock).LockedItem.IsExpired()
 	if !isExpired {
