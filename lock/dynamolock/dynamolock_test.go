@@ -23,14 +23,13 @@ import (
 	"github.com/rivian/delta-go/internal/utils"
 )
 
-var keys []*dynamodb.AttributeValue
-
 type mockDynamoDBClient struct {
 	dynamodbiface.DynamoDBAPI
+	keys []*dynamodb.AttributeValue
 }
 
 func (m *mockDynamoDBClient) PutItemWithContext(ctx context.Context, input *dynamodb.PutItemInput, _ ...request.Option) (*dynamodb.PutItemOutput, error) {
-	keys = append(keys, input.Item["key"])
+	m.keys = append(m.keys, input.Item["key"])
 	return &dynamodb.PutItemOutput{}, nil
 }
 
@@ -43,7 +42,7 @@ func (m *mockDynamoDBClient) UpdateItemWithContext(ctx context.Context, input *d
 }
 
 func (m *mockDynamoDBClient) DeleteItemWithContext(ctx context.Context, input *dynamodb.DeleteItemInput, _ ...request.Option) (*dynamodb.DeleteItemOutput, error) {
-	keys = utils.RemoveElementFromSlice(keys, utils.FindElementPosInSlice(keys, input.Key["key"]))
+	m.keys = utils.RemoveElementFromSlice(m.keys, utils.FindElementPosInSlice(m.keys, input.Key["key"]))
 	return &dynamodb.DeleteItemOutput{}, nil
 }
 
@@ -107,7 +106,7 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(keys) != 0 {
+	if len(client.keys) != 0 {
 		t.Error("Lock should be deleted on release")
 	}
 
@@ -135,7 +134,7 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(keys) != 1 {
+	if len(client.keys) != 1 {
 		t.Error("Lock should not be deleted on release")
 	}
 }
