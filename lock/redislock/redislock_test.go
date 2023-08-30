@@ -23,7 +23,6 @@ import (
 	"github.com/go-redsync/redsync/v4/redis"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	goredislib "github.com/redis/go-redis/v9"
-	"github.com/stretchr/testify/assert"
 	"github.com/stvp/tempredis"
 )
 
@@ -117,7 +116,9 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Equal(t, newRl.(*RedisLock).Key, "new-simple-client-mutex", "The name of the key should be updated.")
+	if newRl.(*RedisLock).Key != "new-simple-client-mutex" {
+		t.Error("Name of key should be updated")
+	}
 
 	locked, err := newRl.(*RedisLock).TryLock()
 	if !locked {

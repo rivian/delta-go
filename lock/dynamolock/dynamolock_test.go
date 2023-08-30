@@ -21,7 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-	"github.com/stretchr/testify/assert"
 )
 
 type mockDynamoDBClient struct {
@@ -49,70 +48,62 @@ func TestLock(t *testing.T) {
 	}
 	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
-		t.Error("error occurred.")
+		t.Error("Failed to create lock")
 	}
 
 	haslock, err := dl.TryLock()
 	if err != nil {
-		t.Error("error occurred.")
+		t.Error("Failed to acquire lock")
 	}
 	if haslock {
-		t.Logf("Passed.")
+		t.Log("Acquired lock")
 	}
 
 	err = dl.Unlock()
 	if err != nil {
 		t.Error(err)
 	}
-
-	//TODO Check into why the lock is expired before one second.
-	isExpired := dl.LockedItem.IsExpired()
-	// if isExpired {
-	// 	t.Errorf("Lock should not yet be expired")
-	// }
-	time.Sleep(1 * time.Second)
-	if !isExpired {
-		t.Errorf("Lock should be expired")
-	}
 }
 
 func TestNewLock(t *testing.T) {
 	client := &mockDynamoDBClient{}
 	options := Options{
-		TTL:       2 * time.Second,
+		TTL:       1 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
 	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
-		t.Error("error occurred.")
+		t.Error("Failed to create lock")
 	}
 	newDl, err := dl.NewLock("_new_commit.lock")
 	if err != nil {
 		t.Error(err)
 	}
 
-	assert.Equal(t, newDl.(*DynamoLock).Key, "_new_commit.lock", "The name of the key should be updated.")
+	if newDl.(*DynamoLock).Key != "_new_commit.lock" {
+		t.Error("Name of key should be updated")
+	}
 
 	haslock, err := newDl.TryLock()
 	if err != nil {
-		t.Error("error occurred.")
+		t.Error("Failed to acquire lock")
 	}
 	if haslock {
-		t.Logf("Passed.")
+		t.Log("Acquired lock")
 	}
 
-	err = newDl.Unlock()
-	if err != nil {
-		t.Error(err)
-	}
+	time.Sleep(500 * time.Millisecond)
 
-	//TODO Check into why the lock is expired before one second.
 	isExpired := newDl.(*DynamoLock).LockedItem.IsExpired()
-	// if isExpired {
-	// 	t.Errorf("Lock should not yet be expired")
-	// }
-	time.Sleep(1 * time.Second)
+	if isExpired {
+		t.Error("Lock should not be expired")
+	}
+
+	time.Sleep(2 * time.Second)
+	newDl.(*DynamoLock).LockedItem.IsExpired()
+
+	isExpired = newDl.(*DynamoLock).LockedItem.IsExpired()
 	if !isExpired {
-		t.Errorf("Lock should be expired")
+		t.Error("Lock should be expired")
 	}
 }

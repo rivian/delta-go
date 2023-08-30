@@ -19,7 +19,6 @@ import (
 
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/storage"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestTryLock(t *testing.T) {
@@ -66,7 +65,9 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Equal(t, newFl.(*FileLock).Key, "_new_commit.lock", "The name of the key should be updated.")
+	if newFl.(*FileLock).Key != "_new_commit.lock" {
+		t.Error("Name of key should be updated")
+	}
 
 	locked, err := newFl.TryLock()
 	if err != nil {
