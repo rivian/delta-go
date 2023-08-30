@@ -68,8 +68,7 @@ func TestLock(t *testing.T) {
 func TestNewLock(t *testing.T) {
 	client := &mockDynamoDBClient{}
 	options := Options{
-		TTL:       1 * time.Second,
-		HeartBeat: 10 * time.Millisecond,
+		TTL: 3 * time.Second,
 	}
 	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
@@ -99,7 +98,7 @@ func TestNewLock(t *testing.T) {
 		t.Error("Lock should not be expired")
 	}
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(4 * time.Second)
 
 	isExpired = newDl.(*DynamoLock).LockedItem.IsExpired()
 	if !isExpired {

@@ -50,9 +50,6 @@ func (options *Options) setOptionsDefaults() {
 	if options.TTL == 0 {
 		options.TTL = TTL
 	}
-	if options.HeartBeat == 0 {
-		options.HeartBeat = Heartbeat
-	}
 }
 
 func (dl *DynamoLock) NewLock(key string) (lock.Locker, error) {
