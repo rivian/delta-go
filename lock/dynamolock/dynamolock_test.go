@@ -20,7 +20,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-	"github.com/rivian/delta-go/internal/utils"
+	"github.com/google/go-cmp/cmp"
+	"golang.org/x/exp/slices"
 )
 
 type mockDynamoDBClient struct {
@@ -42,7 +43,10 @@ func (m *mockDynamoDBClient) UpdateItemWithContext(ctx context.Context, input *d
 }
 
 func (m *mockDynamoDBClient) DeleteItemWithContext(ctx context.Context, input *dynamodb.DeleteItemInput, _ ...request.Option) (*dynamodb.DeleteItemOutput, error) {
-	m.keys = utils.RemoveElementFromSlice(m.keys, utils.FindElementPosInSlice(m.keys, input.Key["key"]))
+	var posInSlice int = slices.IndexFunc(m.keys, func(v *dynamodb.AttributeValue) bool {
+		return cmp.Equal(v, input.Key["key"])
+	})
+	m.keys = slices.Delete(m.keys, posInSlice, posInSlice+1)
 	return &dynamodb.DeleteItemOutput{}, nil
 }
 
