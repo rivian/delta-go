@@ -14,6 +14,7 @@ package filelock
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -38,7 +39,8 @@ type LockOptions struct {
 	TTL time.Duration
 	// Block=true sets the behavior of TryLock() to blocking, if Block=false TryLock() will
 	// be non-blocking and will return false if the lock is currently held by a different client
-	Block bool
+	Block           bool
+	DeleteOnRelease bool
 }
 
 const (
@@ -92,5 +94,14 @@ func (l *FileLock) Unlock() error {
 	if err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
+
+	_, err = os.Stat(l.lock.Path())
+	if err == nil && l.Options.DeleteOnRelease {
+		err := os.Remove(l.lock.Path())
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

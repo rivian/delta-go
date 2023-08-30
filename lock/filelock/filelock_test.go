@@ -14,6 +14,7 @@ package filelock
 
 import (
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -89,4 +90,43 @@ func TestTryLockBlocking(t *testing.T) {
 		t.Errorf("hasLock = %v; want true", hasLock)
 	}
 
+}
+
+func TestDeleteOnRelease(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tmpPath := storage.NewPath(tmpDir)
+	fl := New(tmpPath, "_commit.lock", LockOptions{TTL: 2 * time.Second})
+
+	locked, err := fl.TryLock()
+	if err != nil {
+		t.Errorf("err = %e;", err)
+	}
+	if !locked {
+		t.Errorf("locked = %v; want true", locked)
+	}
+
+	fl.Unlock()
+
+	_, err = os.Stat(fl.lock.Path())
+	if err != nil {
+		t.Error("File should exist")
+	}
+
+	otherFileLock := New(tmpPath, "_commit.lock", LockOptions{TTL: 2 * time.Second, DeleteOnRelease: true})
+
+	locked, err = otherFileLock.TryLock()
+	if err != nil {
+		t.Errorf("err = %e;", err)
+	}
+	if !locked {
+		t.Errorf("locked = %v; want true", locked)
+	}
+
+	otherFileLock.Unlock()
+
+	_, err = os.Stat(fl.lock.Path())
+	if err == nil {
+		t.Error("File should not exist")
+	}
 }
