@@ -25,9 +25,11 @@ func TestTryLock(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	fl := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second})
+	l := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second})
 
-	locked, err := fl.TryLock()
+	t.Log(l.String())
+
+	locked, err := l.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
 	}
@@ -35,7 +37,9 @@ func TestTryLock(t *testing.T) {
 		t.Errorf("locked = %v; want true", locked)
 	}
 
-	otherFileLock := FileLock{BaseURI: tmpPath, Key: "_commit.lock"}
+	t.Log(l.String())
+
+	otherFileLock := FileLock{baseURI: tmpPath, key: "_commit.lock"}
 	hasLock, err := otherFileLock.TryLock()
 	if !errors.Is(err, lock.ErrorLockNotObtained) {
 		t.Errorf("err = %e; expected %e", err, lock.ErrorLockNotObtained)
@@ -44,7 +48,9 @@ func TestTryLock(t *testing.T) {
 		t.Errorf("hasLock = %v; want false", hasLock)
 	}
 
-	fl.Unlock()
+	t.Log(otherFileLock.String())
+
+	l.Unlock()
 	hasLock, err = otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
@@ -53,23 +59,26 @@ func TestTryLock(t *testing.T) {
 		t.Errorf("hasLock = %v; want true", hasLock)
 	}
 
+	t.Log(l.String())
 }
 
 func TestNewLock(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	fl := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second})
-	newFl, err := fl.NewLock("_new_commit.lock")
+	l := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second})
+	nl, err := l.NewLock("_new_commit.lock")
 	if err != nil {
 		t.Error(err)
 	}
 
-	if newFl.(*FileLock).Key != "_new_commit.lock" {
+	t.Log(nl.(*FileLock).String())
+
+	if nl.(*FileLock).key != "_new_commit.lock" {
 		t.Error("Name of key should be updated")
 	}
 
-	locked, err := newFl.TryLock()
+	locked, err := nl.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
 	}
@@ -77,7 +86,9 @@ func TestNewLock(t *testing.T) {
 		t.Errorf("locked = %v; want true", locked)
 	}
 
-	otherFileLock := FileLock{BaseURI: tmpPath, Key: "_new_commit.lock"}
+	t.Log(nl.(*FileLock).String())
+
+	otherFileLock := FileLock{baseURI: tmpPath, key: "_new_commit.lock"}
 	hasLock, err := otherFileLock.TryLock()
 	if !errors.Is(err, lock.ErrorLockNotObtained) {
 		t.Errorf("err = %e; expected %e", err, lock.ErrorLockNotObtained)
@@ -86,7 +97,9 @@ func TestNewLock(t *testing.T) {
 		t.Errorf("hasLock = %v; want false", hasLock)
 	}
 
-	newFl.(*FileLock).Unlock()
+	t.Log(otherFileLock.String())
+
+	nl.(*FileLock).Unlock()
 	hasLock, err = otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
@@ -95,21 +108,26 @@ func TestNewLock(t *testing.T) {
 		t.Errorf("hasLock = %v; want true", hasLock)
 	}
 
+	t.Log(nl.(*FileLock).String())
 }
 
 func TestTryLockBlocking(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	fl := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second, Block: true})
+	l := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second, Block: true})
 
-	locked, err := fl.TryLock()
+	t.Log(l.String())
+
+	locked, err := l.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
 	}
 	if !locked {
 		t.Errorf("locked = %v; want true", locked)
 	}
+
+	t.Log(l.String())
 
 	otherFileLock := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second, Block: true})
 	hasLock, err := otherFileLock.TryLock()
@@ -120,7 +138,9 @@ func TestTryLockBlocking(t *testing.T) {
 		t.Errorf("hasLock = %v; want true", hasLock)
 	}
 
-	fl.Unlock()
+	t.Log(otherFileLock.String())
+
+	l.Unlock()
 	hasLock, err = otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
@@ -128,4 +148,6 @@ func TestTryLockBlocking(t *testing.T) {
 	if !hasLock {
 		t.Errorf("hasLock = %v; want true", hasLock)
 	}
+
+	t.Log(l.String())
 }

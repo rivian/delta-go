@@ -10,7 +10,6 @@ require (
 	github.com/aws/smithy-go v1.14.0
 	github.com/go-redsync/redsync/v4 v4.8.1
 	github.com/gofrs/flock v0.8.1
-	github.com/google/go-cmp v0.5.9
 	github.com/google/uuid v1.3.0
 	github.com/iancoleman/strcase v0.3.0
 	github.com/redis/go-redis/v9 v9.0.5

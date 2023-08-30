@@ -63,9 +63,11 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	// Create an instance of redisync to be used to obtain a mutual exclusion
 	// lock.
 	rs := redsync.New(pools...)
-	rl := New(rs, "multiple-pools-mutex", Options{})
+	l := New(rs, "multiple-pools-mutex", Options{})
 
-	locked, err := rl.TryLock()
+	t.Log(l.String())
+
+	locked, err := l.TryLock()
 	if !locked {
 		t.Error("TryLock failed")
 	}
@@ -73,13 +75,17 @@ func TestRedsyncMultiplePools(t *testing.T) {
 		t.Error(err)
 	}
 
-	// Perform an operation.
-	fmt.Println(rl.Key + ": I have a lock!")
+	t.Log(l.String())
 
-	err = rl.Unlock()
+	// Perform an operation.
+	fmt.Println(l.key + ": I have a lock!")
+
+	err = l.Unlock()
 	if err != nil {
 		t.Error(err)
 	}
+
+	t.Log(l.String())
 }
 
 func TestRedsyncSimpleClient(t *testing.T) {
@@ -87,9 +93,11 @@ func TestRedsyncSimpleClient(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	rl := NewFromClient(client, "simple-client-mutex", Options{TTL: 100 * time.Second})
+	l := NewFromClient(client, "simple-client-mutex", Options{TTL: 100 * time.Second})
 
-	locked, err := rl.TryLock()
+	t.Log(l.String())
+
+	locked, err := l.TryLock()
 	if !locked {
 		t.Error("TryLock failed")
 	}
@@ -97,12 +105,16 @@ func TestRedsyncSimpleClient(t *testing.T) {
 		t.Error(err)
 	}
 
-	fmt.Println(rl.Key + ": I have a lock!")
+	t.Log(l.String())
 
-	err = rl.Unlock()
+	fmt.Println(l.key + ": I have a lock!")
+
+	err = l.Unlock()
 	if err != nil {
 		t.Error(err)
 	}
+
+	t.Log(l.String())
 }
 
 func TestNewLock(t *testing.T) {
@@ -110,26 +122,30 @@ func TestNewLock(t *testing.T) {
 		Addrs: []string{servers[0].Socket()},
 	})
 
-	rl := NewFromClient(client, "simple-client-mutex", Options{TTL: 10 * time.Second})
-	newRl, err := rl.NewLock("new-simple-client-mutex")
+	l := NewFromClient(client, "simple-client-mutex", Options{TTL: 10 * time.Second})
+	nl, err := l.NewLock("new-simple-client-mutex")
 	if err != nil {
 		t.Error(err)
 	}
 
-	if newRl.(*RedisLock).Key != "new-simple-client-mutex" {
+	t.Log(nl.(*RedisLock).String())
+
+	if nl.(*RedisLock).key != "new-simple-client-mutex" {
 		t.Error("Name of key should be updated")
 	}
 
-	locked, err := newRl.(*RedisLock).TryLock()
+	locked, err := nl.(*RedisLock).TryLock()
 	if !locked {
 		t.Error("TryLock failed")
 	}
 	if err != nil {
 		t.Error(err)
 	}
+
+	t.Log(nl.(*RedisLock).String())
 
 	// The new and old lock, created using the same lock client, don't conflict.
-	locked, err = rl.TryLock()
+	locked, err = l.TryLock()
 	if !locked {
 		t.Error("TryLock failed")
 	}
@@ -137,27 +153,34 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
-	fmt.Println(rl.Key + ": I have a lock!")
-	fmt.Println(newRl.(*RedisLock).Key + ": I have a lock!")
+	t.Log(l.String())
+
+	fmt.Println(l.key + ": I have a lock!")
+	fmt.Println(nl.(*RedisLock).key + ": I have a lock!")
 
 	time.Sleep(5 * time.Second)
 
-	rlExpiryTime := rl.redsyncMutex.Until()
-	if time.Unix(time.Now().Unix(), 0).After(rlExpiryTime) {
+	lExpiryTime := l.redsyncMutex.Until()
+	if time.Unix(time.Now().Unix(), 0).After(lExpiryTime) {
 		t.Error("Old lock should still be valid")
 	}
 
 	// Release the new lock before it expires.
-	err = newRl.(*RedisLock).Unlock()
+	err = nl.(*RedisLock).Unlock()
 	if err != nil {
 		t.Error(err)
 	}
 
+	t.Log(nl.(*RedisLock).String())
+
 	time.Sleep(10 * time.Second)
 
-	if time.Unix(time.Now().Unix(), 0).Before(rlExpiryTime) {
+	if time.Unix(time.Now().Unix(), 0).Before(lExpiryTime) {
 		t.Error("Old lock should not be valid")
 	}
+
+	t.Log(l.String())
+	t.Fatal()
 }
 
 func newMockPoolsGoredis(n int) []redis.Pool {

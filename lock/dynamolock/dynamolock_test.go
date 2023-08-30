@@ -46,12 +46,14 @@ func TestLock(t *testing.T) {
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
-	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
+	l, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
 		t.Error("Failed to create lock")
 	}
 
-	haslock, err := dl.TryLock()
+	t.Log(l.String())
+
+	haslock, err := l.TryLock()
 	if err != nil {
 		t.Error("Failed to acquire lock")
 	}
@@ -59,10 +61,12 @@ func TestLock(t *testing.T) {
 		t.Log("Acquired lock")
 	}
 
-	err = dl.Unlock()
+	err = l.Unlock()
 	if err != nil {
 		t.Error(err)
 	}
+
+	t.Log(l.String())
 }
 
 func TestNewLock(t *testing.T) {
@@ -70,20 +74,22 @@ func TestNewLock(t *testing.T) {
 	options := Options{
 		TTL: 3 * time.Second,
 	}
-	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
+	l, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
 		t.Error("Failed to create lock")
 	}
-	newDl, err := dl.NewLock("_new_commit.lock")
+	nl, err := l.NewLock("_new_commit.lock")
 	if err != nil {
 		t.Error(err)
 	}
 
-	if newDl.(*DynamoLock).Key != "_new_commit.lock" {
+	t.Log(nl.(*DynamoLock).String())
+
+	if nl.(*DynamoLock).key != "_new_commit.lock" {
 		t.Error("Name of key should be updated")
 	}
 
-	haslock, err := newDl.TryLock()
+	haslock, err := nl.TryLock()
 	if err != nil {
 		t.Error("Failed to acquire lock")
 	}
@@ -93,15 +99,19 @@ func TestNewLock(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	isExpired := newDl.(*DynamoLock).LockedItem.IsExpired()
+	isExpired := nl.(*DynamoLock).lockedItem.IsExpired()
 	if isExpired {
 		t.Error("Lock should not be expired")
 	}
 
+	t.Log(nl.(*DynamoLock).String())
+
 	time.Sleep(4 * time.Second)
 
-	isExpired = newDl.(*DynamoLock).LockedItem.IsExpired()
+	isExpired = nl.(*DynamoLock).lockedItem.IsExpired()
 	if !isExpired {
 		t.Error("Lock should be expired")
 	}
+
+	t.Log(nl.(*DynamoLock).String())
 }

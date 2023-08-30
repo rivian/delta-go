@@ -40,7 +40,8 @@ import (
 
 func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	store := filestore.FileObjectStore{BaseURI: &storage.Path{Raw: "tmp/"}}
-	deltaTable := DeltaTable{Store: &store, LockClient: &filelock.FileLock{Key: "tmp/_delta_log/_commit.lock"}}
+	l := filelock.New(nil, "tmp/_delta_log/_commit.lock", filelock.Options{})
+	deltaTable := DeltaTable{Store: &store, LockClient: l}
 	options := DeltaTransactionOptions{MaxRetryCommitAttempts: 3}
 	os.MkdirAll("tmp/_delta_log/", 0700)
 	defer os.RemoveAll("tmp/_delta_log/")

@@ -14,6 +14,7 @@ package filelock
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -23,10 +24,10 @@ import (
 )
 
 type FileLock struct {
-	BaseURI *storage.Path
-	Key     string
+	baseURI *storage.Path
+	key     string
 	lock    *flock.Flock
-	Options Options
+	options Options
 }
 
 // Compile time check that FileLock implements lock.Locker
@@ -45,53 +46,56 @@ const (
 	TTL time.Duration = 60 * time.Second
 )
 
+// Sets the default options
 func (options *Options) setOptionsDefaults() {
-	// Set default options
 	if options.TTL == 0 {
 		options.TTL = TTL
 	}
 }
 
-func (fl *FileLock) NewLock(key string) (lock.Locker, error) {
-	newFl := new(FileLock)
-	newFl.BaseURI = fl.BaseURI
-	newFl.Key = key
-	newFl.Options = fl.Options
-
-	return newFl, nil
-}
-
+// Creates a new file lock object
 func New(baseURI *storage.Path, key string, options Options) *FileLock {
 	options.setOptionsDefaults()
 
-	fl := new(FileLock)
-	fl.BaseURI = baseURI
-	fl.Key = key
-	fl.Options = options
+	l := new(FileLock)
+	l.baseURI = baseURI
+	l.key = key
+	l.options = options
 
-	return fl
+	return l
 }
 
-func (fl *FileLock) TryLock() (bool, error) {
-	lockPath := filepath.Join(fl.BaseURI.Raw, fl.Key)
-	if fl.lock == nil {
-		fl.lock = flock.New(lockPath)
+// Creates a new file lock object using an existing file lock object
+func (l *FileLock) NewLock(key string) (lock.Locker, error) {
+	nl := new(FileLock)
+	nl.baseURI = l.baseURI
+	nl.key = key
+	nl.options = l.options
+
+	return nl, nil
+}
+
+// Attempts to acquire a file lock
+func (l *FileLock) TryLock() (bool, error) {
+	lockPath := filepath.Join(l.baseURI.Raw, l.key)
+	if l.lock == nil {
+		l.lock = flock.New(lockPath)
 	}
 
 	// locked, err := l.lock.TryLock()
 	var err error
 	var locked bool
-	switch fl.Options.Block {
+	switch l.options.Block {
 	case true:
-		err = fl.lock.Lock()
+		err = l.lock.Lock()
 		//Enforce a TTL
 		go func() {
-			time.Sleep(fl.Options.TTL)
-			fl.Unlock()
+			time.Sleep(l.options.TTL)
+			l.Unlock()
 		}()
 		locked = true
 	case false:
-		locked, err = fl.lock.TryLock()
+		locked, err = l.lock.TryLock()
 	}
 
 	if err != nil || !locked {
@@ -100,10 +104,19 @@ func (fl *FileLock) TryLock() (bool, error) {
 	return locked, err
 }
 
-func (fl *FileLock) Unlock() error {
-	err := fl.lock.Unlock()
+// Releases a file lock
+func (l *FileLock) Unlock() error {
+	err := l.lock.Unlock()
 	if err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 	return nil
+}
+
+// Returns the metadata of a file lock object as a single string
+func (l *FileLock) String() string {
+	if l.lock == nil {
+		return fmt.Sprintf("\nBase URI: %s\nKey: %s\nTTL: %s\nBlock: %t", l.baseURI.Raw, l.key, l.options.TTL, l.options.Block)
+	}
+	return fmt.Sprintf("\nBase URI: %s\nKey: %s\nTTL: %s\nBlock: %t\nLocked: %t", l.baseURI.Raw, l.key, l.options.TTL, l.options.Block, l.lock.Locked())
 }

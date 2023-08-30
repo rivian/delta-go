@@ -14,6 +14,7 @@ package dynamolock
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"cirello.io/dynamolock"
@@ -22,12 +23,12 @@ import (
 )
 
 type DynamoLock struct {
-	TableName    string
+	tableName    string
 	lockClient   *dynamolock.Client
-	LockedItem   *dynamolock.Lock
-	Key          string
-	DynamoClient dynamodbiface.DynamoDBAPI
-	Options      Options
+	lockedItem   *dynamolock.Lock
+	key          string
+	dynamoClient dynamodbiface.DynamoDBAPI
+	options      Options
 }
 
 // Compile time check that FileLock implements lock.Locker
@@ -45,24 +46,14 @@ const (
 	Heartbeat time.Duration = 1 * time.Second
 )
 
+// Sets the default options
 func (options *Options) setOptionsDefaults() {
-	// Set default options
 	if options.TTL == 0 {
 		options.TTL = TTL
 	}
 }
 
-func (dl *DynamoLock) NewLock(key string) (lock.Locker, error) {
-	newDl := new(DynamoLock)
-	newDl.TableName = dl.TableName
-	newDl.lockClient = dl.lockClient
-	newDl.Key = key
-	newDl.DynamoClient = dl.DynamoClient
-	newDl.Options = dl.Options
-
-	return newDl, nil
-}
-
+// Creates a new DynamoDB lock object
 func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, options Options) (*DynamoLock, error) {
 	options.setOptionsDefaults()
 
@@ -75,26 +66,40 @@ func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, options
 		return nil, err
 	}
 
-	dl := new(DynamoLock)
-	dl.TableName = tableName
-	dl.Key = key
-	dl.lockClient = lc
-	dl.Options = options
-	dl.DynamoClient = client
-	return dl, nil
+	l := new(DynamoLock)
+	l.tableName = tableName
+	l.key = key
+	l.lockClient = lc
+	l.options = options
+	l.dynamoClient = client
+	return l, nil
 }
 
+// Creates a new DynamoDB lock object using an existing DynamoDB lock object
+func (l *DynamoLock) NewLock(key string) (lock.Locker, error) {
+	nl := new(DynamoLock)
+	nl.tableName = l.tableName
+	nl.lockClient = l.lockClient
+	nl.key = key
+	nl.dynamoClient = l.dynamoClient
+	nl.options = l.options
+
+	return nl, nil
+}
+
+// Attempts to acquire a DynamoDB lock
 func (l *DynamoLock) TryLock() (bool, error) {
-	lItem, err := l.lockClient.AcquireLock(l.Key)
-	l.LockedItem = lItem
+	lItem, err := l.lockClient.AcquireLock(l.key)
+	l.lockedItem = lItem
 	if err != nil {
 		return false, errors.Join(lock.ErrorLockNotObtained, err)
 	}
 	return true, nil
 }
 
+// Releases a DynamoDB lock
 func (l *DynamoLock) Unlock() error {
-	success, err := l.lockClient.ReleaseLock(l.LockedItem)
+	success, err := l.lockClient.ReleaseLock(l.lockedItem)
 	if !success {
 		return lock.ErrorUnableToUnlock
 	}
@@ -103,4 +108,12 @@ func (l *DynamoLock) Unlock() error {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 	return nil
+}
+
+// Returns the metadata of a DynamoDB lock object as a single string
+func (l *DynamoLock) String() string {
+	if l.lockedItem == nil {
+		return fmt.Sprintf("\nTable name: %s\nKey: %s\nTTL: %s\nHeartbeat: %s", l.tableName, l.key, l.options.TTL, l.options.HeartBeat)
+	}
+	return fmt.Sprintf("\nTable name: %s\nKey: %s\nTTL: %s\nHeartbeat: %s\nExpired: %t", l.tableName, l.key, l.options.TTL, l.options.HeartBeat, l.lockedItem.IsExpired())
 }
