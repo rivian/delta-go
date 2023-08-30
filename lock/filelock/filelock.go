@@ -14,7 +14,6 @@ package filelock
 
 import (
 	"errors"
-	"fmt"
 	"path/filepath"
 	"time"
 
@@ -111,12 +110,4 @@ func (l *FileLock) Unlock() error {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 	return nil
-}
-
-// Returns the metadata of a file lock object as a single string
-func (l *FileLock) String() string {
-	if l.lock == nil {
-		return fmt.Sprintf("\nBase URI: %s\nKey: %s\nTTL: %s\nBlock: %t", l.baseURI.Raw, l.key, l.options.TTL, l.options.Block)
-	}
-	return fmt.Sprintf("\nBase URI: %s\nKey: %s\nTTL: %s\nBlock: %t\nLocked: %t", l.baseURI.Raw, l.key, l.options.TTL, l.options.Block, l.lock.Locked())
 }

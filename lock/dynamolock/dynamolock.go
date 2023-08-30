@@ -14,7 +14,6 @@ package dynamolock
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"cirello.io/dynamolock"
@@ -108,12 +107,4 @@ func (l *DynamoLock) Unlock() error {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 	return nil
-}
-
-// Returns the metadata of a DynamoDB lock object as a single string
-func (l *DynamoLock) String() string {
-	if l.lockedItem == nil {
-		return fmt.Sprintf("\nTable name: %s\nKey: %s\nTTL: %s\nHeartbeat: %s", l.tableName, l.key, l.options.TTL, l.options.HeartBeat)
-	}
-	return fmt.Sprintf("\nTable name: %s\nKey: %s\nTTL: %s\nHeartbeat: %s\nExpired: %t", l.tableName, l.key, l.options.TTL, l.options.HeartBeat, l.lockedItem.IsExpired())
 }

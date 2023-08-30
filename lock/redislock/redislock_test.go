@@ -65,8 +65,6 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	rs := redsync.New(pools...)
 	l := New(rs, "multiple-pools-mutex", Options{})
 
-	t.Log(l.String())
-
 	locked, err := l.TryLock()
 	if !locked {
 		t.Error("TryLock failed")
@@ -75,8 +73,6 @@ func TestRedsyncMultiplePools(t *testing.T) {
 		t.Error(err)
 	}
 
-	t.Log(l.String())
-
 	// Perform an operation.
 	fmt.Println(l.key + ": I have a lock!")
 
@@ -84,8 +80,6 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-	t.Log(l.String())
 }
 
 func TestRedsyncSimpleClient(t *testing.T) {
@@ -95,8 +89,6 @@ func TestRedsyncSimpleClient(t *testing.T) {
 
 	l := NewFromClient(client, "simple-client-mutex", Options{TTL: 100 * time.Second})
 
-	t.Log(l.String())
-
 	locked, err := l.TryLock()
 	if !locked {
 		t.Error("TryLock failed")
@@ -105,16 +97,12 @@ func TestRedsyncSimpleClient(t *testing.T) {
 		t.Error(err)
 	}
 
-	t.Log(l.String())
-
 	fmt.Println(l.key + ": I have a lock!")
 
 	err = l.Unlock()
 	if err != nil {
 		t.Error(err)
 	}
-
-	t.Log(l.String())
 }
 
 func TestNewLock(t *testing.T) {
@@ -128,8 +116,6 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
-	t.Log(nl.(*RedisLock).String())
-
 	if nl.(*RedisLock).key != "new-simple-client-mutex" {
 		t.Error("Name of key should be updated")
 	}
@@ -142,8 +128,6 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
-	t.Log(nl.(*RedisLock).String())
-
 	// The new and old lock, created using the same lock client, don't conflict.
 	locked, err = l.TryLock()
 	if !locked {
@@ -152,8 +136,6 @@ func TestNewLock(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-	t.Log(l.String())
 
 	fmt.Println(l.key + ": I have a lock!")
 	fmt.Println(nl.(*RedisLock).key + ": I have a lock!")
@@ -171,16 +153,11 @@ func TestNewLock(t *testing.T) {
 		t.Error(err)
 	}
 
-	t.Log(nl.(*RedisLock).String())
-
 	time.Sleep(10 * time.Second)
 
 	if time.Unix(time.Now().Unix(), 0).Before(lExpiryTime) {
 		t.Error("Old lock should not be valid")
 	}
-
-	t.Log(l.String())
-	t.Fatal()
 }
 
 func newMockPoolsGoredis(n int) []redis.Pool {

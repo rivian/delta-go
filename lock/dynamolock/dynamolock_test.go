@@ -51,8 +51,6 @@ func TestLock(t *testing.T) {
 		t.Error("Failed to create lock")
 	}
 
-	t.Log(l.String())
-
 	haslock, err := l.TryLock()
 	if err != nil {
 		t.Error("Failed to acquire lock")
@@ -65,8 +63,6 @@ func TestLock(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-	t.Log(l.String())
 }
 
 func TestNewLock(t *testing.T) {
@@ -82,8 +78,6 @@ func TestNewLock(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-	t.Log(nl.(*DynamoLock).String())
 
 	if nl.(*DynamoLock).key != "_new_commit.lock" {
 		t.Error("Name of key should be updated")
@@ -104,14 +98,10 @@ func TestNewLock(t *testing.T) {
 		t.Error("Lock should not be expired")
 	}
 
-	t.Log(nl.(*DynamoLock).String())
-
 	time.Sleep(4 * time.Second)
 
 	isExpired = nl.(*DynamoLock).lockedItem.IsExpired()
 	if !isExpired {
 		t.Error("Lock should be expired")
 	}
-
-	t.Log(nl.(*DynamoLock).String())
 }

@@ -14,7 +14,6 @@ package redislock
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"math/rand"
 	"time"
@@ -116,11 +115,6 @@ func (l *RedisLock) Unlock() error {
 	}
 
 	return nil
-}
-
-// Returns the metadata of a Redis lock object as a single string
-func (l *RedisLock) String() string {
-	return fmt.Sprintf("\nKey: %s\nTTL: %s\nMax tries: %d\nExpiry time: %s", l.key, l.options.TTL, l.options.MaxTries, l.redsyncMutex.Until())
 }
 
 // Currently not used
