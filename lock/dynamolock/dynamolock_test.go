@@ -92,7 +92,7 @@ func TestDeleteOnRelease(t *testing.T) {
 	}
 	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
-		t.Error()
+		t.Error(err)
 	}
 
 	haslock, err := dl.TryLock()
