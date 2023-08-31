@@ -97,7 +97,7 @@ func TestDeleteOnRelease(t *testing.T) {
 
 	haslock, err := dl.TryLock()
 	if err != nil {
-		t.Error()
+		t.Error(err)
 	}
 	if haslock {
 		t.Log("Acquired lock")
@@ -120,12 +120,12 @@ func TestDeleteOnRelease(t *testing.T) {
 	}
 	dl, err = New(client, "delta_lock_table", "_new_commit.lock", options)
 	if err != nil {
-		t.Error()
+		t.Error(err)
 	}
 
 	haslock, err = dl.TryLock()
 	if err != nil {
-		t.Error()
+		t.Error(err)
 	}
 	if haslock {
 		t.Log("Acquired lock")
