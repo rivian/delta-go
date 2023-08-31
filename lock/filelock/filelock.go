@@ -95,8 +95,7 @@ func (l *FileLock) Unlock() error {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 
-	_, err = os.Stat(l.lock.Path())
-	if err == nil && l.Options.DeleteOnRelease {
+	if l.Options.DeleteOnRelease {
 		err := os.Remove(l.lock.Path())
 		if err != nil {
 			return err
