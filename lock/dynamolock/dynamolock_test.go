@@ -18,13 +18,13 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/google/go-cmp/cmp"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"golang.org/x/exp/slices"
 )
 
 type mockDynamoDBClient struct {
 	DynamoDBClient
-	keys []*dynamodb.AttributeValue
+	keys []string
 }
 
 func (m *mockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
@@ -32,7 +32,7 @@ func (m *mockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemI
 }
 
 func (m *mockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	m.keys = append(m.keys, input.Item["key"])
+	m.keys = append(m.keys, input.Item["key"].(*types.AttributeValueMemberS).Value)
 	return &dynamodb.PutItemOutput{Attributes: input.Item}, nil
 }
 
@@ -41,9 +41,7 @@ func (m *mockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.Updat
 }
 
 func (m *mockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
-	posInSlice := slices.IndexFunc(m.keys, func(v *dynamodb.AttributeValue) bool {
-		return cmp.Equal(v, input.Key["key"])
-	})
+	posInSlice := slices.Index(m.keys, input.Key["key"].(*types.AttributeValueMemberS).Value)
 	m.keys = slices.Delete(m.keys, posInSlice, posInSlice+1)
 	return &dynamodb.DeleteItemOutput{}, nil
 }
