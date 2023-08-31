@@ -17,32 +17,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/exp/slices"
 )
 
 type mockDynamoDBClient struct {
-	dynamodbiface.DynamoDBAPI
+	DynamoDBClient
 	keys []*dynamodb.AttributeValue
 }
 
-func (m *mockDynamoDBClient) PutItemWithContext(ctx context.Context, input *dynamodb.PutItemInput, _ ...request.Option) (*dynamodb.PutItemOutput, error) {
-	m.keys = append(m.keys, input.Item["key"])
-	return &dynamodb.PutItemOutput{}, nil
-}
-
-func (m *mockDynamoDBClient) GetItemWithContext(ctx context.Context, input *dynamodb.GetItemInput, _ ...request.Option) (*dynamodb.GetItemOutput, error) {
+func (m *mockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
 	return &dynamodb.GetItemOutput{}, nil
 }
 
-func (m *mockDynamoDBClient) UpdateItemWithContext(ctx context.Context, input *dynamodb.UpdateItemInput, _ ...request.Option) (*dynamodb.UpdateItemOutput, error) {
+func (m *mockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	m.keys = append(m.keys, input.Item["key"])
+	return &dynamodb.PutItemOutput{Attributes: input.Item}, nil
+}
+
+func (m *mockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	return &dynamodb.UpdateItemOutput{}, nil
 }
 
-func (m *mockDynamoDBClient) DeleteItemWithContext(ctx context.Context, input *dynamodb.DeleteItemInput, _ ...request.Option) (*dynamodb.DeleteItemOutput, error) {
+func (m *mockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
 	posInSlice := slices.IndexFunc(m.keys, func(v *dynamodb.AttributeValue) bool {
 		return cmp.Equal(v, input.Key["key"])
 	})
