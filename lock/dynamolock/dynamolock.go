@@ -31,18 +31,18 @@ type DynamoDBClient interface {
 }
 
 type DynamoLock struct {
-	TableName    string
-	LockClient   *dynamolock.Client
-	LockedItem   *dynamolock.Lock
-	Key          string
-	DynamoClient DynamoDBClient
-	Options      LockOptions
+	tableName    string
+	lockClient   *dynamolock.Client
+	lockedItem   *dynamolock.Lock
+	key          string
+	dynamoClient DynamoDBClient
+	options      Options
 }
 
 // Compile time check that FileLock implements lock.Locker
 var _ lock.Locker = (*DynamoLock)(nil)
 
-type LockOptions struct {
+type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
 	TTL       time.Duration
@@ -51,51 +51,67 @@ type LockOptions struct {
 
 const (
 	TTL       time.Duration = 60 * time.Second
-	HEARTBEAT time.Duration = 1 * time.Second
+	Heartbeat time.Duration = 1 * time.Second
 )
 
-func New(client DynamoDBClient, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
+// Sets the default options
+func (options *Options) setOptionsDefaults() {
+	if options.TTL == 0 {
+		options.TTL = TTL
+	}
+}
 
-	if opt.TTL == 0 {
-		opt.TTL = TTL
-	}
-	if opt.HeartBeat == 0 {
-		opt.HeartBeat = HEARTBEAT
-	}
+// Creates a new DynamoDB lock object
+func New(client DynamoDBClient, tableName string, key string, options Options) (*DynamoLock, error) {
+	options.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
 		tableName,
-		dynamolock.WithLeaseDuration(opt.TTL),
-		dynamolock.WithHeartbeatPeriod(opt.HeartBeat),
+		dynamolock.WithLeaseDuration(options.TTL),
+		dynamolock.WithHeartbeatPeriod(options.HeartBeat),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	dl := new(DynamoLock)
-	dl.TableName = tableName
-	dl.Key = key
-	dl.LockClient = lc
-	dl.Options = opt
-	dl.DynamoClient = client
-	return dl, nil
+	l := new(DynamoLock)
+	l.tableName = tableName
+	l.key = key
+	l.lockClient = lc
+	l.options = options
+	l.dynamoClient = client
+	return l, nil
 }
 
+// Creates a new DynamoDB lock object using an existing DynamoDB lock object
+func (l *DynamoLock) NewLock(key string) (lock.Locker, error) {
+	nl := new(DynamoLock)
+	nl.tableName = l.tableName
+	nl.lockClient = l.lockClient
+	nl.key = key
+	nl.dynamoClient = l.dynamoClient
+	nl.options = l.options
+
+	return nl, nil
+}
+
+// Attempts to acquire a DynamoDB lock
 func (l *DynamoLock) TryLock() (bool, error) {
-	lItem, err := l.LockClient.AcquireLock(l.Key)
-	l.LockedItem = lItem
+	lItem, err := l.lockClient.AcquireLock(l.key)
+	l.lockedItem = lItem
 	if err != nil {
 		return false, errors.Join(lock.ErrorLockNotObtained, err)
 	}
 	return true, nil
 }
 
+// Releases a DynamoDB lock
 func (l *DynamoLock) Unlock() error {
-	success, err := l.LockClient.ReleaseLock(l.LockedItem)
+	success, err := l.lockClient.ReleaseLock(l.lockedItem)
 	if !success {
 		return lock.ErrorUnableToUnlock
 	}
-	l.LockClient.Close()
+	l.lockClient.Close()
 	if err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
