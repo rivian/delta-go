@@ -13,29 +13,20 @@
 package dynamolock
 
 import (
-	"context"
 	"errors"
 	"time"
 
 	"cirello.io/dynamolock/v2"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/rivian/delta-go/internal/dynamodbmock"
 	"github.com/rivian/delta-go/lock"
 )
-
-type DynamoDBClient interface {
-	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
-	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
-	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
-	DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
-	CreateTable(ctx context.Context, params *dynamodb.CreateTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
-}
 
 type DynamoLock struct {
 	tableName    string
 	lockClient   *dynamolock.Client
 	lockedItem   *dynamolock.Lock
 	key          string
-	dynamoClient DynamoDBClient
+	dynamoClient dynamodbmock.DynamoDBClient
 	options      Options
 }
 
@@ -63,7 +54,7 @@ func (options *Options) setOptionsDefaults() {
 }
 
 // Creates a new DynamoDB lock object
-func New(client DynamoDBClient, tableName string, key string, options Options) (*DynamoLock, error) {
+func New(client dynamodbmock.DynamoDBClient, tableName string, key string, options Options) (*DynamoLock, error) {
 	options.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
