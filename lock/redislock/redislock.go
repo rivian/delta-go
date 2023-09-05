@@ -25,8 +25,10 @@ import (
 )
 
 type RedisLock struct {
-	Key          string
-	redsyncMutex *redsync.Mutex
+	key             string
+	redsyncInstance *redsync.Redsync
+	redsyncMutex    *redsync.Mutex
+	options         Options
 }
 
 type Options struct {
@@ -48,50 +50,67 @@ const (
 	maxRandomNoiseMilliSec float64       = 250
 )
 
-func (opt *Options) setOptionsDefaults() {
-	// Set default options
-	if opt.TTL == 0 {
-		opt.TTL = TTL
+// Sets the default options
+func (options *Options) setOptionsDefaults() {
+	if options.TTL == 0 {
+		options.TTL = TTL
 	}
-	if opt.MaxTries == 0 {
-		opt.MaxTries = maxTries
+	if options.MaxTries == 0 {
+		options.MaxTries = maxTries
 	}
 }
 
-func NewFromClient(client goredislib.UniversalClient, key string, opt *Options) *RedisLock {
+// Creates a new Redis lock object using a Redis client
+func NewFromClient(client goredislib.UniversalClient, key string, options Options) *RedisLock {
 	pool := goredis.NewPool(client)
 	rs := redsync.New(pool)
 
-	mutex := New(rs, key, &Options{TTL: opt.TTL, MaxTries: opt.MaxTries})
+	l := New(rs, key, Options{TTL: options.TTL, MaxTries: options.MaxTries})
 
-	return mutex
+	return l
 }
 
-func New(rs *redsync.Redsync, key string, opt *Options) *RedisLock {
-	opt.setOptionsDefaults()
+// Creates a new Redis lock object using a Redsync instance
+func New(rs *redsync.Redsync, key string, options Options) *RedisLock {
+	options.setOptionsDefaults()
 
 	// Obtain a new mutex by using the same name for all instances wanting the
 	// same lock.
-	mutex := new(RedisLock)
-	mutex.redsyncMutex = rs.NewMutex(key, redsync.WithExpiry(opt.TTL), redsync.WithTries(opt.MaxTries))
-	mutex.Key = key
+	l := new(RedisLock)
+	l.key = key
+	l.redsyncInstance = rs
+	l.redsyncMutex = rs.NewMutex(key, redsync.WithExpiry(options.TTL), redsync.WithTries(options.MaxTries))
+	l.options = options
 
-	return mutex
+	return l
 }
 
-func (mutex *RedisLock) TryLock() (bool, error) {
+// Creates a new Redis lock object using an existing Redis lock object
+func (l *RedisLock) NewLock(key string) (lock.Locker, error) {
+	nl := new(RedisLock)
+	nl.key = key
+	nl.redsyncInstance = l.redsyncInstance
+	nl.redsyncMutex = l.redsyncInstance.NewMutex(key, redsync.WithExpiry(l.options.TTL), redsync.WithTries(l.options.MaxTries))
+	nl.options = l.options
+
+	return nl, nil
+}
+
+// Attempts to acquire a Redis lock
+func (l *RedisLock) TryLock() (bool, error) {
 	// Obtain a lock for our given mutex. After this is successful, no one else
 	// can obtain the same lock (the same mutex name) until we unlock it.
-	if err := mutex.redsyncMutex.Lock(); err != nil {
+	if err := l.redsyncMutex.Lock(); err != nil {
 		return false, errors.Join(lock.ErrorLockNotObtained, err)
 	}
 
 	return true, nil
 }
 
-func (mutex *RedisLock) Unlock() error {
+// Releases a Redis lock
+func (l *RedisLock) Unlock() error {
 	// Release the lock so other processes or threads can obtain a lock.
-	if ok, err := mutex.redsyncMutex.Unlock(); !ok || err != nil {
+	if ok, err := l.redsyncMutex.Unlock(); !ok || err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 

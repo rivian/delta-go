@@ -18,57 +18,90 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
 type mockDynamoDBClient struct {
-	dynamodbiface.DynamoDBAPI
+	DynamoDBClient
 }
 
-func (m *mockDynamoDBClient) PutItemWithContext(ctx context.Context, input *dynamodb.PutItemInput, _ ...request.Option) (*dynamodb.PutItemOutput, error) {
+func (m *mockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	return &dynamodb.GetItemOutput{}, nil
+}
+
+func (m *mockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
 	for _, v := range input.Item {
 		fmt.Printf("Put Lock: %v\n", v)
 	}
 	return &dynamodb.PutItemOutput{Attributes: input.Item}, nil
 }
-func (m *mockDynamoDBClient) GetItemWithContext(ctx context.Context, input *dynamodb.GetItemInput, _ ...request.Option) (*dynamodb.GetItemOutput, error) {
-	return &dynamodb.GetItemOutput{}, nil
-}
-func (m *mockDynamoDBClient) UpdateItemWithContext(ctx context.Context, input *dynamodb.UpdateItemInput, _ ...request.Option) (*dynamodb.UpdateItemOutput, error) {
+
+func (m *mockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	return &dynamodb.UpdateItemOutput{}, nil
 }
 
 func TestLock(t *testing.T) {
-
 	client := &mockDynamoDBClient{}
-	options := LockOptions{
+	options := Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
-	lockObj, err := New(client, "delta_lock_table", "_commit.lock", options)
-
+	l, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
-		t.Error("error occurred.")
+		t.Error("Failed to create lock")
 	}
-	haslock, err := lockObj.TryLock()
+
+	haslock, err := l.TryLock()
 	if err != nil {
-		t.Error("error occurred.")
+		t.Error("Failed to acquire lock")
 	}
 	if haslock {
-		t.Logf("Passed.")
+		t.Log("Acquired lock")
 	}
-	lockObj.Unlock()
 
-	//TODO Check into why the lock is expired before one second.
-	isExpired := lockObj.LockedItem.IsExpired()
-	// if isExpired {
-	// 	t.Errorf("Lock should not yet be expired")
-	// }
-	time.Sleep(1 * time.Second)
+	err = l.Unlock()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestNewLock(t *testing.T) {
+	client := &mockDynamoDBClient{}
+	options := Options{
+		TTL: 3 * time.Second,
+	}
+	l, err := New(client, "delta_lock_table", "_commit.lock", options)
+	if err != nil {
+		t.Error("Failed to create lock")
+	}
+	nl, err := l.NewLock("_new_commit.lock")
+	if err != nil {
+		t.Error(err)
+	}
+
+	if nl.(*DynamoLock).key != "_new_commit.lock" {
+		t.Error("Name of key should be updated")
+	}
+
+	haslock, err := nl.TryLock()
+	if err != nil {
+		t.Error("Failed to acquire lock")
+	}
+	if haslock {
+		t.Log("Acquired lock")
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	isExpired := nl.(*DynamoLock).lockedItem.IsExpired()
+	if isExpired {
+		t.Error("Lock should not be expired")
+	}
+
+	time.Sleep(4 * time.Second)
+
+	isExpired = nl.(*DynamoLock).lockedItem.IsExpired()
 	if !isExpired {
-		t.Errorf("Lock should be expired")
+		t.Error("Lock should be expired")
 	}
-
 }
