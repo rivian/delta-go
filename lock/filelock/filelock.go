@@ -24,16 +24,16 @@ import (
 )
 
 type FileLock struct {
-	BaseURI *storage.Path
-	Key     string
+	baseURI *storage.Path
+	key     string
 	lock    *flock.Flock
-	Options LockOptions
+	options Options
 }
 
 // Compile time check that FileLock implements lock.Locker
 var _ lock.Locker = (*FileLock)(nil)
 
-type LockOptions struct {
+type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
 	TTL time.Duration
@@ -47,22 +47,38 @@ const (
 	TTL time.Duration = 60 * time.Second
 )
 
-func New(baseURI *storage.Path, key string, opt LockOptions) *FileLock {
-	l := new(FileLock)
-	l.BaseURI = baseURI
-	l.Key = key
-	// if opt == nil {
-	// 	opt = LockOptions{TTL: TTL, Block: false}
-	// }
-	if opt.TTL == 0 {
-		opt.TTL = TTL
+// Sets the default options
+func (options *Options) setOptionsDefaults() {
+	if options.TTL == 0 {
+		options.TTL = TTL
 	}
-	l.Options = opt
+}
+
+// Creates a new file lock object
+func New(baseURI *storage.Path, key string, options Options) *FileLock {
+	options.setOptionsDefaults()
+
+	l := new(FileLock)
+	l.baseURI = baseURI
+	l.key = key
+	l.options = options
+
 	return l
 }
 
+// Creates a new file lock object using an existing file lock object
+func (l *FileLock) NewLock(key string) (lock.Locker, error) {
+	nl := new(FileLock)
+	nl.baseURI = l.baseURI
+	nl.key = key
+	nl.options = l.options
+
+	return nl, nil
+}
+
+// Attempts to acquire a file lock
 func (l *FileLock) TryLock() (bool, error) {
-	lockPath := filepath.Join(l.BaseURI.Raw, l.Key)
+	lockPath := filepath.Join(l.baseURI.Raw, l.key)
 	if l.lock == nil {
 		l.lock = flock.New(lockPath)
 	}
@@ -70,12 +86,12 @@ func (l *FileLock) TryLock() (bool, error) {
 	// locked, err := l.lock.TryLock()
 	var err error
 	var locked bool
-	switch l.Options.Block {
+	switch l.options.Block {
 	case true:
 		err = l.lock.Lock()
 		//Enforce a TTL
 		go func() {
-			time.Sleep(l.Options.TTL)
+			time.Sleep(l.options.TTL)
 			l.Unlock()
 		}()
 		locked = true
@@ -89,6 +105,7 @@ func (l *FileLock) TryLock() (bool, error) {
 	return locked, err
 }
 
+// Releases a file lock
 func (l *FileLock) Unlock() error {
 	err := l.lock.Unlock()
 	if err != nil {
