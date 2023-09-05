@@ -108,7 +108,7 @@ func (l *DynamoLock) TryLock() (bool, error) {
 
 // Releases a DynamoDB lock
 func (l *DynamoLock) Unlock() error {
-	success, err := l.LockClient.ReleaseLock(l.LockedItem, dynamolock.WithDeleteLock(l.Options.DeleteOnRelease))
+	success, err := l.lockClient.ReleaseLock(l.lockedItem, dynamolock.WithDeleteLock(l.options.DeleteOnRelease))
 	if !success {
 		return lock.ErrorUnableToUnlock
 	}

@@ -133,9 +133,9 @@ func TestDeleteOnRelease(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	fl := New(tmpPath, "_commit.lock", LockOptions{TTL: 2 * time.Second})
+	l := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second})
 
-	locked, err := fl.TryLock()
+	locked, err := l.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
 	}
@@ -143,14 +143,14 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Errorf("locked = %v; want true", locked)
 	}
 
-	fl.Unlock()
+	l.Unlock()
 
-	_, err = os.Stat(fl.lock.Path())
+	_, err = os.Stat(l.lock.Path())
 	if err != nil {
 		t.Error("File should exist")
 	}
 
-	otherFileLock := New(tmpPath, "_commit.lock", LockOptions{TTL: 2 * time.Second, DeleteOnRelease: true})
+	otherFileLock := New(tmpPath, "_commit.lock", Options{TTL: 2 * time.Second, DeleteOnRelease: true})
 
 	locked, err = otherFileLock.TryLock()
 	if err != nil {
@@ -162,7 +162,7 @@ func TestDeleteOnRelease(t *testing.T) {
 
 	otherFileLock.Unlock()
 
-	_, err = os.Stat(fl.lock.Path())
+	_, err = os.Stat(l.lock.Path())
 	if err == nil {
 		t.Error("File should not exist")
 	}

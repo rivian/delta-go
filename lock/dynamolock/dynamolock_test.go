@@ -114,17 +114,17 @@ func TestNewLock(t *testing.T) {
 
 func TestDeleteOnRelease(t *testing.T) {
 	client := &mockDynamoDBClient{}
-	options := LockOptions{
+	options := Options{
 		TTL:             2 * time.Second,
 		HeartBeat:       10 * time.Millisecond,
 		DeleteOnRelease: true,
 	}
-	dl, err := New(client, "delta_lock_table", "_commit.lock", options)
+	l, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
 		t.Error(err)
 	}
 
-	haslock, err := dl.TryLock()
+	haslock, err := l.TryLock()
 	if err != nil {
 		t.Error(err)
 	}
@@ -132,9 +132,9 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Log("Acquired lock")
 	}
 
-	dl.Unlock()
+	l.Unlock()
 
-	isExpired := dl.LockedItem.IsExpired()
+	isExpired := l.lockedItem.IsExpired()
 	if !isExpired {
 		t.Error("Lock should be expired")
 	}
@@ -143,16 +143,16 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be deleted on release")
 	}
 
-	options = LockOptions{
+	options = Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
-	dl, err = New(client, "delta_lock_table", "_new_commit.lock", options)
+	l, err = New(client, "delta_lock_table", "_new_commit.lock", options)
 	if err != nil {
 		t.Error(err)
 	}
 
-	haslock, err = dl.TryLock()
+	haslock, err = l.TryLock()
 	if err != nil {
 		t.Error(err)
 	}
@@ -160,9 +160,9 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Log("Acquired lock")
 	}
 
-	dl.Unlock()
+	l.Unlock()
 
-	isExpired = dl.LockedItem.IsExpired()
+	isExpired = l.lockedItem.IsExpired()
 	if !isExpired {
 		t.Error("Lock should be expired")
 	}
