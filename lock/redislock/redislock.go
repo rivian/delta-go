@@ -14,8 +14,6 @@ package redislock
 
 import (
 	"errors"
-	"math"
-	"math/rand"
 	"time"
 
 	"github.com/go-redsync/redsync/v4"
@@ -96,12 +94,4 @@ func (mutex *RedisLock) Unlock() error {
 	}
 
 	return nil
-}
-
-// Currently not used
-func exponentialBackoff(tries int) time.Duration {
-	// Computes base * (multiplier ^ tries) + random_number_milliseconds
-	return time.Duration(baseMilliSec*math.Pow(multiplier, float64(tries))+
-		rand.Float64()*(maxRandomNoiseMilliSec-minRandomNoiseMilliSec)+
-		minRandomNoiseMilliSec) * time.Millisecond
 }

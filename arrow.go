@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	ErrorArrowConversion error = errors.New("Error converting from arrow")
+	ErrorArrowConversion error = errors.New("error converting from arrow")
 )
 
 // Read helpers
