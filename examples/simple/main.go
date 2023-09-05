@@ -26,9 +26,10 @@ func main() {
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
-	table := delta.NewDeltaTable[testData, simpleCheckpointTestPartition](store, lock, state)
+	checkpointLock := filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.LockOptions{})
+	table := delta.NewDeltaTable(store, lock, state)
 	metadata := delta.NewDeltaTableMetaData("Test Table", "test description", new(delta.Format).Default(), getSchema(), []string{}, make(map[string]string))
-	err := table.Create(*metadata, delta.Protocol{}, delta.CommitInfo{}, []delta.AddPartitioned[testData, simpleCheckpointTestPartition]{})
+	err := table.Create(*metadata, delta.Protocol{}, delta.CommitInfo{}, []delta.Add{})
 	if err != nil {
 		log.Error(err)
 	}
@@ -44,12 +45,13 @@ func main() {
 		log.Error(err)
 	}
 
-	add := delta.AddPartitioned[testData, simpleCheckpointTestPartition]{
+	s := string(stats.Json())
+	add := delta.Add{
 		Path:             fileName,
-		Size:             delta.DeltaDataTypeLong(p.Size),
+		Size:             p.Size,
 		DataChange:       true,
-		ModificationTime: delta.DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-		Stats:            string(stats.Json()),
+		ModificationTime: time.Now().UnixMilli(),
+		Stats:            &s,
 		PartitionValues:  make(map[string]string),
 	}
 	transaction := table.CreateTransaction(delta.NewDeltaTransactionOptions())
@@ -65,7 +67,7 @@ func main() {
 	}
 
 	log.Infof("version %d", v)
-	// table.CreateCheckpoint()
+	table.CreateCheckpoint(checkpointLock, delta.NewCheckpointConfiguration(), v)
 
 }
 
@@ -173,3 +175,31 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 	p.File = file
 	return p, nil
 }
+
+// func writeParquet[T any](data []T, filename string) (*payload, error) {
+
+// 	p := new(payload)
+
+// 	file, err := os.Create(filename)
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
+// 	b, err := writeStructsToParquetBytes(data)
+// 	if err != nil {
+// 		return p, err
+// 	}
+// 	i, err := file.Write(b)
+// 	println(i)
+// 	if err != nil {
+// 		return p, err
+// 	}
+
+// 	info, _ := file.Stat()
+// 	p.Size = info.Size()
+// 	p.File = file
+
+// 	if err := file.Close(); err != nil {
+// 		return p, err
+// 	}
+// 	return p, nil
+// }
