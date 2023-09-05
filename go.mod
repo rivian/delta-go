@@ -1,6 +1,6 @@
 module github.com/rivian/delta-go
 
-go 1.20
+go 1.21
 
 require (
 	cirello.io/dynamolock v1.4.0
@@ -15,7 +15,7 @@ require (
 	github.com/redis/go-redis/v9 v9.0.5
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stvp/tempredis v0.0.0-20181119212430-b82af8480203
-	golang.org/x/exp v0.0.0-20230728194245-b0cb94b80691
+	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
 )
 
 require (
@@ -49,10 +49,10 @@ require (
 	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/mod v0.12.0 // indirect
-	golang.org/x/net v0.12.0 // indirect
+	golang.org/x/net v0.14.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
-	golang.org/x/text v0.11.0 // indirect
-	golang.org/x/tools v0.11.1 // indirect
+	golang.org/x/text v0.12.0 // indirect
+	golang.org/x/tools v0.12.1-0.20230815132531-74c255bcf846 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230731190214-cbb8c96f2d6d // indirect
 	google.golang.org/grpc v1.57.0 // indirect
@@ -66,10 +66,12 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/gomodule/redigo v1.8.9 // indirect
+	github.com/google/go-cmp v0.5.9
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/pierrec/lz4/v4 v4.1.18 // indirect
-	golang.org/x/sys v0.10.0 // indirect
+	github.com/stretchr/testify v1.8.4 // indirect
+	golang.org/x/sys v0.11.0 // indirect
 )
 
 replace github.com/apache/arrow/go/v13 => github.com/chelseajonesr/arrow/go/v13 v13.0.0-20230711200800-c7890b0a2007

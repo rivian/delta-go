@@ -45,8 +45,9 @@ var _ lock.Locker = (*DynamoLock)(nil)
 type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
-	TTL       time.Duration
-	HeartBeat time.Duration
+	TTL             time.Duration
+	HeartBeat       time.Duration
+	DeleteOnRelease bool
 }
 
 const (
@@ -107,7 +108,7 @@ func (l *DynamoLock) TryLock() (bool, error) {
 
 // Releases a DynamoDB lock
 func (l *DynamoLock) Unlock() error {
-	success, err := l.lockClient.ReleaseLock(l.lockedItem)
+	success, err := l.lockClient.ReleaseLock(l.lockedItem, dynamolock.WithDeleteLock(l.options.DeleteOnRelease))
 	if !success {
 		return lock.ErrorUnableToUnlock
 	}
