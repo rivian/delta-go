@@ -27,7 +27,7 @@ func main() {
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
-	table := delta.NewDeltaTable[testData, simpleCheckpointTestPartition](store, lock, state)
+	table := delta.NewDeltaTable(store, lock, state)
 
 	// First write
 	fileName := fmt.Sprintf("part-%s.snappy.parquet", uuid.New().String())
@@ -42,17 +42,18 @@ func main() {
 		log.Error(err)
 	}
 
-	add := delta.AddPartitioned[testData, simpleCheckpointTestPartition]{
+	s := string(stats.Json())
+	add := delta.Add{
 		Path:             fileName,
-		Size:             delta.DeltaDataTypeLong(p.Size),
+		Size:             p.Size,
 		DataChange:       true,
-		ModificationTime: delta.DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-		Stats:            string(stats.Json()),
+		ModificationTime: time.Now().UnixMilli(),
+		Stats:            &s,
 		PartitionValues:  make(map[string]string),
 	}
 
 	metadata := delta.NewDeltaTableMetaData("Test Table", "test description", new(delta.Format).Default(), schema, []string{}, make(map[string]string))
-	err = table.Create(*metadata, delta.Protocol{}, delta.CommitInfo{}, []delta.AddPartitioned[testData, simpleCheckpointTestPartition]{add})
+	err = table.Create(*metadata, delta.Protocol{}, delta.CommitInfo{}, []delta.Add{add})
 	if err != nil {
 		log.Error(err)
 	}
@@ -73,7 +74,7 @@ func main() {
 			lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
-			table := delta.NewDeltaTable[testData, simpleCheckpointTestPartition](store, lock, state)
+			table := delta.NewDeltaTable(store, lock, state)
 			transaction := table.CreateTransaction(delta.NewDeltaTransactionOptions())
 
 			//Make some data
@@ -86,12 +87,13 @@ func main() {
 				log.Error(err)
 			}
 
-			add := delta.AddPartitioned[testData, simpleCheckpointTestPartition]{
+			s := string(stats.Json())
+			add := delta.Add{
 				Path:             fileName,
-				Size:             delta.DeltaDataTypeLong(p.Size),
+				Size:             p.Size,
 				DataChange:       true,
-				ModificationTime: delta.DeltaDataTypeTimestamp(time.Now().UnixMilli()),
-				Stats:            string(stats.Json()),
+				ModificationTime: time.Now().UnixMilli(),
+				Stats:            &s,
 				PartitionValues:  make(map[string]string),
 			}
 
