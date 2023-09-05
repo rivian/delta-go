@@ -26,7 +26,7 @@ func main() {
 	tmpPath := storage.NewPath(dir)
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
-	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
+	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 	table := delta.NewDeltaTable(store, lock, state)
 
 	// First write
@@ -71,7 +71,7 @@ func main() {
 
 			store := filestore.New(tmpPath)
 			state := filestate.New(storage.NewPath(dir), "_delta_log/_commit.state")
-			lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
+			lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := delta.NewDeltaTable(store, lock, state)
