@@ -297,7 +297,7 @@ func TestHead(t *testing.T) {
 	data := []byte("some data")
 	time0 := time.Now()
 
-	// Add time buffer to alleviate problems which arise from timestamp proximity
+	// Add time buffer to alleviate problems that arise from timestamp proximity
 	time.Sleep(5 * time.Second)
 
 	err := mockClient.PutFile(baseURI, path, data)
