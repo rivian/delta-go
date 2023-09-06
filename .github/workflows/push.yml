@@ -38,13 +38,16 @@ jobs:
           go-version: ${{ matrix.goVersion }}
           cache: true
 
-      - name: Set go env
+      - name: Set Go env
         run: |
           echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Pull external libraries
         run: make vendor
+
+      - name: Run linter
+        run: make lint
 
       - name: Run tests
         run: make test
