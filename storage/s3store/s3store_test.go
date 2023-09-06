@@ -296,6 +296,7 @@ func TestHead(t *testing.T) {
 	path := storage.NewPath("first_copy.txt")
 	data := []byte("some data")
 	time0 := time.Now()
+	time.Sleep(5 * time.Second)
 	err := mockClient.PutFile(baseURI, path, data)
 	if err != nil {
 		t.Errorf("Error occurred setting up TestHead: %e", err)
