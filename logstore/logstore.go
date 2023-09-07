@@ -23,7 +23,4 @@ type LogStore interface {
 
 	// Returns the latest external store entry corresponding to the delta log for given `tablePath`
 	GetLatestExternalEntry(tablePath *storage.Path) (*ExternalCommitEntry, error)
-
-	// Returns the number of expiration delay seconds
-	GetExpirationDelaySeconds() uint64
 }
