@@ -90,7 +90,7 @@ func New(client dynamodbmock.DynamoDBClient, tableName string, key string, optio
 		},
 		TableName: aws.String(tableName),
 	}
-	utils.TryEnsureTableExists(client, tableName, createTableInput, options.MaxRetryTableCreateAttempts)
+	utils.TryEnsureDynamoDbTableExists(client, tableName, createTableInput, options.MaxRetryTableCreateAttempts)
 
 	l := new(DynamoLock)
 	l.tableName = tableName
