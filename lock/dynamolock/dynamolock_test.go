@@ -112,7 +112,7 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.Keys) != 0 {
+	if len(client.GetKeys()) != 0 {
 		t.Error("Lock should be deleted on release")
 	}
 
@@ -140,7 +140,7 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.Keys) != 1 {
+	if len(client.GetKeys()) != 1 {
 		t.Error("Lock should not be deleted on release")
 	}
 }

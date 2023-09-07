@@ -17,7 +17,11 @@ import (
 	"time"
 
 	"cirello.io/dynamolock/v2"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/rivian/delta-go/internal/dynamodbmock"
+	"github.com/rivian/delta-go/internal/utils"
 	"github.com/rivian/delta-go/lock"
 )
 
@@ -36,9 +40,12 @@ var _ lock.Locker = (*DynamoLock)(nil)
 type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
-	TTL             time.Duration
-	HeartBeat       time.Duration
-	DeleteOnRelease bool
+	TTL                         time.Duration
+	HeartBeat                   time.Duration
+	DeleteOnRelease             bool
+	MaxRetryTableCreateAttempts uint16
+	RCU                         int64
+	WCU                         int64
 }
 
 const (
@@ -65,6 +72,21 @@ func New(client dynamodbmock.DynamoDBClient, tableName string, key string, optio
 	if err != nil {
 		return nil, err
 	}
+
+	createTableInput := dynamodb.CreateTableInput{
+		KeySchema: []types.KeySchemaElement{
+			{
+				AttributeName: aws.String("key"),
+				KeyType:       types.KeyTypeHash,
+			},
+		},
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(options.RCU),
+			WriteCapacityUnits: aws.Int64(options.WCU),
+		},
+		TableName: aws.String(tableName),
+	}
+	utils.TryEnsureTableExists(client, tableName, createTableInput, options.MaxRetryTableCreateAttempts)
 
 	l := new(DynamoLock)
 	l.tableName = tableName
