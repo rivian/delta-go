@@ -179,7 +179,7 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 		},
 		TableName: aws.String(ls.tableName),
 	}
-	utils.TryEnsureTableExists(ls.client, ls.tableName, createTableInput, ls.maxRetryTableCreateAttempts)
+	utils.TryEnsureDynamoDbTableExists(ls.client, ls.tableName, createTableInput, ls.maxRetryTableCreateAttempts)
 
 	return ls, nil
 }

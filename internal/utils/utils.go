@@ -27,7 +27,7 @@ var (
 	ErrorExceededTableCreateRetryAttempts error = errors.New("failed to create table")
 )
 
-func TryEnsureTableExists(client dynamodbmock.DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
+func TryEnsureDynamoDbTableExists(client dynamodbmock.DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
 	attemptNumber := 0
 	created := false
 
