@@ -37,7 +37,7 @@ type DynamoDBClient interface {
 	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
-func TryEnsureDynamoDbTableExists(client DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
+func TryEnsureDynamoDBTableExists(client DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
 	attemptNumber := 0
 	created := false
 
