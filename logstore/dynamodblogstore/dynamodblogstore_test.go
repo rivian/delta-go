@@ -20,7 +20,7 @@ import (
 	"github.com/rivian/delta-go/storage"
 )
 
-func TestGetExternalEntry(t *testing.T) {
+func TestGet(t *testing.T) {
 	lso := DynamoDBLogStoreOptions{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
 	ls, err := NewDynamoDBLogStore(lso)
 	if err != nil {
@@ -29,39 +29,39 @@ func TestGetExternalEntry(t *testing.T) {
 
 	ece, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create external commit entry")
+		t.Error("failed to create commit entry")
 	}
 	err = ls.Put(ece, false)
 	if err != nil {
-		t.Error("failed to put external commit entry")
+		t.Error("failed to put commit entry")
 	}
 
 	ece, err = logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create external commit entry")
+		t.Error("failed to create commit entry")
 	}
 	err = ls.Put(ece, false)
 	if err == nil {
-		t.Error("external commit entry already exists")
+		t.Error("commit entry already exists")
 	}
 
 	ece, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("01.json"))
 	if err != nil || ece == nil {
-		t.Error("failed to get external commit entry")
+		t.Error("failed to get commit entry")
 	}
 
 	ece, err = ls.Get(storage.NewPath("usr/local/A"), storage.NewPath("01.json"))
 	if err == nil || ece != nil {
-		t.Error("no external commit entry should be returned")
+		t.Error("no commit entry should be returned")
 	}
 
 	_, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("02.json"))
 	if err == nil || ece != nil {
-		t.Error("no external commit entry should be returned")
+		t.Error("no commit entry should be returned")
 	}
 }
 
-func TestGetLatestExternalEntry(t *testing.T) {
+func TestGetLatest(t *testing.T) {
 	lso := DynamoDBLogStoreOptions{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
 	ls, err := NewDynamoDBLogStore(lso)
 	if err != nil {
@@ -70,37 +70,37 @@ func TestGetLatestExternalEntry(t *testing.T) {
 
 	eceFirst, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create external commit entry")
+		t.Error("failed to create commit entry")
 	}
 	err = ls.Put(eceFirst, false)
 	if err != nil {
-		t.Error("failed to put external commit entry")
+		t.Error("failed to put commit entry")
 	}
 
 	eceSecond, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("02.json"), *storage.NewPath("02.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create external commit entry")
+		t.Error("failed to create commit entry")
 	}
 	err = ls.Put(eceSecond, false)
 	if err != nil {
-		t.Error("failed to put external commit entry")
+		t.Error("failed to put commit entry")
 	}
 
 	eceLatest, err := ls.GetLatest(storage.NewPath("usr/local/"))
 	if err != nil || eceLatest == nil {
-		t.Error("failed to get latest external commit entry")
+		t.Error("failed to get latest commit entry")
 	}
 	if eceSecond.FileName.Raw != eceLatest.FileName.Raw || eceSecond.TempPath.Raw != eceLatest.TempPath.Raw {
-		t.Error("got incorrect latest external commit entry")
+		t.Error("got incorrect latest commit entry")
 	}
 
 	_, err = ls.GetLatest(storage.NewPath("usr/local/A"))
 	if err == nil {
-		t.Error("no external commit entry should be returned")
+		t.Error("no commit entry should be returned")
 	}
 }
 
-func TestPutExternalEntryOverwrite(t *testing.T) {
+func TestPutOverwrite(t *testing.T) {
 	lso := DynamoDBLogStoreOptions{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
 	ls, err := NewDynamoDBLogStore(lso)
 	if err != nil {
@@ -109,20 +109,20 @@ func TestPutExternalEntryOverwrite(t *testing.T) {
 
 	ece, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create external commit entry")
+		t.Error("failed to create commit entry")
 	}
 	err = ls.Put(ece, true)
 	if err != nil {
-		t.Error("failed to put external commit entry")
+		t.Error("failed to put commit entry")
 	}
 
 	ece, err = logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), true, uint64(0))
 	if err != nil {
-		t.Error("failed to create external commit entry")
+		t.Error("failed to create commit entry")
 	}
 	err = ls.Put(ece, true)
 	if err != nil {
-		t.Error("failed to overwrite external commit entry")
+		t.Error("failed to overwrite commit entry")
 	}
 
 	if len(ls.client.(*dynamodbutils.MockDynamoDBClient).GetTablesToItems()["log_store"]) != 1 {
@@ -131,9 +131,9 @@ func TestPutExternalEntryOverwrite(t *testing.T) {
 
 	ece, err = ls.GetLatest(storage.NewPath("usr/local/"))
 	if err != nil {
-		t.Error("failed to get latest external commit entry")
+		t.Error("failed to get latest commit entry")
 	}
 	if ece.Complete != true {
-		t.Error("external commit entry should be complete")
+		t.Error("commit entry should be complete")
 	}
 }
