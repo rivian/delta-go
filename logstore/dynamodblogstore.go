@@ -44,29 +44,29 @@ const (
 	// point it is safe to be deleted from the external store.
 
 	// We want a delay long enough such that, after the external entry has been deleted, another
-	// write attempt for the SAME delta log commit can FAIL using ONLY the FileSystem's existence
-	// check (e.g. `fs.exists(path)`). Recall we assume that the FileSystem does not provide mutual
+	// write attempt for the SAME delta log commit can FAIL using ONLY the file system's existence
+	// check (e.g. `Stat(fs, path)`). Recall we assume that the file system does not provide mutual
 	// exclusion.
 
 	// We use a value of 1 day.
 
 	// If we choose too small of a value, like 0 seconds, then the following scenario is possible:
 	// - t0:  Writers W1 and W2 start writing data files
-	// - t1:  W1 begins to try and write into the _delta_log.
-	// - t2:  W1 checks if N.json exists in FileSystem. It doesn't.
+	// - t1:  W1 begins to try and write into the `_delta_log`
+	// - t2:  W1 checks if N.json exists in file system. It doesn't.
 	// - t3:  W1 writes actions into temp file T1(N)
 	// - t4:  W1 writes to external store entry E1(N, complete=false)
-	// - t5:  W1 copies (with overwrite=false) T1(N) into N.json.
+	// - t5:  W1 copies (with overwrite=false) T1(N) into N.json
 	// - t6:  W1 overwrites entry in external store E1(N, complete=true, expireTime=now+0)
 	// - t7:  E1 is safe to be deleted, and some external store TTL mechanism deletes E1
-	// - t8:  W2 begins to try and write into the _delta_log.
-	// - t9:  W1 checks if N.json exists in FileSystem, but too little time has transpired between
-	//        t5 and t9 that the FileSystem check (fs.exists(path)) returns FALSE.
+	// - t8:  W2 begins to try and write into the `_delta_log`
+	// - t9:  W1 checks if N.json exists in file system, but too little time has transpired between
+	//        t5 and t9 that the file system check (fs.exists(path)) returns FALSE.
 	//        Note: This isn't possible on S3 (which provides strong consistency) but could be
 	//        possible on eventually-consistent systems.
 	// - t10: W2 writes actions into temp file T2(N)
 	// - t11: W2 writes to external store entry E2(N, complete=false)
-	// - t12: W2 successfully copies (with overwrite=false) T2(N) into N.json. FileSystem didn't
+	// - t12: W2 successfully copies (with overwrite=false) T2(N) into N.json. File system didn't
 	//        provide the necessary mutual exclusion, so the copy succeeded. Thus, DATA LOSS HAS
 	//        OCCURRED.
 
@@ -86,7 +86,7 @@ const (
 // -- fileName (RANGE, STRING)
 
 // - attributes
-// -- tempPath (STRING, relative to _delta_log)
+// -- tempPath (STRING, relative to `_delta_log`)
 // -- complete (STRING, representing boolean, "true" or "false")
 // -- expireTime (NUMBER, epoch seconds)
 type DynamoDBLogStore struct {
