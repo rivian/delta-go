@@ -12,13 +12,127 @@
 // limitations under the License.
 package logstore
 
-import "testing"
+import (
+	"testing"
 
-func TestPutExternalEntry(t *testing.T) {
-}
+	"github.com/rivian/delta-go/internal/dynamodbmock"
+	"github.com/rivian/delta-go/storage"
+)
 
 func TestGetExternalEntry(t *testing.T) {
+	lso := DynamoDBLogStoreOptions{Client: dynamodbmock.New(), TableName: "log_store"}
+	ls, err := NewDynamoDBLogStore(lso)
+	if err != nil {
+		t.Error("failed to create DynamoDB log store")
+	}
+
+	ece, err := NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.txt"), *storage.NewPath("01.tmp"), false, uint64(0))
+	if err != nil {
+		t.Error("failed to create external commit entry")
+	}
+	err = ls.PutExternalEntry(ece, false)
+	if err != nil {
+		t.Error("failed to put external commit entry")
+	}
+
+	ece, err = NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.txt"), *storage.NewPath("01.tmp"), false, uint64(0))
+	if err != nil {
+		t.Error("failed to create external commit entry")
+	}
+	err = ls.PutExternalEntry(ece, false)
+	if err == nil {
+		t.Error("external commit entry already exists")
+	}
+
+	ece, err = ls.GetExternalEntry(storage.NewPath("usr/local/"), storage.NewPath("01.txt"))
+	if err != nil || ece == nil {
+		t.Error("failed to get external commit entry")
+	}
+
+	ece, err = ls.GetExternalEntry(storage.NewPath("usr/local/A"), storage.NewPath("01.txt"))
+	if err == nil || ece != nil {
+		t.Error("no external commit entry should be returned")
+	}
+
+	_, err = ls.GetExternalEntry(storage.NewPath("usr/local/"), storage.NewPath("02.txt"))
+	if err == nil || ece != nil {
+		t.Error("no external commit entry should be returned")
+	}
 }
 
 func TestGetLatestExternalEntry(t *testing.T) {
+	lso := DynamoDBLogStoreOptions{Client: dynamodbmock.New(), TableName: "log_store"}
+	ls, err := NewDynamoDBLogStore(lso)
+	if err != nil {
+		t.Error("failed to create DynamoDB log store")
+	}
+
+	eceFirst, err := NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.txt"), *storage.NewPath("01.tmp"), false, uint64(0))
+	if err != nil {
+		t.Error("failed to create external commit entry")
+	}
+	err = ls.PutExternalEntry(eceFirst, false)
+	if err != nil {
+		t.Error("failed to put external commit entry")
+	}
+
+	eceSecond, err := NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("02.txt"), *storage.NewPath("02.tmp"), false, uint64(0))
+	if err != nil {
+		t.Error("failed to create external commit entry")
+	}
+	err = ls.PutExternalEntry(eceSecond, false)
+	if err != nil {
+		t.Error("failed to put external commit entry")
+	}
+
+	eceLatest, err := ls.GetLatestExternalEntry(storage.NewPath("usr/local/"))
+	if err != nil || eceLatest == nil {
+		t.Error("failed to get latest external commit entry")
+	}
+	if eceSecond.FileName.Raw != eceLatest.FileName.Raw || eceSecond.TempPath.Raw != eceLatest.TempPath.Raw {
+		t.Error("got incorrect latest external commit entry")
+	}
+
+	_, err = ls.GetLatestExternalEntry(storage.NewPath("usr/local/A"))
+	if err == nil {
+		t.Error("no external commit entry should be returned")
+	}
+}
+
+func TestPutExternalEntryOverwrite(t *testing.T) {
+	lso := DynamoDBLogStoreOptions{Client: dynamodbmock.New(), TableName: "log_store"}
+	ls, err := NewDynamoDBLogStore(lso)
+	if err != nil {
+		t.Error("failed to create DynamoDB log store")
+	}
+
+	ece, err := NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.txt"), *storage.NewPath("01.tmp"), false, uint64(0))
+	if err != nil {
+		t.Error("failed to create external commit entry")
+	}
+	err = ls.PutExternalEntry(ece, true)
+	if err != nil {
+		t.Error("failed to put external commit entry")
+	}
+
+	ece, err = NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.txt"), *storage.NewPath("01.tmp"), true, uint64(0))
+	if err != nil {
+		t.Error("failed to create external commit entry")
+	}
+	err = ls.PutExternalEntry(ece, true)
+	if err != nil {
+		t.Error("failed to overwrite external commit entry")
+	}
+
+	if len(ls.client.(*dynamodbmock.MockDynamoDBClient).GetTablesToItems()["log_store"]) != 1 {
+		t.Error("incorrect number of items in table")
+	}
+
+	ece, err = ls.GetLatestExternalEntry(storage.NewPath("usr/local/"))
+	if err != nil {
+		t.Error("failed to get latest external commit entry")
+	}
+	if ece.Complete != true {
+		t.Error("external commit entry should be complete")
+	}
 }

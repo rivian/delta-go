@@ -25,28 +25,41 @@ import (
 )
 
 var (
-	ErrorTableDoesNotExist               error = errors.New("table does not exist")
 	ErrorConditionExpressionNotSatisfied error = errors.New("condition expression not satisfied")
+	ErrorTableDoesNotExist               error = errors.New("table does not exist")
+	ErrorCannotFindItems                 error = errors.New("cannot find items")
 )
+
+type DynamoDBPrimaryKey struct {
+	partitionKey string
+	sortKey      string
+}
 
 type MockDynamoDBClient struct {
 	utils.DynamoDBClient
-	tables map[string][]map[string]types.AttributeValue
+	tablesToPrimaryKey map[string]DynamoDBPrimaryKey
+	tablesToItems      map[string][]map[string]types.AttributeValue
 }
 
 func New() *MockDynamoDBClient {
 	m := new(MockDynamoDBClient)
-	m.tables = make(map[string][]map[string]types.AttributeValue)
+	m.tablesToPrimaryKey = make(map[string]DynamoDBPrimaryKey)
+	m.tablesToItems = make(map[string][]map[string]types.AttributeValue)
 	return m
 }
 
-func (m *MockDynamoDBClient) GetTables() map[string][]map[string]types.AttributeValue {
-	return m.tables
+func (m *MockDynamoDBClient) GetTablesToItems() map[string][]map[string]types.AttributeValue {
+	return m.tablesToItems
 }
 
 func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	for _, item := range m.tables[*input.TableName] {
-		if utils.IsMapSubset[string, types.AttributeValue](item, input.Key) {
+	_, ok := m.tablesToItems[*input.TableName]
+	if !ok {
+		return &dynamodb.GetItemOutput{}, ErrorTableDoesNotExist
+	}
+
+	for _, item := range m.tablesToItems[*input.TableName] {
+		if utils.IsMapSubset[string, types.AttributeValue](item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
 			return &dynamodb.GetItemOutput{Item: item}, nil
 		}
 	}
@@ -55,17 +68,38 @@ func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemI
 }
 
 func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	matched, _ := regexp.MatchString("attribute_not_exists(([A-z]+))", *input.ConditionExpression)
+	_, ok := m.tablesToPrimaryKey[*input.TableName]
+	if !ok {
+		return &dynamodb.PutItemOutput{}, ErrorTableDoesNotExist
+	}
+	_, ok = m.tablesToItems[*input.TableName]
+	if !ok {
+		return &dynamodb.PutItemOutput{}, ErrorTableDoesNotExist
+	}
+
+	matched := false
+	if input.ConditionExpression != nil {
+		matched, _ = regexp.MatchString(`attribute_not_exists\(([A-z]+)\)`, *input.ConditionExpression)
+	}
 	if matched {
-		pattern := regexp.MustCompile("attribute_not_exists(([A-z]+))")
+		pattern := regexp.MustCompile(`attribute_not_exists\(([A-z]+)\)`)
 		subStrs := pattern.FindStringSubmatch(*input.ConditionExpression)
-		_, err := m.GetItem(context.TODO(), &dynamodb.GetItemInput{Key: map[string]types.AttributeValue{subStrs[1]: input.Item[subStrs[1]]}})
-		if err == nil {
+		gio, _ := m.GetItem(context.TODO(), &dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{subStrs[1]: input.Item[subStrs[1]]}})
+		if gio.Item != nil {
 			return &dynamodb.PutItemOutput{}, ErrorConditionExpressionNotSatisfied
 		}
 	}
 
-	m.tables[*input.TableName] = append(m.tables[*input.TableName], input.Item)
+	gio, _ := m.GetItem(context.TODO(), &dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{m.tablesToPrimaryKey[*input.TableName].partitionKey: input.Item[m.tablesToPrimaryKey[*input.TableName].partitionKey], m.tablesToPrimaryKey[*input.TableName].sortKey: input.Item[m.tablesToPrimaryKey[*input.TableName].sortKey]}})
+	if gio.Item != nil {
+		posInSlice := slices.IndexFunc(m.tablesToItems[*input.TableName], func(i map[string]types.AttributeValue) bool {
+			return cmp.Equal(i, gio.Item, cmp.AllowUnexported(types.AttributeValueMemberS{}))
+		})
+		m.tablesToItems[*input.TableName] = slices.Replace[[]map[string]types.AttributeValue](m.tablesToItems[*input.TableName], posInSlice, posInSlice+1, input.Item)
+		return &dynamodb.PutItemOutput{}, nil
+	}
+
+	m.tablesToItems[*input.TableName] = append(m.tablesToItems[*input.TableName], input.Item)
 	return &dynamodb.PutItemOutput{}, nil
 }
 
@@ -74,27 +108,52 @@ func (m *MockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.Updat
 }
 
 func (m *MockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	_, ok := m.tablesToItems[*input.TableName]
+	if !ok {
+		return &dynamodb.DeleteItemOutput{}, ErrorTableDoesNotExist
+	}
+
 	var itemToDelete map[string]types.AttributeValue
-	for _, item := range m.tables[*input.TableName] {
+	for _, item := range m.tablesToItems[*input.TableName] {
 		if utils.IsMapSubset[string, types.AttributeValue](item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
 			itemToDelete = item
 		}
 	}
 
-	posInSlice := slices.IndexFunc(m.tables[*input.TableName], func(v map[string]types.AttributeValue) bool {
+	posInSlice := slices.IndexFunc(m.tablesToItems[*input.TableName], func(v map[string]types.AttributeValue) bool {
 		return cmp.Equal(v, itemToDelete, cmp.AllowUnexported(types.AttributeValueMemberS{}))
 	})
-	m.tables[*input.TableName] = slices.Delete(m.tables[*input.TableName], posInSlice, posInSlice+1)
+	m.tablesToItems[*input.TableName] = slices.Delete(m.tablesToItems[*input.TableName], posInSlice, posInSlice+1)
 	return &dynamodb.DeleteItemOutput{}, nil
 }
 
 func (m *MockDynamoDBClient) CreateTable(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
-	m.tables[*input.TableName] = []map[string]types.AttributeValue{}
+	m.tablesToPrimaryKey[*input.TableName] = DynamoDBPrimaryKey{}
+
+	posInSlice := slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
+		return kse.KeyType == types.KeyTypeHash
+	})
+	primaryKey, ok := m.tablesToPrimaryKey[*input.TableName]
+	if ok && posInSlice != -1 {
+		primaryKey.partitionKey = *input.KeySchema[posInSlice].AttributeName
+		m.tablesToPrimaryKey[*input.TableName] = primaryKey
+	}
+
+	posInSlice = slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
+		return kse.KeyType == types.KeyTypeRange
+	})
+	primaryKey, ok = m.tablesToPrimaryKey[*input.TableName]
+	if ok && posInSlice != -1 {
+		primaryKey.sortKey = *input.KeySchema[posInSlice].AttributeName
+		m.tablesToPrimaryKey[*input.TableName] = primaryKey
+	}
+
+	m.tablesToItems[*input.TableName] = []map[string]types.AttributeValue{}
 	return &dynamodb.CreateTableOutput{}, nil
 }
 
 func (m *MockDynamoDBClient) DescribeTable(_ context.Context, input *dynamodb.DescribeTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
-	_, ok := m.tables[*input.TableName]
+	_, ok := m.tablesToItems[*input.TableName]
 	if ok {
 		return &dynamodb.DescribeTableOutput{Table: &types.TableDescription{TableStatus: "ACTIVE"}}, nil
 	}
@@ -103,16 +162,25 @@ func (m *MockDynamoDBClient) DescribeTable(_ context.Context, input *dynamodb.De
 }
 
 func (m *MockDynamoDBClient) Query(_ context.Context, input *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-	pattern := regexp.MustCompile("([A-z]+) (:[A-z]+)")
+	_, ok := m.tablesToItems[*input.TableName]
+	if !ok {
+		return &dynamodb.QueryOutput{}, ErrorTableDoesNotExist
+	}
+
+	pattern := regexp.MustCompile("([A-z]+) = (:[A-z]+)")
 	subStrs := pattern.FindStringSubmatch(*input.KeyConditionExpression)
 
 	items := []map[string]types.AttributeValue{}
-	for _, item := range m.tables[*input.TableName] {
-		if utils.IsMapSubset[string, types.AttributeValue](item, map[string]types.AttributeValue{subStrs[1]: input.ExpressionAttributeValues[subStrs[2]]}) {
+	for _, item := range m.tablesToItems[*input.TableName] {
+		if utils.IsMapSubset[string, types.AttributeValue](item, map[string]types.AttributeValue{subStrs[1]: input.ExpressionAttributeValues[subStrs[2]]}, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
 			items = append(items, item)
 		}
 	}
-	slices.Reverse[[]map[string]types.AttributeValue](items)
 
-	return &dynamodb.QueryOutput{Items: items}, nil
+	if len(items) != 0 {
+		slices.Reverse[[]map[string]types.AttributeValue](items)
+		return &dynamodb.QueryOutput{Items: items}, nil
+	}
+
+	return &dynamodb.QueryOutput{}, ErrorCannotFindItems
 }

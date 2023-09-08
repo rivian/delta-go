@@ -73,6 +73,8 @@ const (
 	// By using an expiration delay of 1 day, we ensure one of the steps at t9 or t12 will fail.
 	DefaultExternalEntryExpirationDelaySeconds uint64 = 86400
 	DefaultMaxRetryTableCreateAttempts         uint16 = 20
+	DefaultRCU                                 int64  = 5
+	DefaultWCU                                 int64  = 5
 )
 
 // A concrete implementation of LogStore that uses an external DynamoDB table
@@ -88,7 +90,7 @@ const (
 // -- complete (STRING, representing boolean, "true" or "false")
 // -- commitTime (NUMBER, epoch seconds)
 type DynamoDBLogStore struct {
-	client                      *dynamodb.Client
+	client                      utils.DynamoDBClient
 	tableName                   string
 	expirationDelaySeconds      uint64
 	maxRetryTableCreateAttempts uint16
@@ -98,7 +100,7 @@ type DynamoDBLogStore struct {
 
 type DynamoDBLogStoreOptions struct {
 	Config                      aws.Config
-	Client                      *dynamodb.Client
+	Client                      utils.DynamoDBClient
 	TableName                   string
 	ExpirationDelaySeconds      uint64
 	MaxRetryTableCreateAttempts uint16
@@ -106,7 +108,7 @@ type DynamoDBLogStoreOptions struct {
 	WCU                         int64
 }
 
-func (ls DynamoDBLogStore) GetClient() *dynamodb.Client {
+func (ls DynamoDBLogStore) GetClient() utils.DynamoDBClient {
 	return ls.client
 }
 
@@ -136,6 +138,18 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 		ls.maxRetryTableCreateAttempts = lso.MaxRetryTableCreateAttempts
 	} else {
 		ls.maxRetryTableCreateAttempts = DefaultMaxRetryTableCreateAttempts
+	}
+
+	if lso.RCU != 0 {
+		ls.rcu = lso.RCU
+	} else {
+		ls.rcu = DefaultRCU
+	}
+
+	if lso.WCU != 0 {
+		ls.wcu = lso.WCU
+	} else {
+		ls.wcu = DefaultWCU
 	}
 
 	log.Infof("delta-go: Using table name %s", ls.tableName)
@@ -193,7 +207,7 @@ func (ls *DynamoDBLogStore) PutExternalEntry(entry *ExternalCommitEntry, overwri
 		return err
 	}
 
-	ls.client.PutItem(context.TODO(), pir)
+	_, err = ls.client.PutItem(context.TODO(), pir)
 
 	return err
 }
@@ -253,16 +267,16 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 	}
 
 	return NewExternalCommitEntry(
-		item[AttrTablePath].(*types.AttributeValueMemberS).Value,
-		item[AttrFileName].(*types.AttributeValueMemberS).Value,
-		item[AttrTempPath].(*types.AttributeValueMemberS).Value,
+		*storage.NewPath(item[AttrTablePath].(*types.AttributeValueMemberS).Value),
+		*storage.NewPath(item[AttrFileName].(*types.AttributeValueMemberS).Value),
+		*storage.NewPath(item[AttrTempPath].(*types.AttributeValueMemberS).Value),
 		item[AttrComplete].(*types.AttributeValueMemberS).Value == "true",
 		expireTimeAttr,
 	)
 }
 
 func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, overwrite bool) (*dynamodb.PutItemInput, error) {
-	attributes := map[string]types.AttributeValue{AttrTablePath: &types.AttributeValueMemberS{Value: entry.TablePath}, AttrFileName: &types.AttributeValueMemberS{Value: entry.FileName}, AttrTempPath: &types.AttributeValueMemberS{Value: entry.TempPath}, AttrComplete: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.Complete))}}
+	attributes := map[string]types.AttributeValue{AttrTablePath: &types.AttributeValueMemberS{Value: entry.TablePath.Raw}, AttrFileName: &types.AttributeValueMemberS{Value: entry.FileName.Raw}, AttrTempPath: &types.AttributeValueMemberS{Value: entry.TempPath.Raw}, AttrComplete: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.Complete))}}
 
 	if entry.ExpireTime != 0 {
 		attributes[AttrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(entry.ExpireTime))}
@@ -279,6 +293,6 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, ove
 	return pir, nil
 }
 
-func (ls *DynamoDBLogStore) getClient(config aws.Config) (*dynamodb.Client, error) {
+func (ls *DynamoDBLogStore) getClient(config aws.Config) (utils.DynamoDBClient, error) {
 	return dynamodb.NewFromConfig(config), nil
 }
