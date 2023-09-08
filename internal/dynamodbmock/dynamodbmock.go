@@ -15,6 +15,7 @@ package dynamodbmock
 import (
 	"context"
 	"errors"
+	"regexp"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -24,8 +25,9 @@ import (
 )
 
 var (
-	ErrorKeyNotFound       error = errors.New("key not found")
-	ErrorTableDoesNotExist error = errors.New("table does not exist")
+	ErrorKeyNotFound                     error = errors.New("key not found")
+	ErrorTableDoesNotExist               error = errors.New("table does not exist")
+	ErrorConditionExpressionNotSatisfied error = errors.New("condition expression not satisfied")
 )
 
 type MockDynamoDBClient struct {
@@ -50,10 +52,17 @@ func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemI
 		}
 	}
 
-	return &dynamodb.GetItemOutput{}, nil
+	return &dynamodb.GetItemOutput{}, ErrorKeyNotFound
 }
 
 func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	pattern := regexp.MustCompile("attribute_not_exists(([A-z]+))")
+	subStrs := pattern.FindStringSubmatch(*input.ConditionExpression)
+	_, err := m.GetItem(context.TODO(), &dynamodb.GetItemInput{Key: map[string]types.AttributeValue{subStrs[1]: input.Item[subStrs[1]]}})
+	if err == nil {
+		return &dynamodb.PutItemOutput{}, ErrorConditionExpressionNotSatisfied
+	}
+
 	m.tables[*input.TableName] = append(m.tables[*input.TableName], input.Item)
 	return &dynamodb.PutItemOutput{}, nil
 }
@@ -89,4 +98,18 @@ func (m *MockDynamoDBClient) DescribeTable(_ context.Context, input *dynamodb.De
 	}
 
 	return &dynamodb.DescribeTableOutput{}, ErrorTableDoesNotExist
+}
+
+func (m *MockDynamoDBClient) Query(_ context.Context, input *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	pattern := regexp.MustCompile("([A-z]+) (:[A-z]+)")
+	subStrs := pattern.FindStringSubmatch(*input.KeyConditionExpression)
+
+	items := []map[string]types.AttributeValue{}
+	for _, item := range m.tables[*input.TableName] {
+		if utils.IsMapSubset[string, types.AttributeValue](item, map[string]types.AttributeValue{subStrs[1]: input.ExpressionAttributeValues[subStrs[2]]}) {
+			items = append(items, item)
+		}
+	}
+
+	return &dynamodb.QueryOutput{Items: items}, nil
 }

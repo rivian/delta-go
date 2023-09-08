@@ -266,8 +266,6 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *ExternalCommitEntry, ove
 
 	if entry.ExpireTime != 0 {
 		attributes[AttrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(entry.ExpireTime))}
-	} else {
-		attributes[AttrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(strconv.FormatUint(ls.expirationDelaySeconds, 10))}
 	}
 
 	pir := &dynamodb.PutItemInput{
