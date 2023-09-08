@@ -25,7 +25,6 @@ import (
 )
 
 var (
-	ErrorKeyNotFound                     error = errors.New("key not found")
 	ErrorTableDoesNotExist               error = errors.New("table does not exist")
 	ErrorConditionExpressionNotSatisfied error = errors.New("condition expression not satisfied")
 )
@@ -48,19 +47,22 @@ func (m *MockDynamoDBClient) GetTables() map[string][]map[string]types.Attribute
 func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
 	for _, item := range m.tables[*input.TableName] {
 		if utils.IsMapSubset[string, types.AttributeValue](item, input.Key) {
-			return &dynamodb.GetItemOutput{}, nil
+			return &dynamodb.GetItemOutput{Item: item}, nil
 		}
 	}
 
-	return &dynamodb.GetItemOutput{}, ErrorKeyNotFound
+	return &dynamodb.GetItemOutput{}, nil
 }
 
 func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	pattern := regexp.MustCompile("attribute_not_exists(([A-z]+))")
-	subStrs := pattern.FindStringSubmatch(*input.ConditionExpression)
-	_, err := m.GetItem(context.TODO(), &dynamodb.GetItemInput{Key: map[string]types.AttributeValue{subStrs[1]: input.Item[subStrs[1]]}})
-	if err == nil {
-		return &dynamodb.PutItemOutput{}, ErrorConditionExpressionNotSatisfied
+	matched, _ := regexp.MatchString("attribute_not_exists(([A-z]+))", *input.ConditionExpression)
+	if matched {
+		pattern := regexp.MustCompile("attribute_not_exists(([A-z]+))")
+		subStrs := pattern.FindStringSubmatch(*input.ConditionExpression)
+		_, err := m.GetItem(context.TODO(), &dynamodb.GetItemInput{Key: map[string]types.AttributeValue{subStrs[1]: input.Item[subStrs[1]]}})
+		if err == nil {
+			return &dynamodb.PutItemOutput{}, ErrorConditionExpressionNotSatisfied
+		}
 	}
 
 	m.tables[*input.TableName] = append(m.tables[*input.TableName], input.Item)
@@ -110,6 +112,7 @@ func (m *MockDynamoDBClient) Query(_ context.Context, input *dynamodb.QueryInput
 			items = append(items, item)
 		}
 	}
+	slices.Reverse[[]map[string]types.AttributeValue](items)
 
 	return &dynamodb.QueryOutput{Items: items}, nil
 }
