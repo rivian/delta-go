@@ -15,7 +15,7 @@ package logstore
 import "github.com/rivian/delta-go/storage"
 
 type LogStore interface {
-	// Puts an entry into a log store in an exlusive way
+	// Puts an entry into a log store in an exclusive way
 	Put(entry *CommitEntry, overwrite bool) error
 
 	// Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName`
