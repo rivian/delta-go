@@ -37,19 +37,19 @@ type DynamoDBPrimaryKey struct {
 
 type MockDynamoDBClient struct {
 	utils.DynamoDBClient
-	tablesToPrimaryKey map[string]DynamoDBPrimaryKey
-	tablesToItems      map[string][]map[string]types.AttributeValue
+	tablesToPrimaryKeys map[string]DynamoDBPrimaryKey
+	tablesToItems       map[string][]map[string]types.AttributeValue
 }
 
 func New() *MockDynamoDBClient {
 	m := new(MockDynamoDBClient)
-	m.tablesToPrimaryKey = make(map[string]DynamoDBPrimaryKey)
+	m.tablesToPrimaryKeys = make(map[string]DynamoDBPrimaryKey)
 	m.tablesToItems = make(map[string][]map[string]types.AttributeValue)
 	return m
 }
 
-func (m *MockDynamoDBClient) GetTablesToPrimaryKey() map[string]DynamoDBPrimaryKey {
-	return m.tablesToPrimaryKey
+func (m *MockDynamoDBClient) GetTablesToPrimaryKeys() map[string]DynamoDBPrimaryKey {
+	return m.tablesToPrimaryKeys
 }
 
 func (m *MockDynamoDBClient) GetTablesToItems() map[string][]map[string]types.AttributeValue {
@@ -72,7 +72,7 @@ func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemI
 }
 
 func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	_, ok := m.tablesToPrimaryKey[*input.TableName]
+	_, ok := m.tablesToPrimaryKeys[*input.TableName]
 	if !ok {
 		return &dynamodb.PutItemOutput{}, ErrorTableDoesNotExist
 	}
@@ -94,7 +94,7 @@ func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemI
 		}
 	}
 
-	gio, _ := m.GetItem(context.TODO(), &dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{m.tablesToPrimaryKey[*input.TableName].partitionKey: input.Item[m.tablesToPrimaryKey[*input.TableName].partitionKey], m.tablesToPrimaryKey[*input.TableName].sortKey: input.Item[m.tablesToPrimaryKey[*input.TableName].sortKey]}})
+	gio, _ := m.GetItem(context.TODO(), &dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{m.tablesToPrimaryKeys[*input.TableName].partitionKey: input.Item[m.tablesToPrimaryKeys[*input.TableName].partitionKey], m.tablesToPrimaryKeys[*input.TableName].sortKey: input.Item[m.tablesToPrimaryKeys[*input.TableName].sortKey]}})
 	if gio.Item != nil {
 		posInSlice := slices.IndexFunc(m.tablesToItems[*input.TableName], func(i map[string]types.AttributeValue) bool {
 			return cmp.Equal(i, gio.Item, cmp.AllowUnexported(types.AttributeValueMemberS{}))
@@ -132,24 +132,24 @@ func (m *MockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.Delet
 }
 
 func (m *MockDynamoDBClient) CreateTable(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
-	m.tablesToPrimaryKey[*input.TableName] = DynamoDBPrimaryKey{}
+	m.tablesToPrimaryKeys[*input.TableName] = DynamoDBPrimaryKey{}
 
 	posInSlice := slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
 		return kse.KeyType == types.KeyTypeHash
 	})
-	primaryKey, ok := m.tablesToPrimaryKey[*input.TableName]
+	primaryKey, ok := m.tablesToPrimaryKeys[*input.TableName]
 	if ok && posInSlice != -1 {
 		primaryKey.partitionKey = *input.KeySchema[posInSlice].AttributeName
-		m.tablesToPrimaryKey[*input.TableName] = primaryKey
+		m.tablesToPrimaryKeys[*input.TableName] = primaryKey
 	}
 
 	posInSlice = slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
 		return kse.KeyType == types.KeyTypeRange
 	})
-	primaryKey, ok = m.tablesToPrimaryKey[*input.TableName]
+	primaryKey, ok = m.tablesToPrimaryKeys[*input.TableName]
 	if ok && posInSlice != -1 {
 		primaryKey.sortKey = *input.KeySchema[posInSlice].AttributeName
-		m.tablesToPrimaryKey[*input.TableName] = primaryKey
+		m.tablesToPrimaryKeys[*input.TableName] = primaryKey
 	}
 
 	m.tablesToItems[*input.TableName] = []map[string]types.AttributeValue{}
