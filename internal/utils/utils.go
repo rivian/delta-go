@@ -53,7 +53,7 @@ func TryEnsureDynamoDBTableExists(client DynamoDBClient, tableName string, creat
 			TableName: aws.String(tableName),
 		})
 		if err != nil {
-			log.Infof("delta-go: DynamoDB table %s does not exist. Creating it now with provisioned throughput of %d and %d WCUs.", tableName, *createTableInput.ProvisionedThroughput.ReadCapacityUnits, *createTableInput.ProvisionedThroughput.ReadCapacityUnits)
+			log.Infof("delta-go: DynamoDB table %s does not exist. Creating it now with provisioned throughput of %d RCUs and %d WCUs.", tableName, *createTableInput.ProvisionedThroughput.ReadCapacityUnits, *createTableInput.ProvisionedThroughput.ReadCapacityUnits)
 			_, err := client.CreateTable(context.TODO(), &createTableInput)
 			if err != nil {
 				log.Debugf("delta-go: Table %s just created by concurrent process. %v", tableName, err)
