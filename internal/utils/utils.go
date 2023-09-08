@@ -19,7 +19,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/rivian/delta-go/internal/dynamodbmock"
+	"github.com/google/go-cmp/cmp"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -27,7 +27,16 @@ var (
 	ErrorExceededTableCreateRetryAttempts error = errors.New("failed to create table")
 )
 
-func TryEnsureDynamoDbTableExists(client dynamodbmock.DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
+type DynamoDBClient interface {
+	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+	DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+	CreateTable(ctx context.Context, params *dynamodb.CreateTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
+	DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+}
+
+func TryEnsureDynamoDbTableExists(client DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
 	attemptNumber := 0
 	created := false
 
@@ -79,4 +88,18 @@ func TryEnsureDynamoDbTableExists(client dynamodbmock.DynamoDBClient, tableName 
 
 		return nil
 	}
+}
+
+func IsMapSubset[K, V comparable](m map[K]V, sub map[K]V, opts ...cmp.Option) bool {
+	if len(sub) > len(m) {
+		return false
+	}
+
+	for k, vsub := range sub {
+		if vm, found := m[k]; !found || !cmp.Equal(vm, vsub, opts...) {
+			return false
+		}
+	}
+
+	return true
 }

@@ -20,7 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/rivian/delta-go/internal/dynamodbmock"
 	"github.com/rivian/delta-go/internal/utils"
 	"github.com/rivian/delta-go/lock"
 )
@@ -30,7 +29,7 @@ type DynamoLock struct {
 	lockClient   *dynamolock.Client
 	lockedItem   *dynamolock.Lock
 	key          string
-	dynamoClient dynamodbmock.DynamoDBClient
+	dynamoClient utils.DynamoDBClient
 	opts         Options
 }
 
@@ -65,7 +64,7 @@ func (opts *Options) setOptionsDefaults() {
 }
 
 // Creates a new DynamoDB lock object
-func New(client dynamodbmock.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
+func New(client utils.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
 	opts.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
