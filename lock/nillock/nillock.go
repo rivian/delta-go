@@ -32,12 +32,12 @@ type NilLock struct {
 // Compile time check that NilLock implements lock.Locker
 var _ lock.Locker = (*NilLock)(nil)
 
-// Creates a new nil lock object
+// Creates a new NilLock instance
 func New() *NilLock {
 	return new(NilLock)
 }
 
-// Creates a new nil lock object using an existing nil lock object
+// Creates a new NilLock instance using an existing NilLock instance
 func (*NilLock) NewLock(key string) (lock.Locker, error) {
 	return new(NilLock), nil
 }

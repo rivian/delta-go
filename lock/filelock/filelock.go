@@ -27,7 +27,7 @@ type FileLock struct {
 	baseURI *storage.Path
 	key     string
 	lock    *flock.Flock
-	options Options
+	opts    Options
 }
 
 // Compile time check that FileLock implements lock.Locker
@@ -44,34 +44,34 @@ type Options struct {
 }
 
 const (
-	TTL time.Duration = 60 * time.Second
+	DefaultTTL time.Duration = 60 * time.Second
 )
 
 // Sets the default options
-func (options *Options) setOptionsDefaults() {
-	if options.TTL == 0 {
-		options.TTL = TTL
+func (opts *Options) setOptionsDefaults() {
+	if opts.TTL == 0 {
+		opts.TTL = DefaultTTL
 	}
 }
 
-// Creates a new file lock object
-func New(baseURI *storage.Path, key string, options Options) *FileLock {
-	options.setOptionsDefaults()
+// Creates a new FileLock instance
+func New(baseURI *storage.Path, key string, opts Options) *FileLock {
+	opts.setOptionsDefaults()
 
 	l := new(FileLock)
 	l.baseURI = baseURI
 	l.key = key
-	l.options = options
+	l.opts = opts
 
 	return l
 }
 
-// Creates a new file lock object using an existing file lock object
+// Creates a new FileLock instance using an existing FileLock instance
 func (l *FileLock) NewLock(key string) (lock.Locker, error) {
 	nl := new(FileLock)
 	nl.baseURI = l.baseURI
 	nl.key = key
-	nl.options = l.options
+	nl.opts = l.opts
 
 	return nl, nil
 }
@@ -86,12 +86,12 @@ func (l *FileLock) TryLock() (bool, error) {
 	// locked, err := l.lock.TryLock()
 	var err error
 	var locked bool
-	switch l.options.Block {
+	switch l.opts.Block {
 	case true:
 		err = l.lock.Lock()
 		//Enforce a TTL
 		go func() {
-			time.Sleep(l.options.TTL)
+			time.Sleep(l.opts.TTL)
 			l.Unlock()
 		}()
 		locked = true
@@ -112,7 +112,7 @@ func (l *FileLock) Unlock() error {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}
 
-	if l.options.DeleteOnRelease {
+	if l.opts.DeleteOnRelease {
 		err := os.Remove(l.lock.Path())
 		if err != nil {
 			return err

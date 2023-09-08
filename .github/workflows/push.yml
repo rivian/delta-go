@@ -32,19 +32,22 @@ jobs:
       - name: Unshallow
         run: git fetch --prune --unshallow
 
-      - name: Setup Go
+      - name: Set up Go
         uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.goVersion }}
           cache: true
 
-      - name: Set go env
+      - name: Set Go env
         run: |
           echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Pull external libraries
         run: make vendor
+
+      - name: Run linter
+        run: make lint
 
       - name: Run tests
         run: make test
@@ -59,7 +62,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Setup Go
+      - name: Set up Go
         uses: actions/setup-go@v3
         with:
           go-version: 1.21.x

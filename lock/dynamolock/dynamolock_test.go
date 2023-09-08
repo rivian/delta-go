@@ -13,41 +13,14 @@
 package dynamolock
 
 import (
-	"context"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"golang.org/x/exp/slices"
+	"github.com/rivian/delta-go/internal/dynamodbutils"
 )
 
-type mockDynamoDBClient struct {
-	DynamoDBClient
-	keys []string
-}
-
-func (m *mockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	return &dynamodb.GetItemOutput{}, nil
-}
-
-func (m *mockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	m.keys = append(m.keys, input.Item["key"].(*types.AttributeValueMemberS).Value)
-	return &dynamodb.PutItemOutput{Attributes: input.Item}, nil
-}
-
-func (m *mockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
-	return &dynamodb.UpdateItemOutput{}, nil
-}
-
-func (m *mockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
-	posInSlice := slices.Index(m.keys, input.Key["key"].(*types.AttributeValueMemberS).Value)
-	m.keys = slices.Delete(m.keys, posInSlice, posInSlice+1)
-	return &dynamodb.DeleteItemOutput{}, nil
-}
-
 func TestLock(t *testing.T) {
-	client := &mockDynamoDBClient{}
+	client := dynamodbutils.NewMockClient()
 	options := Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
@@ -72,7 +45,7 @@ func TestLock(t *testing.T) {
 }
 
 func TestNewLock(t *testing.T) {
-	client := &mockDynamoDBClient{}
+	client := dynamodbutils.NewMockClient()
 	options := Options{
 		TTL: 3 * time.Second,
 	}
@@ -113,13 +86,13 @@ func TestNewLock(t *testing.T) {
 }
 
 func TestDeleteOnRelease(t *testing.T) {
-	client := &mockDynamoDBClient{}
-	options := Options{
+	client := dynamodbutils.NewMockClient()
+	opts := Options{
 		TTL:             2 * time.Second,
 		HeartBeat:       10 * time.Millisecond,
 		DeleteOnRelease: true,
 	}
-	l, err := New(client, "delta_lock_table", "_commit.lock", options)
+	l, err := New(client, "delta_lock_table", "_commit.lock", opts)
 	if err != nil {
 		t.Error(err)
 	}
@@ -139,15 +112,15 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.keys) != 0 {
+	if len(client.GetTablesToItems()["delta_lock_table"]) != 0 {
 		t.Error("Lock should be deleted on release")
 	}
 
-	options = Options{
+	opts = Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
-	l, err = New(client, "delta_lock_table", "_new_commit.lock", options)
+	l, err = New(client, "delta_lock_table", "_new_commit.lock", opts)
 	if err != nil {
 		t.Error(err)
 	}
@@ -167,7 +140,7 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.keys) != 1 {
+	if len(client.GetTablesToItems()["delta_lock_table"]) != 1 {
 		t.Error("Lock should not be deleted on release")
 	}
 }
