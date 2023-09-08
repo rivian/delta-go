@@ -48,6 +48,10 @@ func New() *MockDynamoDBClient {
 	return m
 }
 
+func (m *MockDynamoDBClient) GetTablesToPrimaryKey() map[string]DynamoDBPrimaryKey {
+	return m.tablesToPrimaryKey
+}
+
 func (m *MockDynamoDBClient) GetTablesToItems() map[string][]map[string]types.AttributeValue {
 	return m.tablesToItems
 }
