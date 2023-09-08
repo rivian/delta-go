@@ -3,10 +3,11 @@ module github.com/rivian/delta-go
 go 1.21
 
 require (
-	cirello.io/dynamolock v1.4.0
+	cirello.io/dynamolock/v2 v2.0.2
 	github.com/apache/arrow/go/v13 v13.0.0
 	github.com/aws/aws-sdk-go v1.44.313
 	github.com/aws/aws-sdk-go-v2 v1.20.0
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.19.2
 	github.com/aws/smithy-go v1.14.0
 	github.com/go-redsync/redsync/v4 v4.8.1
 	github.com/gofrs/flock v0.8.1
@@ -19,7 +20,6 @@ require (
 )
 
 require (
-	cirello.io/dynamolock/v2 v2.0.2 // indirect
 	github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c // indirect
 	github.com/apache/thrift v0.18.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.4.11 // indirect
@@ -28,7 +28,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.37 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.31 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.1.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.19.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.14.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.9.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.1.32 // indirect
@@ -70,7 +69,6 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/pierrec/lz4/v4 v4.1.18 // indirect
-	github.com/stretchr/testify v1.8.4 // indirect
 	golang.org/x/sys v0.11.0 // indirect
 )
 

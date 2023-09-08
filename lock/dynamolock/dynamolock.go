@@ -20,7 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/rivian/delta-go/internal/utils"
+	"github.com/rivian/delta-go/internal/dynamodbutils"
 	"github.com/rivian/delta-go/lock"
 )
 
@@ -29,7 +29,7 @@ type DynamoLock struct {
 	lockClient   *dynamolock.Client
 	lockedItem   *dynamolock.Lock
 	key          string
-	dynamoClient utils.DynamoDBClient
+	dynamoClient dynamodbutils.DynamoDBClient
 	opts         Options
 }
 
@@ -64,7 +64,7 @@ func (opts *Options) setOptionsDefaults() {
 }
 
 // Creates a new DynamoDB lock object
-func New(client utils.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
+func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
 	opts.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
@@ -89,7 +89,7 @@ func New(client utils.DynamoDBClient, tableName string, key string, opts Options
 		},
 		TableName: aws.String(tableName),
 	}
-	utils.TryEnsureDynamoDBTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
+	dynamodbutils.TryEnsureDynamoDBTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
 
 	l := new(DynamoLock)
 	l.tableName = tableName

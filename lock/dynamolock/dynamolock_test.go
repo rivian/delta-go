@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rivian/delta-go/internal/dynamodbmock"
+	"github.com/rivian/delta-go/internal/dynamodbutils"
 )
 
 func TestLock(t *testing.T) {
-	client := dynamodbmock.New()
+	client := dynamodbutils.NewMockClient()
 	options := Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
@@ -45,7 +45,7 @@ func TestLock(t *testing.T) {
 }
 
 func TestNewLock(t *testing.T) {
-	client := dynamodbmock.New()
+	client := dynamodbutils.NewMockClient()
 	options := Options{
 		TTL: 3 * time.Second,
 	}
@@ -86,7 +86,7 @@ func TestNewLock(t *testing.T) {
 }
 
 func TestDeleteOnRelease(t *testing.T) {
-	client := dynamodbmock.New()
+	client := dynamodbutils.NewMockClient()
 	opts := Options{
 		TTL:             2 * time.Second,
 		HeartBeat:       10 * time.Millisecond,
