@@ -29,17 +29,20 @@ var (
 	ErrorCannotFindItems                 error = errors.New("cannot find items")
 )
 
+// Stores the partition and sort key for a DynamoDB table (aprimary key is composed of a partition and sort key)
 type DynamoDBPrimaryKey struct {
 	partitionKey string
 	sortKey      string
 }
 
+// Stores the data structures used to mock DynamoDB
 type MockDynamoDBClient struct {
 	DynamoDBClient
 	tablesToPrimaryKeys map[string]DynamoDBPrimaryKey
 	tablesToItems       map[string][]map[string]types.AttributeValue
 }
 
+// Creates a new MockDynamoDBClient instance
 func NewMockClient() *MockDynamoDBClient {
 	m := new(MockDynamoDBClient)
 	m.tablesToPrimaryKeys = make(map[string]DynamoDBPrimaryKey)
@@ -47,14 +50,17 @@ func NewMockClient() *MockDynamoDBClient {
 	return m
 }
 
+// Gets the map of DynamoDB tables to primary keys
 func (m *MockDynamoDBClient) GetTablesToPrimaryKeys() map[string]DynamoDBPrimaryKey {
 	return m.tablesToPrimaryKeys
 }
 
+// Gets the map of DynamoDB tables to DynamoDB items
 func (m *MockDynamoDBClient) GetTablesToItems() map[string][]map[string]types.AttributeValue {
 	return m.tablesToItems
 }
 
+// Gets an item from a mock DynamoDB table
 func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
 	_, ok := m.tablesToItems[*input.TableName]
 	if !ok {
@@ -70,6 +76,7 @@ func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemI
 	return &dynamodb.GetItemOutput{}, nil
 }
 
+// Puts an item into a mock DynamoDB table
 func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
 	_, ok := m.tablesToPrimaryKeys[*input.TableName]
 	if !ok {
@@ -106,10 +113,12 @@ func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemI
 	return &dynamodb.PutItemOutput{}, nil
 }
 
+// Updates an item in a mock DynamoDB table
 func (m *MockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	return &dynamodb.UpdateItemOutput{}, nil
 }
 
+// Deletes an item from a mock DynamoDB table
 func (m *MockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
 	_, ok := m.tablesToItems[*input.TableName]
 	if !ok {
@@ -130,6 +139,7 @@ func (m *MockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.Delet
 	return &dynamodb.DeleteItemOutput{}, nil
 }
 
+// Creates a mock DynamoDB table
 func (m *MockDynamoDBClient) CreateTable(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
 	m.tablesToPrimaryKeys[*input.TableName] = DynamoDBPrimaryKey{}
 
@@ -155,6 +165,7 @@ func (m *MockDynamoDBClient) CreateTable(_ context.Context, input *dynamodb.Crea
 	return &dynamodb.CreateTableOutput{}, nil
 }
 
+// Describes a mock DynamoDB table
 func (m *MockDynamoDBClient) DescribeTable(_ context.Context, input *dynamodb.DescribeTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
 	_, ok := m.tablesToItems[*input.TableName]
 	if ok {
@@ -164,6 +175,7 @@ func (m *MockDynamoDBClient) DescribeTable(_ context.Context, input *dynamodb.De
 	return &dynamodb.DescribeTableOutput{}, ErrorTableDoesNotExist
 }
 
+// Queries a mock DynamoDB table
 func (m *MockDynamoDBClient) Query(_ context.Context, input *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 	_, ok := m.tablesToItems[*input.TableName]
 	if !ok {
@@ -188,6 +200,7 @@ func (m *MockDynamoDBClient) Query(_ context.Context, input *dynamodb.QueryInput
 	return &dynamodb.QueryOutput{}, ErrorCannotFindItems
 }
 
+// Checks if a map is a subset of another map
 func IsMapSubset[K, V comparable](m map[K]V, sub map[K]V, opts ...cmp.Option) bool {
 	if len(sub) > len(m) {
 		return false

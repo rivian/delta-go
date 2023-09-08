@@ -26,6 +26,7 @@ var (
 	ErrorExceededTableCreateRetryAttempts error = errors.New("failed to create table")
 )
 
+// Defines methods implemented in the DynamoDB mock implementation
 type DynamoDBClient interface {
 	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
@@ -36,6 +37,7 @@ type DynamoDBClient interface {
 	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
+// Tries to create a DynamoDB table only if it doesn't exist
 func TryEnsureDynamoDBTableExists(client DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
 	attemptNumber := 0
 	created := false
