@@ -33,7 +33,7 @@ type CommitEntry struct {
 	ExpireTime uint64
 }
 
-// Creates a new commit entry instance
+// Creates a new CommitEntry instance
 func NewCommitEntry(tablePath storage.Path, fileName storage.Path, tempPath storage.Path, complete bool, expireTime uint64) (*CommitEntry, error) {
 	ece := new(CommitEntry)
 	ece.TablePath = tablePath

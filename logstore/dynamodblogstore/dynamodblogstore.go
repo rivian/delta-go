@@ -205,7 +205,7 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 	return ls, nil
 }
 
-// Puts an entry into a DynamoDBLogStore instance in an exlusive way
+// Puts an entry into a DynamoDBLogStore instance in an exclusive way
 func (ls *DynamoDBLogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
 	log.Debugf("delta-go: PutItem (tablePath %s, fileName %s, tempPath %s, complete %t, expireTime %d, overwrite %t)", entry.TablePath, entry.FileName, entry.TempPath, entry.Complete, entry.ExpireTime, overwrite)
 
