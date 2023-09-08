@@ -54,7 +54,7 @@ func (opts *Options) setOptionsDefaults() {
 	}
 }
 
-// Creates a new file lock instance
+// Creates a new FileLock instance
 func New(baseURI *storage.Path, key string, opts Options) *FileLock {
 	opts.setOptionsDefaults()
 
@@ -66,7 +66,7 @@ func New(baseURI *storage.Path, key string, opts Options) *FileLock {
 	return l
 }
 
-// Creates a new file lock instance using an existing file lock instance
+// Creates a new FileLock instance using an existing FileLock instance
 func (l *FileLock) NewLock(key string) (lock.Locker, error) {
 	nl := new(FileLock)
 	nl.baseURI = l.baseURI

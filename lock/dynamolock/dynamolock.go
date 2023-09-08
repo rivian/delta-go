@@ -63,7 +63,7 @@ func (opts *Options) setOptionsDefaults() {
 	}
 }
 
-// Creates a new DynamoDB lock instance
+// Creates a new DynamoLock instance
 func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
 	opts.setOptionsDefaults()
 
@@ -100,7 +100,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 	return l, nil
 }
 
-// Creates a new DynamoDB lock instance using an existing DynamoDB lock instance
+// Creates a new DynamoLock instance using an existing DynamoLock instance
 func (l *DynamoLock) NewLock(key string) (lock.Locker, error) {
 	nl := new(DynamoLock)
 	nl.tableName = l.tableName

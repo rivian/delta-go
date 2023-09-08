@@ -29,7 +29,7 @@ var (
 	ErrorCannotFindItems                 error = errors.New("cannot find items")
 )
 
-// Stores the partition and sort key for a DynamoDB table (aprimary key is composed of a partition and sort key)
+// Stores the partition and sort key for a DynamoDB table (a primary key is composed of a partition and sort key)
 type DynamoDBPrimaryKey struct {
 	partitionKey string
 	sortKey      string

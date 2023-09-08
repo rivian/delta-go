@@ -54,7 +54,7 @@ func (opts *Options) setOptionsDefaults() {
 	}
 }
 
-// Creates a new Redis lock instance using a Redis client
+// Creates a new RedisLock instance using a Redis client
 func NewFromClient(client goredislib.UniversalClient, key string, opts Options) *RedisLock {
 	pool := goredis.NewPool(client)
 	rs := redsync.New(pool)
@@ -64,7 +64,7 @@ func NewFromClient(client goredislib.UniversalClient, key string, opts Options) 
 	return l
 }
 
-// Creates a new Redis lock instance using a Redsync instance
+// Creates a new RedisLock instance using a Redsync instance
 func New(rs *redsync.Redsync, key string, opts Options) *RedisLock {
 	opts.setOptionsDefaults()
 
@@ -79,7 +79,7 @@ func New(rs *redsync.Redsync, key string, opts Options) *RedisLock {
 	return l
 }
 
-// Creates a new Redis lock instance using an existing Redis lock instance
+// Creates a new RedisLock instance using an existing RedisLock instance
 func (l *RedisLock) NewLock(key string) (lock.Locker, error) {
 	nl := new(RedisLock)
 	nl.key = key
