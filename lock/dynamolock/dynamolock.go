@@ -31,7 +31,7 @@ type DynamoLock struct {
 	lockedItem   *dynamolock.Lock
 	key          string
 	dynamoClient dynamodbmock.DynamoDBClient
-	options      Options
+	opts         Options
 }
 
 // Compile time check that FileLock implements lock.Locker
@@ -55,23 +55,23 @@ const (
 )
 
 // Sets the default options
-func (options *Options) setOptionsDefaults() {
-	if options.TTL == 0 {
-		options.TTL = TTL
+func (opts *Options) setOptionsDefaults() {
+	if opts.TTL == 0 {
+		opts.TTL = TTL
 	}
-	if options.MaxRetryTableCreateAttempts == 0 {
-		options.MaxRetryTableCreateAttempts = MaxRetryTableCreateAttempts
+	if opts.MaxRetryTableCreateAttempts == 0 {
+		opts.MaxRetryTableCreateAttempts = MaxRetryTableCreateAttempts
 	}
 }
 
 // Creates a new DynamoDB lock object
-func New(client dynamodbmock.DynamoDBClient, tableName string, key string, options Options) (*DynamoLock, error) {
-	options.setOptionsDefaults()
+func New(client dynamodbmock.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
+	opts.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
 		tableName,
-		dynamolock.WithLeaseDuration(options.TTL),
-		dynamolock.WithHeartbeatPeriod(options.HeartBeat),
+		dynamolock.WithLeaseDuration(opts.TTL),
+		dynamolock.WithHeartbeatPeriod(opts.HeartBeat),
 	)
 	if err != nil {
 		return nil, err
@@ -85,18 +85,18 @@ func New(client dynamodbmock.DynamoDBClient, tableName string, key string, optio
 			},
 		},
 		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(options.RCU),
-			WriteCapacityUnits: aws.Int64(options.WCU),
+			ReadCapacityUnits:  aws.Int64(opts.RCU),
+			WriteCapacityUnits: aws.Int64(opts.WCU),
 		},
 		TableName: aws.String(tableName),
 	}
-	utils.TryEnsureDynamoDbTableExists(client, tableName, createTableInput, options.MaxRetryTableCreateAttempts)
+	utils.TryEnsureDynamoDbTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
 
 	l := new(DynamoLock)
 	l.tableName = tableName
 	l.key = key
 	l.lockClient = lc
-	l.options = options
+	l.opts = opts
 	l.dynamoClient = client
 	return l, nil
 }
@@ -108,7 +108,7 @@ func (l *DynamoLock) NewLock(key string) (lock.Locker, error) {
 	nl.lockClient = l.lockClient
 	nl.key = key
 	nl.dynamoClient = l.dynamoClient
-	nl.options = l.options
+	nl.opts = l.opts
 
 	return nl, nil
 }
@@ -125,7 +125,7 @@ func (l *DynamoLock) TryLock() (bool, error) {
 
 // Releases a DynamoDB lock
 func (l *DynamoLock) Unlock() error {
-	success, err := l.lockClient.ReleaseLock(l.lockedItem, dynamolock.WithDeleteLock(l.options.DeleteOnRelease))
+	success, err := l.lockClient.ReleaseLock(l.lockedItem, dynamolock.WithDeleteLock(l.opts.DeleteOnRelease))
 	if !success {
 		return lock.ErrorUnableToUnlock
 	}

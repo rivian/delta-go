@@ -14,10 +14,17 @@ package dynamodbmock
 
 import (
 	"context"
+	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/google/go-cmp/cmp"
 	"golang.org/x/exp/slices"
+)
+
+var (
+	ErrorKeyNotFound       error = errors.New("key not found")
+	ErrorTableDoesNotExist error = errors.New("table does not exist")
 )
 
 type DynamoDBClient interface {
@@ -31,20 +38,32 @@ type DynamoDBClient interface {
 
 type MockDynamoDBClient struct {
 	DynamoDBClient
-	keys []string
+	tables map[string][]map[string]types.AttributeValue
 }
 
-func (m *MockDynamoDBClient) GetKeys() []string {
-	return m.keys
+func New() *MockDynamoDBClient {
+	m := new(MockDynamoDBClient)
+	m.tables = make(map[string][]map[string]types.AttributeValue)
+	return m
+}
+
+func (m *MockDynamoDBClient) GetTables() map[string][]map[string]types.AttributeValue {
+	return m.tables
 }
 
 func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	for _, item := range m.tables[*input.TableName] {
+		if IsMapSubset[string, types.AttributeValue](item, input.Key) {
+			return &dynamodb.GetItemOutput{}, nil
+		}
+	}
+
 	return &dynamodb.GetItemOutput{}, nil
 }
 
 func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	m.keys = append(m.keys, input.Item["key"].(*types.AttributeValueMemberS).Value)
-	return &dynamodb.PutItemOutput{Attributes: input.Item}, nil
+	m.tables[*input.TableName] = append(m.tables[*input.TableName], input.Item)
+	return &dynamodb.PutItemOutput{}, nil
 }
 
 func (m *MockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
@@ -52,15 +71,44 @@ func (m *MockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.Updat
 }
 
 func (m *MockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
-	posInSlice := slices.Index(m.keys, input.Key["key"].(*types.AttributeValueMemberS).Value)
-	m.keys = slices.Delete(m.keys, posInSlice, posInSlice+1)
+	var itemToDelete map[string]types.AttributeValue
+	for _, item := range m.tables[*input.TableName] {
+		if IsMapSubset[string, types.AttributeValue](item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
+			itemToDelete = item
+		}
+	}
+
+	posInSlice := slices.IndexFunc(m.tables[*input.TableName], func(v map[string]types.AttributeValue) bool {
+		return cmp.Equal(v, itemToDelete, cmp.AllowUnexported(types.AttributeValueMemberS{}))
+	})
+	m.tables[*input.TableName] = slices.Delete(m.tables[*input.TableName], posInSlice, posInSlice+1)
 	return &dynamodb.DeleteItemOutput{}, nil
 }
 
 func (m *MockDynamoDBClient) CreateTable(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
+	m.tables[*input.TableName] = []map[string]types.AttributeValue{}
 	return &dynamodb.CreateTableOutput{}, nil
 }
 
 func (m *MockDynamoDBClient) DescribeTable(_ context.Context, input *dynamodb.DescribeTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
-	return &dynamodb.DescribeTableOutput{}, nil
+	_, ok := m.tables[*input.TableName]
+	if ok {
+		return &dynamodb.DescribeTableOutput{Table: &types.TableDescription{TableStatus: "ACTIVE"}}, nil
+	}
+
+	return &dynamodb.DescribeTableOutput{}, ErrorTableDoesNotExist
+}
+
+func IsMapSubset[K, V comparable](m map[K]V, sub map[K]V, opts ...cmp.Option) bool {
+	if len(sub) > len(m) {
+		return false
+	}
+
+	for k, vsub := range sub {
+		if vm, found := m[k]; !found || !cmp.Equal(vm, vsub, opts...) {
+			return false
+		}
+	}
+
+	return true
 }

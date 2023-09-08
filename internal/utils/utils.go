@@ -48,6 +48,8 @@ func TryEnsureDynamoDbTableExists(client dynamodbmock.DynamoDBClient, tableName 
 			if err != nil {
 				log.Debugf("delta-go: Table %s just created by concurrent process. %v", tableName, err)
 			}
+
+			created = true
 		}
 
 		if result == nil || result.Table == nil {

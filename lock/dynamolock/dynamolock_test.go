@@ -20,7 +20,7 @@ import (
 )
 
 func TestLock(t *testing.T) {
-	client := &dynamodbmock.MockDynamoDBClient{}
+	client := dynamodbmock.New()
 	options := Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
@@ -45,7 +45,7 @@ func TestLock(t *testing.T) {
 }
 
 func TestNewLock(t *testing.T) {
-	client := &dynamodbmock.MockDynamoDBClient{}
+	client := dynamodbmock.New()
 	options := Options{
 		TTL: 3 * time.Second,
 	}
@@ -86,13 +86,13 @@ func TestNewLock(t *testing.T) {
 }
 
 func TestDeleteOnRelease(t *testing.T) {
-	client := &dynamodbmock.MockDynamoDBClient{}
-	options := Options{
+	client := dynamodbmock.New()
+	opts := Options{
 		TTL:             2 * time.Second,
 		HeartBeat:       10 * time.Millisecond,
 		DeleteOnRelease: true,
 	}
-	l, err := New(client, "delta_lock_table", "_commit.lock", options)
+	l, err := New(client, "delta_lock_table", "_commit.lock", opts)
 	if err != nil {
 		t.Error(err)
 	}
@@ -112,15 +112,15 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.GetKeys()) != 0 {
+	if len(client.GetTables()["delta_lock_table"]) != 0 {
 		t.Error("Lock should be deleted on release")
 	}
 
-	options = Options{
+	opts = Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
 	}
-	l, err = New(client, "delta_lock_table", "_new_commit.lock", options)
+	l, err = New(client, "delta_lock_table", "_new_commit.lock", opts)
 	if err != nil {
 		t.Error(err)
 	}
@@ -140,7 +140,7 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.GetKeys()) != 1 {
+	if len(client.GetTables()["delta_lock_table"]) != 1 {
 		t.Error("Lock should not be deleted on release")
 	}
 }
