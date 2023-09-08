@@ -89,7 +89,7 @@ func New(client utils.DynamoDBClient, tableName string, key string, opts Options
 		},
 		TableName: aws.String(tableName),
 	}
-	utils.TryEnsureDynamoDbTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
+	utils.TryEnsureDynamoDBTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
 
 	l := new(DynamoLock)
 	l.tableName = tableName
