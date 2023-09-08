@@ -7,4 +7,4 @@ How is this tested? Please see the checklist below and also describe any other r
 -->
 
 - [ ] `make test` passing
-- [ ] relevant integration tests applied
+- [ ] relevant integration tests passing
