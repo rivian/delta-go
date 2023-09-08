@@ -109,22 +109,27 @@ type DynamoDBLogStoreOptions struct {
 	WCU                         int64
 }
 
+// Gets the client from a DynamoDBLogStore instance
 func (ls DynamoDBLogStore) GetClient() dynamodbutils.DynamoDBClient {
 	return ls.client
 }
 
+// Gets the table name from a DynamoDBLogStore instance
 func (ls DynamoDBLogStore) GetTableName() string {
 	return ls.tableName
 }
 
+// Gets the number of expiration delay seconds from a DynamoDBLogStore instance
 func (ls DynamoDBLogStore) GetExpirationDelaySeconds() uint64 {
 	return ls.expirationDelaySeconds
 }
 
+// Gets the maximum number of table creation retry attempts from a DynamoDBLogStore instance
 func (ls DynamoDBLogStore) GetMaxRetryTableCreateAttempts() uint16 {
 	return ls.maxRetryTableCreateAttempts
 }
 
+// Creates a new DynamoDBLogStore instance
 func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error) {
 	ls := new(DynamoDBLogStore)
 	ls.tableName = lso.TableName
@@ -199,7 +204,8 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 	return ls, nil
 }
 
-func (ls *DynamoDBLogStore) PutExternalEntry(entry *logstore.ExternalCommitEntry, overwrite bool) error {
+// Puts an entry into a DynamoDBLogStore instance in an exlusive way
+func (ls *DynamoDBLogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
 	log.Debugf("delta-go: PutItem (tablePath %s, fileName %s, tempPath %s, complete %t, expireTime %d, overwrite %t)", entry.TablePath, entry.FileName, entry.TempPath, entry.Complete, entry.ExpireTime, overwrite)
 
 	pir, err := ls.createPutItemRequest(entry, overwrite)
@@ -213,7 +219,8 @@ func (ls *DynamoDBLogStore) PutExternalEntry(entry *logstore.ExternalCommitEntry
 	return err
 }
 
-func (ls *DynamoDBLogStore) GetExternalEntry(tablePath *storage.Path, fileName *storage.Path) (*logstore.ExternalCommitEntry, error) {
+// Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName` from a DynamoDBLogStore instance
+func (ls *DynamoDBLogStore) Get(tablePath *storage.Path, fileName *storage.Path) (*logstore.CommitEntry, error) {
 	attributes := map[string]types.AttributeValue{AttrTablePath: &types.AttributeValueMemberS{Value: tablePath.Raw}, AttrFileName: &types.AttributeValueMemberS{Value: fileName.Raw}}
 
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
@@ -232,7 +239,8 @@ func (ls *DynamoDBLogStore) GetExternalEntry(tablePath *storage.Path, fileName *
 	return ece, err
 }
 
-func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath *storage.Path) (*logstore.ExternalCommitEntry, error) {
+// Gets the latest entry corresponding to the Delta log file for given `tablePath` from a DynamoDBLogStore instance
+func (ls *DynamoDBLogStore) GetLatest(tablePath *storage.Path) (*logstore.CommitEntry, error) {
 	qi := dynamodb.QueryInput{TableName: &ls.tableName, ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1), ExpressionAttributeValues: map[string]types.AttributeValue{
 		":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw},
 	}, KeyConditionExpression: aws.String(fmt.Sprintf("%s = :partitionKey", AttrTablePath))}
@@ -251,8 +259,8 @@ func (ls *DynamoDBLogStore) GetLatestExternalEntry(tablePath *storage.Path) (*lo
 	return ece, nil
 }
 
-// Maps a DBB query result item to an ExternalCommitEntry
-func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.AttributeValue) (*logstore.ExternalCommitEntry, error) {
+// Maps a DynamoDB query output item to a CommitEntry instance
+func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.AttributeValue) (*logstore.CommitEntry, error) {
 	var expireTimeAttr uint64
 	var err error
 
@@ -267,7 +275,7 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 		}
 	}
 
-	return logstore.NewExternalCommitEntry(
+	return logstore.NewCommitEntry(
 		*storage.NewPath(item[AttrTablePath].(*types.AttributeValueMemberS).Value),
 		*storage.NewPath(item[AttrFileName].(*types.AttributeValueMemberS).Value),
 		*storage.NewPath(item[AttrTempPath].(*types.AttributeValueMemberS).Value),
@@ -276,7 +284,8 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 	)
 }
 
-func (ls *DynamoDBLogStore) createPutItemRequest(entry *logstore.ExternalCommitEntry, overwrite bool) (*dynamodb.PutItemInput, error) {
+// Creates a put item request for an item to be inserted into a DynamoDBLogStore instance
+func (ls *DynamoDBLogStore) createPutItemRequest(entry *logstore.CommitEntry, overwrite bool) (*dynamodb.PutItemInput, error) {
 	attributes := map[string]types.AttributeValue{AttrTablePath: &types.AttributeValueMemberS{Value: entry.TablePath.Raw}, AttrFileName: &types.AttributeValueMemberS{Value: entry.FileName.Raw}, AttrTempPath: &types.AttributeValueMemberS{Value: entry.TempPath.Raw}, AttrComplete: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.Complete))}}
 
 	if entry.ExpireTime != 0 {
@@ -294,6 +303,7 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *logstore.ExternalCommitE
 	return pir, nil
 }
 
+// Gets a DynamoDB client for a DynamoDBLogStore instance from an AWS config
 func (ls *DynamoDBLogStore) getClient(config aws.Config) (dynamodbutils.DynamoDBClient, error) {
 	return dynamodb.NewFromConfig(config), nil
 }

@@ -15,12 +15,12 @@ package logstore
 import "github.com/rivian/delta-go/storage"
 
 type LogStore interface {
-	// Writes to external store in exclusive way
-	PutExternalEntry(entry *ExternalCommitEntry, overwrite bool) error
+	// Puts an entry into a log store in an exlusive way
+	Put(entry *CommitEntry, overwrite bool) error
 
-	// Returns external store entry corresponding to Delta log file with given `tablePath` and `fileName`
-	GetExternalEntry(tablePath *storage.Path, fileName *storage.Path) (*ExternalCommitEntry, error)
+	// Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName`
+	Get(tablePath *storage.Path, fileName *storage.Path) (*CommitEntry, error)
 
-	// Returns the latest external store entry corresponding to the Delta log for given `tablePath`
-	GetLatestExternalEntry(tablePath *storage.Path) (*ExternalCommitEntry, error)
+	// Gets the latest entry corresponding to the Delta log file for given `tablePath`
+	GetLatest(tablePath *storage.Path) (*CommitEntry, error)
 }

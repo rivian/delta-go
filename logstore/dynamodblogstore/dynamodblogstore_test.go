@@ -27,35 +27,35 @@ func TestGetExternalEntry(t *testing.T) {
 		t.Error("failed to create DynamoDB log store")
 	}
 
-	ece, err := logstore.NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
+	ece, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("failed to create external commit entry")
 	}
-	err = ls.PutExternalEntry(ece, false)
+	err = ls.Put(ece, false)
 	if err != nil {
 		t.Error("failed to put external commit entry")
 	}
 
-	ece, err = logstore.NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
+	ece, err = logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("failed to create external commit entry")
 	}
-	err = ls.PutExternalEntry(ece, false)
+	err = ls.Put(ece, false)
 	if err == nil {
 		t.Error("external commit entry already exists")
 	}
 
-	ece, err = ls.GetExternalEntry(storage.NewPath("usr/local/"), storage.NewPath("01.json"))
+	ece, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("01.json"))
 	if err != nil || ece == nil {
 		t.Error("failed to get external commit entry")
 	}
 
-	ece, err = ls.GetExternalEntry(storage.NewPath("usr/local/A"), storage.NewPath("01.json"))
+	ece, err = ls.Get(storage.NewPath("usr/local/A"), storage.NewPath("01.json"))
 	if err == nil || ece != nil {
 		t.Error("no external commit entry should be returned")
 	}
 
-	_, err = ls.GetExternalEntry(storage.NewPath("usr/local/"), storage.NewPath("02.json"))
+	_, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("02.json"))
 	if err == nil || ece != nil {
 		t.Error("no external commit entry should be returned")
 	}
@@ -68,25 +68,25 @@ func TestGetLatestExternalEntry(t *testing.T) {
 		t.Error("failed to create DynamoDB log store")
 	}
 
-	eceFirst, err := logstore.NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
+	eceFirst, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("failed to create external commit entry")
 	}
-	err = ls.PutExternalEntry(eceFirst, false)
+	err = ls.Put(eceFirst, false)
 	if err != nil {
 		t.Error("failed to put external commit entry")
 	}
 
-	eceSecond, err := logstore.NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("02.json"), *storage.NewPath("02.tmp"), false, uint64(0))
+	eceSecond, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("02.json"), *storage.NewPath("02.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("failed to create external commit entry")
 	}
-	err = ls.PutExternalEntry(eceSecond, false)
+	err = ls.Put(eceSecond, false)
 	if err != nil {
 		t.Error("failed to put external commit entry")
 	}
 
-	eceLatest, err := ls.GetLatestExternalEntry(storage.NewPath("usr/local/"))
+	eceLatest, err := ls.GetLatest(storage.NewPath("usr/local/"))
 	if err != nil || eceLatest == nil {
 		t.Error("failed to get latest external commit entry")
 	}
@@ -94,7 +94,7 @@ func TestGetLatestExternalEntry(t *testing.T) {
 		t.Error("got incorrect latest external commit entry")
 	}
 
-	_, err = ls.GetLatestExternalEntry(storage.NewPath("usr/local/A"))
+	_, err = ls.GetLatest(storage.NewPath("usr/local/A"))
 	if err == nil {
 		t.Error("no external commit entry should be returned")
 	}
@@ -107,20 +107,20 @@ func TestPutExternalEntryOverwrite(t *testing.T) {
 		t.Error("failed to create DynamoDB log store")
 	}
 
-	ece, err := logstore.NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
+	ece, err := logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("failed to create external commit entry")
 	}
-	err = ls.PutExternalEntry(ece, true)
+	err = ls.Put(ece, true)
 	if err != nil {
 		t.Error("failed to put external commit entry")
 	}
 
-	ece, err = logstore.NewExternalCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), true, uint64(0))
+	ece, err = logstore.NewCommitEntry(*storage.NewPath("usr/local/"), *storage.NewPath("01.json"), *storage.NewPath("01.tmp"), true, uint64(0))
 	if err != nil {
 		t.Error("failed to create external commit entry")
 	}
-	err = ls.PutExternalEntry(ece, true)
+	err = ls.Put(ece, true)
 	if err != nil {
 		t.Error("failed to overwrite external commit entry")
 	}
@@ -129,7 +129,7 @@ func TestPutExternalEntryOverwrite(t *testing.T) {
 		t.Error("incorrect number of items in table")
 	}
 
-	ece, err = ls.GetLatestExternalEntry(storage.NewPath("usr/local/"))
+	ece, err = ls.GetLatest(storage.NewPath("usr/local/"))
 	if err != nil {
 		t.Error("failed to get latest external commit entry")
 	}
