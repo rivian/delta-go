@@ -21,7 +21,7 @@ import (
 // Wrapper struct representing an entry in an external store for a given commit into the Delta log
 // Contains relevant fields and helper methods have been defined
 type ExternalCommitEntry struct {
-	// Absolute path to this delta table
+	// Absolute path for Delta table
 	TablePath storage.Path
 	// File name of this commit, e.g. "000000N.json"
 	FileName storage.Path
@@ -29,8 +29,7 @@ type ExternalCommitEntry struct {
 	TempPath storage.Path
 	// true if Delta JSON file is successfully copied to its destination location, else false
 	Complete bool
-	// If complete = true, epoch seconds at which this external commit entry is safe to be deleted
-	// Else, null
+	// Epoch seconds at which this external commit entry is safe to be deleted if complete = true, else 0
 	ExpireTime uint64
 }
 

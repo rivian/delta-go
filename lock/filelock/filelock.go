@@ -44,13 +44,13 @@ type Options struct {
 }
 
 const (
-	TTL time.Duration = 60 * time.Second
+	DefaultTTL time.Duration = 60 * time.Second
 )
 
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {
 	if opts.TTL == 0 {
-		opts.TTL = TTL
+		opts.TTL = DefaultTTL
 	}
 }
 

@@ -18,9 +18,9 @@ type LogStore interface {
 	// Writes to external store in exclusive way
 	PutExternalEntry(entry *ExternalCommitEntry, overwrite bool) error
 
-	// Returns external store entry corresponding to delta log file with given `tablePath` and `fileName`
+	// Returns external store entry corresponding to Delta log file with given `tablePath` and `fileName`
 	GetExternalEntry(tablePath *storage.Path, fileName *storage.Path) (*ExternalCommitEntry, error)
 
-	// Returns the latest external store entry corresponding to the delta log for given `tablePath`
+	// Returns the latest external store entry corresponding to the Delta log for given `tablePath`
 	GetLatestExternalEntry(tablePath *storage.Path) (*ExternalCommitEntry, error)
 }

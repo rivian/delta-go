@@ -48,18 +48,18 @@ type Options struct {
 }
 
 const (
-	TTL                         time.Duration = 60 * time.Second
-	Heartbeat                   time.Duration = 1 * time.Second
-	MaxRetryTableCreateAttempts               = 20
+	DefaultTTL                         time.Duration = 60 * time.Second
+	DefaultHeartbeat                   time.Duration = 1 * time.Second
+	DefaultMaxRetryTableCreateAttempts uint16        = 20
 )
 
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {
 	if opts.TTL == 0 {
-		opts.TTL = TTL
+		opts.TTL = DefaultTTL
 	}
 	if opts.MaxRetryTableCreateAttempts == 0 {
-		opts.MaxRetryTableCreateAttempts = MaxRetryTableCreateAttempts
+		opts.MaxRetryTableCreateAttempts = DefaultMaxRetryTableCreateAttempts
 	}
 }
 

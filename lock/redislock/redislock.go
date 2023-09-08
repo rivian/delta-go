@@ -40,21 +40,17 @@ type Options struct {
 var _ lock.Locker = (*RedisLock)(nil)
 
 const (
-	TTL                    time.Duration = 60 * time.Second
-	maxTries               int           = 20
-	baseMilliSec           float64       = 100
-	multiplier             float64       = 1.5
-	minRandomNoiseMilliSec float64       = 50
-	maxRandomNoiseMilliSec float64       = 250
+	DefaultTTL      time.Duration = 60 * time.Second
+	DefaultMaxTries int           = 20
 )
 
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {
 	if opts.TTL == 0 {
-		opts.TTL = TTL
+		opts.TTL = DefaultTTL
 	}
 	if opts.MaxTries == 0 {
-		opts.MaxTries = maxTries
+		opts.MaxTries = DefaultMaxTries
 	}
 }
 

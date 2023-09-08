@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	// Compile time check that DynamoDBLogStore implements KeyValueStore
+	// Compile time check that DynamoDBLogStore implements LogStore
 	_                             LogStore = (*DynamoDBLogStore)(nil)
 	ErrorUnableToGetExternalEntry error    = errors.New("unable to get external entry")
 )
@@ -71,7 +71,7 @@ const (
 	//        OCCURRED.
 
 	// By using an expiration delay of 1 day, we ensure one of the steps at t9 or t12 will fail.
-	DefaultExternalEntryExpirationDelaySeconds uint64 = 86400
+	DefaultExternalEntryExpirationDelaySeconds uint64 = 24 * 60 * 60
 	DefaultMaxRetryTableCreateAttempts         uint16 = 20
 	DefaultRCU                                 int64  = 5
 	DefaultWCU                                 int64  = 5
@@ -83,12 +83,12 @@ const (
 // DynamoDB entries are of form
 // - key
 // -- tablePath (HASH, STRING)
-// -- filename (RANGE, STRING)
+// -- fileName (RANGE, STRING)
 
 // - attributes
 // -- tempPath (STRING, relative to _delta_log)
 // -- complete (STRING, representing boolean, "true" or "false")
-// -- commitTime (NUMBER, epoch seconds)
+// -- expireTime (NUMBER, epoch seconds)
 type DynamoDBLogStore struct {
 	client                      utils.DynamoDBClient
 	tableName                   string
