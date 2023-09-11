@@ -898,9 +898,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 	}
 
 	for _, enableCleanupInTableConfig := range tests {
-
 		for _, disableCleanupInCheckpointConfig := range tests {
-
 			store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "", false)
 
 			table := NewDeltaTable(store, lock, stateStore)

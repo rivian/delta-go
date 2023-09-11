@@ -18,7 +18,6 @@ import (
 )
 
 func TestGetSchema(t *testing.T) {
-
 	type SubStruct struct {
 		Data string `parquet:"data"`
 	}
@@ -73,7 +72,6 @@ func TestGetSchema(t *testing.T) {
 }
 
 func TestGetSchemaWithWeirdTypes(t *testing.T) {
-
 	type RowType struct {
 		Bin       []byte `parquet:"bin,snappy"`
 		Timestamp int64  `parquet:"timestamp,snappy" type:"timestamp"`

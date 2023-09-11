@@ -234,7 +234,6 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 }
 
 func TestTryCommitWithExistingLock(t *testing.T) {
-
 	tmpDir := t.TempDir()
 	fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 	os.MkdirAll(filepath.Dir(fileLockKey), 0700)
@@ -790,7 +789,6 @@ func (t *testData) UnmarshalJSON(data []byte) error {
 }
 
 func (data *testData) getSchema() SchemaTypeStruct {
-
 	// schema := GetSchema(data)
 	schema := SchemaTypeStruct{
 		Fields: []SchemaField{
@@ -852,7 +850,6 @@ type payload struct {
 }
 
 func writeParquet[T any](data []T, filename string) (*payload, error) {
-
 	p := new(payload)
 
 	file, err := os.Create(filename)

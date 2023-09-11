@@ -702,7 +702,6 @@ func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadat
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `DeltaTable.try_commit_transaction`.
 func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, appMetadata map[string]any) (PreparedCommit, error) {
-
 	anyCommitInfo := false
 	for _, action := range transaction.Actions {
 		switch action.(type) {

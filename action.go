@@ -485,7 +485,6 @@ func StatsFromJson(b []byte) (*Stats, error) {
 // the struct property is passed in as a pointer to ensure that it can be evaluated as nil[NULL]
 // TODO Handle struct types
 func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
-
 	var v T
 	if s.NullCount == nil {
 		s.NullCount = make(map[string]int64)
@@ -524,5 +523,4 @@ func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
 		s.MaxValues[k] = v
 
 	}
-
 }
