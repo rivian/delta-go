@@ -62,7 +62,7 @@ func (s *FileStateStore) Put(commitState state.CommitState) error {
 	if err != nil {
 		return errors.Join(state.ErrorCanNotWriteState, err)
 	}
-	data, err := json.Marshal(commitState)
+	data, _ := json.Marshal(commitState)
 	err = os.WriteFile(putPath, data, 0755)
 	if err != nil {
 		return errors.Join(state.ErrorCanNotWriteState, err)

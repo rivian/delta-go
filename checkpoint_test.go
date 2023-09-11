@@ -55,8 +55,8 @@ func setupCheckpointTest(t *testing.T, inputFolder string, overrideStore bool) (
 
 	os.MkdirAll(filepath.Join(tmpDir, "_delta_log"), 0777)
 	state = filestate.New(tmpPath, "_delta_log/_commit.state")
-	lock = filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
-	checkpointLock = filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.LockOptions{})
+	lock = filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
+	checkpointLock = filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.Options{})
 	return
 }
 
@@ -1141,7 +1141,7 @@ func TestCheckpointLocked(t *testing.T) {
 		t.Fatal("unable to obtain lock")
 	}
 
-	localLock := filelock.New(store.BaseURI, "_delta_log/_checkpoint.lock", filelock.LockOptions{})
+	localLock := filelock.New(store.BaseURI, "_delta_log/_checkpoint.lock", filelock.Options{})
 
 	checkpointed, err := CreateCheckpoint(store, localLock, NewCheckpointConfiguration(), 5)
 	if !errors.Is(err, lock.ErrorLockNotObtained) {
@@ -1167,7 +1167,7 @@ func TestCheckpointLocked(t *testing.T) {
 
 func TestCheckpointUnlockFailure(t *testing.T) {
 	store, _, _, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
-	brokenLock := testBrokenUnlockLocker{*filelock.New(store.BaseURI, "_delta_log/_commit.lock", filelock.LockOptions{TTL: 60 * time.Second})}
+	brokenLock := testBrokenUnlockLocker{*filelock.New(store.BaseURI, "_delta_log/_commit.lock", filelock.Options{TTL: 60 * time.Second})}
 
 	checkpointed, err := CreateCheckpoint(store, &brokenLock, NewCheckpointConfiguration(), 5)
 	if !errors.Is(err, lock.ErrorUnableToUnlock) {

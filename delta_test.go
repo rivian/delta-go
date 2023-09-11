@@ -47,7 +47,8 @@ import (
 
 func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	store := filestore.FileObjectStore{BaseURI: &storage.Path{Raw: "tmp/"}}
-	deltaTable := DeltaTable{Store: &store, LockClient: &filelock.FileLock{Key: "tmp/_delta_log/_commit.lock"}}
+	l := filelock.New(nil, "tmp/_delta_log/_commit.lock", filelock.Options{})
+	deltaTable := DeltaTable{Store: &store, LockClient: l}
 	options := DeltaTransactionOptions{MaxRetryCommitAttempts: 3}
 	os.MkdirAll("tmp/_delta_log/", 0700)
 	defer os.RemoveAll("tmp/_delta_log/")
@@ -247,10 +248,10 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 
 	tmpPath := storage.NewPath(tmpDir)
 	//Create w0 commit lock
-	w0lockClient := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{TTL: 10 * time.Second})
+	w0lockClient := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{TTL: 10 * time.Second})
 	w0lockClient.TryLock()
 	//try_commit while lock is held by w0
-	lockClient := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{TTL: 60 * time.Second})
+	lockClient := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{TTL: 60 * time.Second})
 	// lockClient.Unlock()
 
 	store := filestore.New(tmpPath)
@@ -305,7 +306,7 @@ func TestCommitUnlockFailure(t *testing.T) {
 
 	tmpPath := storage.NewPath(tmpDir)
 
-	lockClient := testBrokenUnlockLocker{*filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{TTL: 60 * time.Second})}
+	lockClient := testBrokenUnlockLocker{*filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{TTL: 60 * time.Second})}
 
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
@@ -572,7 +573,7 @@ func TestCommitConcurrent(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.LockOptions{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable(store, lock, state)
@@ -656,7 +657,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.LockOptions{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable(store, lock, state)
@@ -893,7 +894,7 @@ func setupTest(t *testing.T) (table *DeltaTable, state *filestate.FileStateStore
 	tmpPath := storage.NewPath(tmpDir)
 	store := filestore.New(tmpPath)
 	state = filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.LockOptions{})
+	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 	table = NewDeltaTable(store, lock, state)
 	return
 }

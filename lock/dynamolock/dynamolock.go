@@ -16,21 +16,22 @@ import (
 	"errors"
 	"time"
 
-	"cirello.io/dynamolock"
+	"cirello.io/dynamolock/v2"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/rivian/delta-go/internal/dynamodbutils"
 	"github.com/rivian/delta-go/lock"
 	log "github.com/sirupsen/logrus"
 )
 
 type DynamoLock struct {
-	TableName    string
-	LockClient   *dynamolock.Client
-	LockedItem   *dynamolock.Lock
-	Key          string
-	DynamoClient dynamodbiface.DynamoDBAPI
-	Options      LockOptions
+	tableName    string
+	lockClient   *dynamolock.Client
+	lockedItem   *dynamolock.Lock
+	key          string
+	dynamoClient dynamodbutils.DynamoDBClient
+	opts         Options
 }
 
 var (
@@ -39,70 +40,99 @@ var (
 	ErrorExceededTableCreateRetryAttempts error       = errors.New("failed to create table")
 )
 
-type LockOptions struct {
+type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
 	TTL                         time.Duration
 	HeartBeat                   time.Duration
-	maxRetryTableCreateAttempts uint16
+	DeleteOnRelease             bool
+	MaxRetryTableCreateAttempts uint16
+	RCU                         int64
+	WCU                         int64
 }
 
 const (
-	TTL                         time.Duration = 60 * time.Second
-	HEARTBEAT                   time.Duration = 1 * time.Second
-	MaxRetryTableCreateAttempts               = 20
+	DefaultTTL                         time.Duration = 60 * time.Second
+	DefaultHeartbeat                   time.Duration = 1 * time.Second
+	DefaultMaxRetryTableCreateAttempts uint16        = 20
 )
 
-func New(client dynamodbiface.DynamoDBAPI, tableName string, key string, opt LockOptions) (*DynamoLock, error) {
-	if opt.TTL == 0 {
-		opt.TTL = TTL
+// Sets the default options
+func (opts *Options) setOptionsDefaults() {
+	if opts.TTL == 0 {
+		opts.TTL = DefaultTTL
 	}
-	if opt.HeartBeat == 0 {
-		opt.HeartBeat = HEARTBEAT
+	if opts.MaxRetryTableCreateAttempts == 0 {
+		opts.MaxRetryTableCreateAttempts = DefaultMaxRetryTableCreateAttempts
 	}
-	if opt.maxRetryTableCreateAttempts == 0 {
-		opt.maxRetryTableCreateAttempts = MaxRetryTableCreateAttempts
-	}
+}
+
+// Creates a new DynamoLock instance
+func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
+	opts.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
 		tableName,
-		dynamolock.WithLeaseDuration(opt.TTL),
-		dynamolock.WithHeartbeatPeriod(opt.HeartBeat),
+		dynamolock.WithLeaseDuration(opts.TTL),
+		dynamolock.WithHeartbeatPeriod(opts.HeartBeat),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	dl := new(DynamoLock)
-	dl.TableName = tableName
-	dl.Key = key
-	dl.LockClient = lc
-	dl.Options = opt
-	dl.DynamoClient = client
-
-	err = dl.tryEnsureTableExists()
-	if err != nil {
-		return nil, err
+	createTableInput := dynamodb.CreateTableInput{
+		KeySchema: []types.KeySchemaElement{
+			{
+				AttributeName: aws.String("key"),
+				KeyType:       types.KeyTypeHash,
+			},
+		},
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(opts.RCU),
+			WriteCapacityUnits: aws.Int64(opts.WCU),
+		},
+		TableName: aws.String(tableName),
 	}
+	dynamodbutils.TryEnsureDynamoDBTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
 
-	return dl, nil
+	l := new(DynamoLock)
+	l.tableName = tableName
+	l.key = key
+	l.lockClient = lc
+	l.opts = opts
+	l.dynamoClient = client
+	return l, nil
 }
 
+// Creates a new DynamoLock instance using an existing DynamoLock instance
+func (l *DynamoLock) NewLock(key string) (lock.Locker, error) {
+	nl := new(DynamoLock)
+	nl.tableName = l.tableName
+	nl.lockClient = l.lockClient
+	nl.key = key
+	nl.dynamoClient = l.dynamoClient
+	nl.opts = l.opts
+
+	return nl, nil
+}
+
+// Attempts to acquire a DynamoDB lock
 func (l *DynamoLock) TryLock() (bool, error) {
-	lItem, err := l.LockClient.AcquireLock(l.Key)
-	l.LockedItem = lItem
+	lItem, err := l.lockClient.AcquireLock(l.key)
+	l.lockedItem = lItem
 	if err != nil {
 		return false, errors.Join(lock.ErrorLockNotObtained, err)
 	}
 	return true, nil
 }
 
+// Releases a DynamoDB lock
 func (l *DynamoLock) Unlock() error {
-	success, err := l.LockClient.ReleaseLock(l.LockedItem)
+	success, err := l.lockClient.ReleaseLock(l.lockedItem, dynamolock.WithDeleteLock(l.opts.DeleteOnRelease))
 	if !success {
 		return lock.ErrorUnableToUnlock
 	}
-	l.LockClient.Close()
+	l.lockClient.Close()
 	if err != nil {
 		return errors.Join(lock.ErrorUnableToUnlock, err)
 	}

@@ -18,24 +18,24 @@ import (
 	"github.com/rivian/delta-go/storage"
 )
 
-// Wrapper struct representing an entry in an external store for a given commit into the Delta log.
-// Contains relevant fields and helper methods have been defined.
-type ExternalCommitEntry struct {
-	// Absolute path to this delta table
-	TablePath string
+// Wrapper struct representing an entry in a log store for a given commit in the Delta log
+// Contains relevant fields and helper methods have been defined
+type CommitEntry struct {
+	// Absolute path for Delta table
+	TablePath storage.Path
 	// File name of this commit, e.g. "000000N.json"
-	FileName string
+	FileName storage.Path
 	// Path to temp file for this commit, relative to the `_delta_log`
-	TempPath string
+	TempPath storage.Path
 	// true if Delta JSON file is successfully copied to its destination location, else false
 	Complete bool
-	// If complete = true, epoch seconds at which this external commit entry is safe to be deleted.
-	// Else, null.
+	// Epoch seconds at which this commit entry is safe to be deleted if complete equals true, else 0
 	ExpireTime uint64
 }
 
-func NewExternalCommitEntry(tablePath string, fileName string, tempPath string, complete bool, expireTime uint64) (*ExternalCommitEntry, error) {
-	ece := new(ExternalCommitEntry)
+// Creates a new CommitEntry instance
+func NewCommitEntry(tablePath storage.Path, fileName storage.Path, tempPath storage.Path, complete bool, expireTime uint64) (*CommitEntry, error) {
+	ece := new(CommitEntry)
 	ece.TablePath = tablePath
 	ece.FileName = fileName
 	ece.TempPath = tempPath
@@ -44,17 +44,17 @@ func NewExternalCommitEntry(tablePath string, fileName string, tempPath string, 
 	return ece, nil
 }
 
-// Returns this entry with `complete=true` and a valid `expireTime`.
-func (ece *ExternalCommitEntry) AsComplete(expirationDelaySeconds uint64) (*ExternalCommitEntry, error) {
-	return NewExternalCommitEntry(ece.TablePath, ece.FileName, ece.TempPath, true, uint64(time.Now().Unix())+expirationDelaySeconds)
+// Returns this entry with `complete=true` and a valid `expireTime`
+func (ece *CommitEntry) AsComplete(expirationDelaySeconds uint64) (*CommitEntry, error) {
+	return NewCommitEntry(ece.TablePath, ece.FileName, ece.TempPath, true, uint64(time.Now().Unix())+expirationDelaySeconds)
 }
 
-// Returns the absolute path to the file for this entry.
-func (ece *ExternalCommitEntry) AbsoluteFilePath() (storage.Path, error) {
-	return storage.PathFromIter([]string{ece.TablePath, "_delta_log", ece.FileName}), nil
+// Returns the absolute path to the file for this entry
+func (ece *CommitEntry) AbsoluteFilePath() (storage.Path, error) {
+	return storage.PathFromIter([]string{ece.TablePath.Raw, "_delta_log", ece.FileName.Raw}), nil
 }
 
-// Returns the absolute path to the temp file for this entry.
-func (ece *ExternalCommitEntry) AbsoluteTempPath() (storage.Path, error) {
-	return storage.PathFromIter([]string{ece.TablePath, "_delta_log", ece.TempPath}), nil
+// Returns the absolute path to the temp file for this entry
+func (ece *CommitEntry) AbsoluteTempPath() (storage.Path, error) {
+	return storage.PathFromIter([]string{ece.TablePath.Raw, "_delta_log", ece.TempPath.Raw}), nil
 }
