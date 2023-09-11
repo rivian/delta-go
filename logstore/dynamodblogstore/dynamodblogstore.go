@@ -35,11 +35,11 @@ var (
 
 const (
 	// DynamoDB table attribute keys
-	AttrTablePath  string = "tablePath"
-	AttrFileName   string = "fileName"
-	AttrTempPath   string = "tempPath"
-	AttrComplete   string = "complete"
-	AttrExpireTime string = "expireTime"
+	TablePathAttr  string = "tablePath"
+	FileNameAttr   string = "fileName"
+	TempPathAttr   string = "tempPath"
+	CompleteAttr   string = "complete"
+	ExpireTimeAttr string = "expireTime"
 
 	// The delay, in seconds, after a commit entry has been committed to the delta log at which
 	// point it is safe to be deleted from the log store.
@@ -176,21 +176,21 @@ func NewDynamoDBLogStore(lso DynamoDBLogStoreOptions) (*DynamoDBLogStore, error)
 	createTableInput := dynamodb.CreateTableInput{
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
-				AttributeName: aws.String(AttrTablePath),
+				AttributeName: aws.String(TablePathAttr),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(AttrFileName),
+				AttributeName: aws.String(FileNameAttr),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 		},
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(AttrTablePath),
+				AttributeName: aws.String(TablePathAttr),
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(AttrFileName),
+				AttributeName: aws.String(FileNameAttr),
 				KeyType:       types.KeyTypeRange,
 			},
 		},
@@ -222,7 +222,7 @@ func (ls *DynamoDBLogStore) Put(entry *logstore.CommitEntry, overwrite bool) err
 
 // Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName` from a DynamoDBLogStore instance
 func (ls *DynamoDBLogStore) Get(tablePath storage.Path, fileName storage.Path) (*logstore.CommitEntry, error) {
-	attributes := map[string]types.AttributeValue{AttrTablePath: &types.AttributeValueMemberS{Value: tablePath.Raw}, AttrFileName: &types.AttributeValueMemberS{Value: fileName.Raw}}
+	attributes := map[string]types.AttributeValue{TablePathAttr: &types.AttributeValueMemberS{Value: tablePath.Raw}, FileNameAttr: &types.AttributeValueMemberS{Value: fileName.Raw}}
 
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
 	gio, err := ls.client.GetItem(context.TODO(), &gii)
@@ -244,7 +244,7 @@ func (ls *DynamoDBLogStore) Get(tablePath storage.Path, fileName storage.Path) (
 func (ls *DynamoDBLogStore) GetLatest(tablePath storage.Path) (*logstore.CommitEntry, error) {
 	qi := dynamodb.QueryInput{TableName: &ls.tableName, ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1), ExpressionAttributeValues: map[string]types.AttributeValue{
 		":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw},
-	}, KeyConditionExpression: aws.String(fmt.Sprintf("%s = :partitionKey", AttrTablePath))}
+	}, KeyConditionExpression: aws.String(fmt.Sprintf("%s = :partitionKey", TablePathAttr))}
 	qo, err := ls.client.Query(context.TODO(), &qi)
 	if err != nil {
 		log.Debugf("delta-go: Failed Query. %v", err)
@@ -265,11 +265,11 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 	var expireTimeAttr uint64
 	var err error
 
-	_, ok := item[AttrExpireTime]
+	_, ok := item[ExpireTimeAttr]
 	if !ok {
 		expireTimeAttr = 0
 	} else {
-		expireTimeAttr, err = strconv.ParseUint(item[AttrExpireTime].(*types.AttributeValueMemberN).Value, 10, 64)
+		expireTimeAttr, err = strconv.ParseUint(item[ExpireTimeAttr].(*types.AttributeValueMemberN).Value, 10, 64)
 		if err != nil {
 			log.Debugf("delta-go: Failed to interpet expire time attribute as uint64. %v", err)
 			return nil, err
@@ -277,20 +277,20 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 	}
 
 	return logstore.NewCommitEntry(
-		storage.NewPath(item[AttrTablePath].(*types.AttributeValueMemberS).Value),
-		storage.NewPath(item[AttrFileName].(*types.AttributeValueMemberS).Value),
-		storage.NewPath(item[AttrTempPath].(*types.AttributeValueMemberS).Value),
-		item[AttrComplete].(*types.AttributeValueMemberS).Value == "true",
+		storage.NewPath(item[TablePathAttr].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[FileNameAttr].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[TempPathAttr].(*types.AttributeValueMemberS).Value),
+		item[CompleteAttr].(*types.AttributeValueMemberS).Value == "true",
 		expireTimeAttr,
 	)
 }
 
 // Creates a put item request for an item to be inserted into a DynamoDBLogStore instance
 func (ls *DynamoDBLogStore) createPutItemRequest(entry *logstore.CommitEntry, overwrite bool) (*dynamodb.PutItemInput, error) {
-	attributes := map[string]types.AttributeValue{AttrTablePath: &types.AttributeValueMemberS{Value: entry.TablePath.Raw}, AttrFileName: &types.AttributeValueMemberS{Value: entry.FileName.Raw}, AttrTempPath: &types.AttributeValueMemberS{Value: entry.TempPath.Raw}, AttrComplete: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.Complete))}}
+	attributes := map[string]types.AttributeValue{TablePathAttr: &types.AttributeValueMemberS{Value: entry.TablePath.Raw}, FileNameAttr: &types.AttributeValueMemberS{Value: entry.FileName.Raw}, TempPathAttr: &types.AttributeValueMemberS{Value: entry.TempPath.Raw}, CompleteAttr: &types.AttributeValueMemberS{Value: *aws.String(strconv.FormatBool(entry.Complete))}}
 
 	if entry.ExpireTime != 0 {
-		attributes[AttrExpireTime] = &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(entry.ExpireTime))}
+		attributes[ExpireTimeAttr] = &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(entry.ExpireTime))}
 	}
 
 	pir := &dynamodb.PutItemInput{
@@ -298,7 +298,7 @@ func (ls *DynamoDBLogStore) createPutItemRequest(entry *logstore.CommitEntry, ov
 		Item:      attributes}
 
 	if !overwrite {
-		pir.ConditionExpression = aws.String(fmt.Sprintf("attribute_not_exists(%s)", AttrFileName))
+		pir.ConditionExpression = aws.String(fmt.Sprintf("attribute_not_exists(%s)", FileNameAttr))
 	}
 
 	return pir, nil

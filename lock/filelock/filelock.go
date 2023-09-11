@@ -23,6 +23,10 @@ import (
 	"github.com/rivian/delta-go/storage"
 )
 
+const (
+	DefaultTTL time.Duration = 60 * time.Second
+)
+
 type FileLock struct {
 	baseURI storage.Path
 	key     string
@@ -42,10 +46,6 @@ type Options struct {
 	Block           bool
 	DeleteOnRelease bool
 }
-
-const (
-	DefaultTTL time.Duration = 60 * time.Second
-)
 
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {

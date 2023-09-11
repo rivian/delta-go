@@ -37,7 +37,7 @@ func New(baseURI storage.Path, key string) *FileStateStore {
 	return fs
 }
 
-func (s *FileStateStore) Get() (state.CommitState, error) {
+func (s FileStateStore) Get() (state.CommitState, error) {
 	getPath := filepath.Join(s.BaseURI.Raw, s.Key)
 	var commitState state.CommitState
 	data, err := os.ReadFile(getPath)
@@ -56,7 +56,7 @@ func (s *FileStateStore) Get() (state.CommitState, error) {
 	return commitState, nil
 }
 
-func (s *FileStateStore) Put(commitState state.CommitState) error {
+func (s FileStateStore) Put(commitState state.CommitState) error {
 	putPath := filepath.Join(s.BaseURI.Raw, s.Key)
 	err := os.MkdirAll(filepath.Dir(putPath), 0755)
 	if err != nil {

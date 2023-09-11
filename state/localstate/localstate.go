@@ -35,7 +35,7 @@ func New(currentTableVersion int64) *LocalStateStore {
 // Compile time check that LocalStateStore implements state.StateStore
 var _ state.StateStore = (*LocalStateStore)(nil)
 
-func (stateStore *LocalStateStore) Get() (state.CommitState, error) {
+func (stateStore LocalStateStore) Get() (state.CommitState, error) {
 	return state.CommitState{Version: stateStore.version}, nil
 }
 

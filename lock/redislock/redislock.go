@@ -22,6 +22,11 @@ import (
 	"github.com/rivian/delta-go/lock"
 )
 
+const (
+	DefaultTTL      time.Duration = 60 * time.Second
+	DefaultMaxTries int           = 20
+)
+
 type RedisLock struct {
 	key             string
 	redsyncInstance *redsync.Redsync
@@ -38,11 +43,6 @@ type Options struct {
 
 // Compile time check that MutexWrapper implements lock.Locker
 var _ lock.Locker = (*RedisLock)(nil)
-
-const (
-	DefaultTTL      time.Duration = 60 * time.Second
-	DefaultMaxTries int           = 20
-)
 
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {

@@ -16,47 +16,22 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/rivian/delta-go/internal/dynamodbutils"
 	"github.com/rivian/delta-go/state"
 )
-
-type mockDynamoDBClient struct {
-	dynamodbiface.DynamoDBAPI
-}
-
-func (m *mockDynamoDBClient) PutItem(input *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
-	return nil, nil
-}
-
-func (m *mockDynamoDBClient) GetItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
-	return &dynamodb.GetItemOutput{
-		Item: map[string]*dynamodb.AttributeValue{
-			"version": {
-				S: aws.String("0"),
-			},
-		},
-	}, nil
-}
-
-// Create a function to return the mock client
-func createMockDynamoDBClient() *mockDynamoDBClient {
-	return &mockDynamoDBClient{}
-}
 
 func TestGet(t *testing.T) {
 	// svc, err := dynamolock.GetDynamoDBClient()
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }
-	dynamoState, err := New(createMockDynamoDBClient(), "storage-table", "_commit.state")
+	dynamoState, err := New(dynamodbutils.NewMockClient(), "storage-table", "_commit.state", Options{})
 	if err != nil {
-		t.Errorf("Error occurred in retriving  version.")
+		t.Errorf("Error occurred in retrieving version.")
 	}
 	commitS, err := dynamoState.Get()
 	if err != nil {
-		t.Errorf("Error occurred in retriving  version.")
+		t.Errorf("Error occurred in retrieving  version.")
 	}
 	versionString := fmt.Sprintf("%v", commitS.Version)
 	if len(string(versionString)) < 1 {
@@ -65,9 +40,9 @@ func TestGet(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
-	dynamoState, err := New(createMockDynamoDBClient(), "storage-table", "_commit.state")
+	dynamoState, err := New(dynamodbutils.NewMockClient(), "storage-table", "_commit.state", Options{})
 	if err != nil {
-		t.Errorf("Error occurred in retriving  version.")
+		t.Errorf("Error occurred in retrieving version.")
 	}
 	commitState := state.CommitState{Version: 0}
 	err = dynamoState.Put(commitState)

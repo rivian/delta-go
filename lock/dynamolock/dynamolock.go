@@ -24,6 +24,15 @@ import (
 	"github.com/rivian/delta-go/lock"
 )
 
+const (
+	KeyAttr                            string        = "key"
+	DefaultTTL                         time.Duration = 60 * time.Second
+	DefaultHeartbeat                   time.Duration = 1 * time.Second
+	DefaultMaxRetryTableCreateAttempts uint16        = 20
+	DefaultRCU                         int64         = 5
+	DefaultWCU                         int64         = 5
+)
+
 type DynamoLock struct {
 	tableName    string
 	lockClient   *dynamolock.Client
@@ -47,12 +56,6 @@ type Options struct {
 	WCU                         int64
 }
 
-const (
-	DefaultTTL                         time.Duration = 60 * time.Second
-	DefaultHeartbeat                   time.Duration = 1 * time.Second
-	DefaultMaxRetryTableCreateAttempts uint16        = 20
-)
-
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {
 	if opts.TTL == 0 {
@@ -60,6 +63,12 @@ func (opts *Options) setOptionsDefaults() {
 	}
 	if opts.MaxRetryTableCreateAttempts == 0 {
 		opts.MaxRetryTableCreateAttempts = DefaultMaxRetryTableCreateAttempts
+	}
+	if opts.RCU == 0 {
+		opts.RCU = DefaultRCU
+	}
+	if opts.WCU == 0 {
+		opts.WCU = DefaultWCU
 	}
 }
 
@@ -79,7 +88,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 	createTableInput := dynamodb.CreateTableInput{
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String("key"),
+				AttributeName: aws.String(KeyAttr),
 				KeyType:       types.KeyTypeHash,
 			},
 		},
