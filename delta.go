@@ -93,7 +93,7 @@ func (table *DeltaTable) CreateTransaction(options *DeltaTransactionOptions) *De
 }
 
 // / Return the uri of commit version.
-func (table *DeltaTable) CommitUriFromVersion(version int64) *storage.Path {
+func CommitUriFromVersion(version int64) *storage.Path {
 	str := fmt.Sprintf("%020d.json", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
 	return &path
@@ -192,7 +192,7 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 
 // / Exists checks if a DeltaTable with version 0 exists in the object store.
 func (table *DeltaTable) Exists() (bool, error) {
-	path := table.CommitUriFromVersion(0)
+	path := CommitUriFromVersion(0)
 
 	meta, err := table.Store.Head(path)
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
@@ -231,7 +231,7 @@ func (table *DeltaTable) Exists() (bool, error) {
 
 // / Read a commit log and return the actions from the log
 func (table *DeltaTable) ReadCommitVersion(version int64) ([]Action, error) {
-	path := table.CommitUriFromVersion(version)
+	path := CommitUriFromVersion(version)
 	return ReadCommitLog(table.Store, path)
 }
 
@@ -248,7 +248,7 @@ func (table *DeltaTable) LoadVersion(version *int64) error {
 	var err error
 	var checkpointLoadError error
 	if version != nil {
-		commitURI := table.CommitUriFromVersion(*version)
+		commitURI := CommitUriFromVersion(*version)
 		_, err := table.Store.Head(commitURI)
 		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 			return ErrorInvalidVersion
@@ -460,7 +460,7 @@ func (table *DeltaTable) updateIncremental(maxVersion *int64) error {
 // / If the next commit doesn't exist, returns false in the third return parameter
 func (table *DeltaTable) nextCommitDetails() (int64, []Action, bool, error) {
 	nextVersion := table.State.Version + 1
-	nextCommitURI := table.CommitUriFromVersion(nextVersion)
+	nextCommitURI := CommitUriFromVersion(nextVersion)
 	noMoreCommits := false
 	actions, err := ReadCommitLog(table.Store, nextCommitURI)
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
@@ -822,7 +822,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) (err erro
 
 		// 3) Try to Rename the file
 		from := storage.NewPath(commit.URI.Raw)
-		to := transaction.DeltaTable.CommitUriFromVersion(version)
+		to := CommitUriFromVersion(version)
 		err = transaction.DeltaTable.Store.RenameIfNotExists(from, to)
 		if err != nil {
 			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
