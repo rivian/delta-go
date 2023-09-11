@@ -13,6 +13,7 @@
 package delta
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -27,15 +28,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/lock/nillock"
+	logstore "github.com/rivian/delta-go/logstore/dynamodblogstore"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/state/localstate"
 
 	"github.com/rivian/delta-go/storage"
 	"github.com/rivian/delta-go/storage/filestore"
+	"github.com/rivian/delta-go/storage/s3store"
 )
 
 func TestDeltaTransactionPrepareCommit(t *testing.T) {
@@ -1108,5 +1113,96 @@ func TestLoadVersion(t *testing.T) {
 	}
 	if table.State.Version != 12 {
 		t.Errorf("expected version %d, found %d", 12, table.State.Version)
+	}
+}
+
+func TestLogStoreSequential(t *testing.T) {
+	config, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		t.Error("failed to load default config")
+	}
+
+	dynamoDbLogStore, err := logstore.NewDynamoDBLogStore(logstore.DynamoDBLogStoreOptions{Config: config, TableName: "version_log_store"})
+	if err != nil {
+		t.Error("failed to create DynamoDB log store")
+	}
+
+	var tablePath storage.Path = *storage.NewPath("s3://vehicle-telemetry-rivian-dev/tables/test/test_dynamo_sequential/")
+	s3Client := s3.NewFromConfig(config)
+	s3Store, err := s3store.New(s3Client, &tablePath)
+	if err != nil {
+		t.Error("failed to create S3 store")
+	}
+
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+	dynamoDbClient := dynamodb.New(sess)
+
+	table := NewDeltaTableWithLogStore(tablePath, s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
+
+	err = table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	if err != nil {
+		t.Error("failed to create table")
+	}
+
+	transaction := NewDeltaTransaction(table, NewDeltaTransactionOptions())
+
+	for logEntryNum := 0; logEntryNum < 100; logEntryNum++ {
+		add := Add{
+			Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
+			Size:             984,
+			ModificationTime: time.Now().UnixMilli(),
+		}
+		transaction.Write([]Action{add}, false)
+	}
+}
+
+func TestLogStoreConcurrent(t *testing.T) {
+	config, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		t.Error("failed to load default config")
+	}
+
+	dynamoDbLogStore, err := logstore.NewDynamoDBLogStore(logstore.DynamoDBLogStoreOptions{Config: config, TableName: "version_log_store"})
+	if err != nil {
+		t.Error("failed to create DynamoDB log store")
+	}
+
+	var tablePath storage.Path = *storage.NewPath("s3://vehicle-telemetry-rivian-dev/tables/test/test_dynamo_concurrent/")
+	s3Client := s3.NewFromConfig(config)
+	s3Store, err := s3store.New(s3Client, &tablePath)
+	if err != nil {
+		t.Error("failed to create S3 store")
+	}
+
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+	dynamoDbClient := dynamodb.New(sess)
+
+	table := NewDeltaTableWithLogStore(tablePath, s3Store, dynamoDbLogStore, dynamoDbClient, "version_lock_store", false)
+
+	err = table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	if err != nil {
+		t.Error("failed to create table")
+	}
+
+	transaction := NewDeltaTransaction(table, NewDeltaTransactionOptions())
+
+	var maxGoroutines int = 3
+	var guard = make(chan struct{}, maxGoroutines)
+
+	for logEntryNum := 0; logEntryNum < 100; logEntryNum++ {
+		guard <- struct{}{}
+		go func(logEntryNum int) {
+			add := Add{
+				Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
+				Size:             984,
+				ModificationTime: time.Now().UnixMilli(),
+			}
+			transaction.Write([]Action{add}, false)
+			<-guard
+		}(logEntryNum)
 	}
 }
