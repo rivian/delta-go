@@ -201,7 +201,7 @@ func TestList(t *testing.T) {
 	}
 
 	type args struct {
-		prefix *storage.Path
+		prefix storage.Path
 	}
 	tests := []struct {
 		name    string

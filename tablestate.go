@@ -208,7 +208,7 @@ func stateFromCheckpoint(table *DeltaTable, checkpoint *CheckPoint) (*DeltaTable
 	newState := NewDeltaTableState(checkpoint.Version)
 	checkpointDataPaths := table.GetCheckpointDataPaths(checkpoint)
 	for _, location := range checkpointDataPaths {
-		checkpointBytes, err := table.Store.Get(&location)
+		checkpointBytes, err := table.Store.Get(location)
 		if err != nil {
 			return nil, err
 		}

@@ -24,7 +24,7 @@ import (
 )
 
 type FileLock struct {
-	baseURI *storage.Path
+	baseURI storage.Path
 	key     string
 	lock    *flock.Flock
 	opts    Options
@@ -55,7 +55,7 @@ func (opts *Options) setOptionsDefaults() {
 }
 
 // Creates a new FileLock instance
-func New(baseURI *storage.Path, key string, opts Options) *FileLock {
+func New(baseURI storage.Path, key string, opts Options) *FileLock {
 	opts.setOptionsDefaults()
 
 	l := new(FileLock)

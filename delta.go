@@ -93,25 +93,25 @@ func (table *DeltaTable) CreateTransaction(options *DeltaTransactionOptions) *De
 }
 
 // / Return the uri of commit version.
-func CommitUriFromVersion(version int64) *storage.Path {
+func CommitUriFromVersion(version int64) storage.Path {
 	str := fmt.Sprintf("%020d.json", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
-	return &path
+	return path
 }
 
 // / The base path of commit uri's
-func BaseCommitUri() *storage.Path {
+func BaseCommitUri() storage.Path {
 	return storage.NewPath("_delta_log/")
 }
 
 // / Return true if URI is a valid commit filename (not a checkpoint file, and not a temp commit)
-func IsValidCommitUri(path *storage.Path) bool {
+func IsValidCommitUri(path storage.Path) bool {
 	match := commitFileRegex.MatchString(path.Base())
 	return match
 }
 
 // / Return true plus the version if the URI is a valid commit filename
-func CommitVersionFromUri(path *storage.Path) (bool, int64) {
+func CommitVersionFromUri(path storage.Path) (bool, int64) {
 	groups := commitFileRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 2 {
 		version, err := strconv.ParseInt(groups[1], 10, 64)
@@ -123,7 +123,7 @@ func CommitVersionFromUri(path *storage.Path) (bool, int64) {
 }
 
 // / Return true plus the version if the URI is a valid commit or checkpoint filename
-func CommitOrCheckpointVersionFromUri(path *storage.Path) (bool, int64) {
+func CommitOrCheckpointVersionFromUri(path storage.Path) (bool, int64) {
 	groups := commitOrCheckpointRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 5 {
 		version, err := strconv.ParseInt(groups[1], 10, 64)
@@ -206,7 +206,7 @@ func (table *DeltaTable) Exists() (bool, error) {
 		}
 		for _, result := range results.Objects {
 			// Check each result to see if it is a version file
-			isValidCommitUri := IsValidCommitUri(&result.Location)
+			isValidCommitUri := IsValidCommitUri(result.Location)
 
 			if isValidCommitUri {
 				return true, nil
@@ -377,7 +377,7 @@ func (table *DeltaTable) findLatestCheckpointsForVersion(version *int64) (checkp
 		// Finally, if list results are ordered, check if this is a regular commit and the version is greater
 		// than the max version
 		if listResultsAreOrdered && version != nil {
-			isCommit, checkpointVersion := CommitVersionFromUri(&meta.Location)
+			isCommit, checkpointVersion := CommitVersionFromUri(meta.Location)
 			if isCommit && checkpointVersion > *version {
 				break
 			}
@@ -545,7 +545,7 @@ func validateCheckpointAndCleanup(table *DeltaTable, store storage.ObjectStore, 
 }
 
 // / Read a commit log and return the actions inside it
-func ReadCommitLog(store storage.ObjectStore, location *storage.Path) ([]Action, error) {
+func ReadCommitLog(store storage.ObjectStore, location storage.Path) ([]Action, error) {
 	commitData, err := store.Get(location)
 	if err != nil {
 		return nil, err
@@ -738,7 +738,7 @@ func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, app
 	path := storage.Path{Raw: filepath.Join("_delta_log", fileName)}
 	commit := PreparedCommit{URI: path}
 
-	err = transaction.DeltaTable.Store.Put(&path, logEntry)
+	err = transaction.DeltaTable.Store.Put(path, logEntry)
 	if err != nil {
 		return commit, err
 	}

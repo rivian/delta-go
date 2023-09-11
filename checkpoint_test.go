@@ -34,7 +34,7 @@ import (
 )
 
 // / Helper function to set up test state
-func setupCheckpointTest(t *testing.T, inputFolder string, overrideStore bool) (store *filestore.FileObjectStore, state state.StateStore, lock lock.Locker, checkpointLock lock.Locker) {
+func setupCheckpointTest(t *testing.T, inputFolder string, overrideStore bool) (store filestore.FileObjectStore, state state.StateStore, lock lock.Locker, checkpointLock lock.Locker) {
 	t.Helper()
 
 	tmpDir := t.TempDir()

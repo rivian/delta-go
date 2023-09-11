@@ -19,8 +19,8 @@ type LogStore interface {
 	Put(entry *CommitEntry, overwrite bool) error
 
 	// Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName`
-	Get(tablePath *storage.Path, fileName *storage.Path) (*CommitEntry, error)
+	Get(tablePath storage.Path, fileName storage.Path) (*CommitEntry, error)
 
 	// Gets the latest entry corresponding to the Delta log file for given `tablePath`
-	GetLatest(tablePath *storage.Path) (*CommitEntry, error)
+	GetLatest(tablePath storage.Path) (*CommitEntry, error)
 }

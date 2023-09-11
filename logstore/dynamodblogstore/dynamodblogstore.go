@@ -221,7 +221,7 @@ func (ls *DynamoDBLogStore) Put(entry *logstore.CommitEntry, overwrite bool) err
 }
 
 // Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName` from a DynamoDBLogStore instance
-func (ls *DynamoDBLogStore) Get(tablePath *storage.Path, fileName *storage.Path) (*logstore.CommitEntry, error) {
+func (ls *DynamoDBLogStore) Get(tablePath storage.Path, fileName storage.Path) (*logstore.CommitEntry, error) {
 	attributes := map[string]types.AttributeValue{AttrTablePath: &types.AttributeValueMemberS{Value: tablePath.Raw}, AttrFileName: &types.AttributeValueMemberS{Value: fileName.Raw}}
 
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
@@ -241,7 +241,7 @@ func (ls *DynamoDBLogStore) Get(tablePath *storage.Path, fileName *storage.Path)
 }
 
 // Gets the latest entry corresponding to the Delta log file for given `tablePath` from a DynamoDBLogStore instance
-func (ls *DynamoDBLogStore) GetLatest(tablePath *storage.Path) (*logstore.CommitEntry, error) {
+func (ls *DynamoDBLogStore) GetLatest(tablePath storage.Path) (*logstore.CommitEntry, error) {
 	qi := dynamodb.QueryInput{TableName: &ls.tableName, ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1), ExpressionAttributeValues: map[string]types.AttributeValue{
 		":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw},
 	}, KeyConditionExpression: aws.String(fmt.Sprintf("%s = :partitionKey", AttrTablePath))}
@@ -277,9 +277,9 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 	}
 
 	return logstore.NewCommitEntry(
-		*storage.NewPath(item[AttrTablePath].(*types.AttributeValueMemberS).Value),
-		*storage.NewPath(item[AttrFileName].(*types.AttributeValueMemberS).Value),
-		*storage.NewPath(item[AttrTempPath].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[AttrTablePath].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[AttrFileName].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[AttrTempPath].(*types.AttributeValueMemberS).Value),
 		item[AttrComplete].(*types.AttributeValueMemberS).Value == "true",
 		expireTimeAttr,
 	)
