@@ -23,8 +23,12 @@ import (
 	"github.com/rivian/delta-go/storage"
 )
 
+const (
+	DefaultTTL time.Duration = 60 * time.Second
+)
+
 type FileLock struct {
-	baseURI *storage.Path
+	baseURI storage.Path
 	key     string
 	lock    *flock.Flock
 	opts    Options
@@ -43,10 +47,6 @@ type Options struct {
 	DeleteOnRelease bool
 }
 
-const (
-	DefaultTTL time.Duration = 60 * time.Second
-)
-
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {
 	if opts.TTL == 0 {
@@ -55,7 +55,7 @@ func (opts *Options) setOptionsDefaults() {
 }
 
 // Creates a new FileLock instance
-func New(baseURI *storage.Path, key string, opts Options) *FileLock {
+func New(baseURI storage.Path, key string, opts Options) *FileLock {
 	opts.setOptionsDefaults()
 
 	l := new(FileLock)

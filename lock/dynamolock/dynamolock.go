@@ -24,6 +24,18 @@ import (
 	"github.com/rivian/delta-go/lock"
 )
 
+// Represents attribute names in DynamoDB items
+type Attribute string
+
+const (
+	Key                                Attribute     = "key"
+	DefaultTTL                         time.Duration = 60 * time.Second
+	DefaultHeartbeat                   time.Duration = 1 * time.Second
+	DefaultMaxRetryTableCreateAttempts uint16        = 20
+	DefaultRCU                         int64         = 5
+	DefaultWCU                         int64         = 5
+)
+
 type DynamoLock struct {
 	tableName    string
 	lockClient   *dynamolock.Client
@@ -43,15 +55,11 @@ type Options struct {
 	HeartBeat                   time.Duration
 	DeleteOnRelease             bool
 	MaxRetryTableCreateAttempts uint16
-	RCU                         int64
-	WCU                         int64
+	// The number of read capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/)
+	RCU int64
+	// The number of write capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/)
+	WCU int64
 }
-
-const (
-	DefaultTTL                         time.Duration = 60 * time.Second
-	DefaultHeartbeat                   time.Duration = 1 * time.Second
-	DefaultMaxRetryTableCreateAttempts uint16        = 20
-)
 
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {
@@ -60,6 +68,12 @@ func (opts *Options) setOptionsDefaults() {
 	}
 	if opts.MaxRetryTableCreateAttempts == 0 {
 		opts.MaxRetryTableCreateAttempts = DefaultMaxRetryTableCreateAttempts
+	}
+	if opts.RCU == 0 {
+		opts.RCU = DefaultRCU
+	}
+	if opts.WCU == 0 {
+		opts.WCU = DefaultWCU
 	}
 }
 
@@ -79,7 +93,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 	createTableInput := dynamodb.CreateTableInput{
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String("key"),
+				AttributeName: aws.String(string(Key)),
 				KeyType:       types.KeyTypeHash,
 			},
 		},

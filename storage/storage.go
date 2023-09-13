@@ -42,27 +42,27 @@ type Path struct {
 	Raw string
 }
 
-func NewPath(raw string) *Path {
+func NewPath(raw string) Path {
 	p := new(Path)
 	p.Raw = raw
-	return p
+	return *p
 }
 
-func (p *Path) CommitPathForVersion(version int64) string {
+func (p Path) CommitPathForVersion(version int64) string {
 	s := fmt.Sprintf("%020d.json", version)
 	return filepath.Join(p.Raw, s)
 }
 
 // Calls url.Parse on Path.Raw
-func (p *Path) ParseURL() (*url.URL, error) {
+func (p Path) ParseURL() (*url.URL, error) {
 	return url.Parse(p.Raw)
 }
 
-func (p *Path) Base() string {
+func (p Path) Base() string {
 	return filepath.Base(p.Raw)
 }
 
-func (p *Path) Ext() string {
+func (p Path) Ext() string {
 	return filepath.Ext(p.Raw)
 }
 
@@ -71,7 +71,7 @@ func PathFromIter(elem []string) Path {
 	return Path{Raw: s}
 }
 
-func (p *Path) Join(path *Path) Path {
+func (p Path) Join(path Path) Path {
 	return Path{Raw: filepath.Join(p.Raw, path.Raw)}
 }
 
@@ -136,7 +136,7 @@ func (ld *LockData) Json() []byte {
 // ObjectStore Universal API to multiple object store services.
 type ObjectStore interface {
 	/// Save the provided bytes to the specified location.
-	Put(location *Path, bytes []byte) error
+	Put(location Path, bytes []byte) error
 
 	// 	/// Get a multi-part upload that allows writing data in chunks
 	// 	///
@@ -148,29 +148,29 @@ type ObjectStore interface {
 	// 	/// For some object stores (S3, GCS, and local in particular), if the
 	// 	/// writer fails or panics, you must call [ObjectStore::abort_multipart]
 	// 	/// to clean up partially written data.
-	// 	PutMultipart(location *Path) error
+	// 	PutMultipart(location Path) error
 
 	// 	/// Cleanup an aborted upload.
 	// 	///
 	// 	/// See documentation for individual stores for exact behavior, as capabilities
 	// 	/// vary by object store.
-	// 	AbortMultipart(location *Path, multipart_id *MultipartId) error
+	// 	AbortMultipart(location Path, multipart_id *MultipartId) error
 
 	/// Return the bytes that are stored at the specified location.
-	Get(location *Path) ([]byte, error)
+	Get(location Path) ([]byte, error)
 
 	// 	/// Return the bytes that are stored at the specified location
 	// 	/// in the given byte range
-	// 	GetRange(location *Path, r Range) error
+	// 	GetRange(location Path, r Range) error
 
 	// 	/// Return the bytes that are stored at the specified location
 	// 	/// in the given byte ranges
-	// 	GetRanges(location *Path, ranges []Range) ([]byte, error)
+	// 	GetRanges(location Path, ranges []Range) ([]byte, error)
 	/// Return the metadata for the specified location
-	Head(location *Path) (ObjectMeta, error)
+	Head(location Path) (ObjectMeta, error)
 
 	// 	/// Delete the object at the specified location.
-	Delete(location *Path) error
+	Delete(location Path) error
 
 	/// List the objects with the given prefix.  This may be limited to a certain number of objects (e.g. 1000)
 	/// based on the underlying object storage's limitations.
@@ -178,14 +178,14 @@ type ObjectStore interface {
 	///
 	/// Prefixes are evaluated on a path segment basis, i.e. `foo/bar/` is a prefix of `foo/bar/x` but not of
 	/// `foo/bar_baz/x`.
-	List(prefix *Path, previousResult *ListResult) (ListResult, error)
+	List(prefix Path, previousResult *ListResult) (ListResult, error)
 
 	/// List all objects with the given prefix. If the underlying object storage returns a limited number of objects,
 	/// this will perform paging as required to return all results
 	///
 	/// Prefixes are evaluated on a path segment basis, i.e. `foo/bar/` is a prefix of `foo/bar/x` but not of
 	/// `foo/bar_baz/x`.
-	ListAll(prefix *Path) (ListResult, error)
+	ListAll(prefix Path) (ListResult, error)
 
 	/// Returns true if this store returns list results sorted
 	IsListOrdered() bool
@@ -194,7 +194,7 @@ type ObjectStore interface {
 	// 	///
 	// 	/// Prefixes are evaluated on a path segment basis, i.e. `foo/bar/` is a prefix of `foo/bar/x` but not of
 	// 	/// `foo/bar_baz/x`.
-	// 	List(prefix *Path) (bufio.Scanner, ObjectMeta)
+	// 	List(prefix Path) (bufio.Scanner, ObjectMeta)
 
 	// 	/// List objects with the given prefix and an implementation specific
 	// 	/// delimiter. Returns common prefixes (directories) in addition to object
@@ -202,12 +202,12 @@ type ObjectStore interface {
 	// 	///
 	// 	/// Prefixes are evaluated on a path segment basis, i.e. `foo/bar/` is a prefix of `foo/bar/x` but not of
 	// 	/// `foo/bar_baz/x`.
-	// 	ListWithDelimiter(prefix *Path) ListResult
+	// 	ListWithDelimiter(prefix Path) ListResult
 
 	// /// Copy an object from one path to another in the same object store.
 	// ///
 	// /// If there exists an object at the destination, it will be overwritten.
-	// Copy(from *Path, to *Path) error
+	// Copy(from Path, to Path) error
 
 	// 	/// Move an object from one path to another in the same object store.
 	// 	///
@@ -215,7 +215,7 @@ type ObjectStore interface {
 	// 	/// check when deleting source that it was the same object that was originally copied.
 	// 	///
 	/// If there exists an object at the destination, it will be overwritten.
-	Rename(from *Path, to *Path) error
+	Rename(from Path, to Path) error
 
 	// 	/// Copy an object from one path to another, only if destination is empty.
 	// 	///
@@ -224,23 +224,23 @@ type ObjectStore interface {
 	// 	/// Performs an atomic operation if the underlying object storage supports it.
 	// 	/// If atomic operations are not supported by the underlying object storage (like S3)
 	// 	/// it will return an error.
-	// 	CopyIfNotExists(from *Path, to *Path) error
+	// 	CopyIfNotExists(from Path, to Path) error
 
 	// Move an object from one path to another in the same object store.
 
 	// Will return an error if the destination already has an object.
-	RenameIfNotExists(from *Path, to *Path) error
+	RenameIfNotExists(from Path, to Path) error
 }
 
 // / Wrapper around List that will perform paging if required
 type ListIterator struct {
 	store      ObjectStore
-	prefix     *Path
+	prefix     Path
 	listResult *ListResult
 	nextIndex  int
 }
 
-func NewListIterator(prefix *Path, store ObjectStore) *ListIterator {
+func NewListIterator(prefix Path, store ObjectStore) *ListIterator {
 	iterator := new(ListIterator)
 	iterator.listResult = nil
 	iterator.prefix = prefix

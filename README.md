@@ -136,7 +136,6 @@ type testData struct {
 }
 
 func (data *testData) getSchema() delta.SchemaTypeStruct {
-
 	// schema := GetSchema(data)
 	schema := delta.SchemaTypeStruct{
 		Fields: []delta.SchemaField{
@@ -198,7 +197,6 @@ type payload struct {
 }
 
 func writeParquet[T any](data []T, filename string) (*payload, error) {
-
 	p := new(payload)
 
 	// if err := parquet.WriteFile(filename, data); err != nil {

@@ -109,8 +109,10 @@ type DynamoDBLogStoreOptions struct {
 	TableName                   string
 	ExpirationDelaySeconds      uint64
 	MaxRetryTableCreateAttempts uint16
-	RCU                         int64
-	WCU                         int64
+	// The number of read capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/)
+	RCU int64
+	// The number of write capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/)
+	WCU int64
 }
 
 // Gets the client from a DynamoDBLogStore instance
@@ -224,7 +226,7 @@ func (ls *DynamoDBLogStore) Put(entry *logstore.CommitEntry, overwrite bool) err
 }
 
 // Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName` from a DynamoDBLogStore instance
-func (ls *DynamoDBLogStore) Get(tablePath *storage.Path, fileName *storage.Path) (*logstore.CommitEntry, error) {
+func (ls *DynamoDBLogStore) Get(tablePath storage.Path, fileName storage.Path) (*logstore.CommitEntry, error) {
 	attributes := map[string]types.AttributeValue{string(TablePath): &types.AttributeValueMemberS{Value: tablePath.Raw}, string(FileName): &types.AttributeValueMemberS{Value: fileName.Raw}}
 
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
@@ -244,7 +246,7 @@ func (ls *DynamoDBLogStore) Get(tablePath *storage.Path, fileName *storage.Path)
 }
 
 // Gets the latest entry corresponding to the Delta log file for given `tablePath` from a DynamoDBLogStore instance
-func (ls *DynamoDBLogStore) GetLatest(tablePath *storage.Path) (*logstore.CommitEntry, error) {
+func (ls *DynamoDBLogStore) GetLatest(tablePath storage.Path) (*logstore.CommitEntry, error) {
 	qi := dynamodb.QueryInput{TableName: &ls.tableName, ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1), ExpressionAttributeValues: map[string]types.AttributeValue{
 		":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw},
 	}, KeyConditionExpression: aws.String(fmt.Sprintf("%s = :partitionKey", TablePath))}
@@ -280,9 +282,9 @@ func (ls *DynamoDBLogStore) dbResultToCommitEntry(item map[string]types.Attribut
 	}
 
 	return logstore.NewCommitEntry(
-		*storage.NewPath(item[string(TablePath)].(*types.AttributeValueMemberS).Value),
-		*storage.NewPath(item[string(FileName)].(*types.AttributeValueMemberS).Value),
-		*storage.NewPath(item[string(TempPath)].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[string(TablePath)].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[string(FileName)].(*types.AttributeValueMemberS).Value),
+		storage.NewPath(item[string(TempPath)].(*types.AttributeValueMemberS).Value),
 		item[string(Complete)].(*types.AttributeValueMemberS).Value == "true",
 		expireTimeAttr,
 	)

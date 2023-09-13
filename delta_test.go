@@ -39,8 +39,8 @@ import (
 )
 
 func TestDeltaTransactionPrepareCommit(t *testing.T) {
-	store := filestore.FileObjectStore{BaseURI: &storage.Path{Raw: "tmp/"}}
-	l := filelock.New(nil, "tmp/_delta_log/_commit.lock", filelock.Options{})
+	store := filestore.FileObjectStore{BaseURI: storage.Path{Raw: "tmp/"}}
+	l := filelock.New(storage.NewPath(""), "tmp/_delta_log/_commit.lock", filelock.Options{})
 	deltaTable := DeltaTable{Store: &store, LockClient: l}
 	options := DeltaTransactionOptions{MaxRetryCommitAttempts: 3}
 	os.MkdirAll("tmp/_delta_log/", 0700)
@@ -234,7 +234,6 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 }
 
 func TestTryCommitWithExistingLock(t *testing.T) {
-
 	tmpDir := t.TempDir()
 	fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 	os.MkdirAll(filepath.Dir(fileLockKey), 0700)
@@ -432,7 +431,7 @@ func TestDeltaTableExists(t *testing.T) {
 		t.Error(err)
 	}
 	// Delete original version file
-	commitPath := filepath.Join(tmpDir, table.CommitUriFromVersion(0).Raw)
+	commitPath := filepath.Join(tmpDir, CommitUriFromVersion(0).Raw)
 	err = os.Remove(commitPath)
 	if err != nil {
 		t.Error(err)
@@ -449,7 +448,7 @@ func TestDeltaTableExists(t *testing.T) {
 	}
 
 	// Move the new version file to a backup folder that starts with _delta_log
-	commitPath = filepath.Join(tmpDir, table.CommitUriFromVersion(1).Raw)
+	commitPath = filepath.Join(tmpDir, CommitUriFromVersion(1).Raw)
 	os.MkdirAll(filepath.Join(tmpDir, "_delta_log.bak"), 0700)
 	fakeCommitPath := filepath.Join(tmpDir, "_delta_log.bak/00000000000000000000.json")
 	err = os.Rename(commitPath, fakeCommitPath)
@@ -508,11 +507,11 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	}
 
 	//Some other process writes commit 0002.json
-	fakeCommit2 := filepath.Join(tmpDir, table.CommitUriFromVersion(2).Raw)
+	fakeCommit2 := filepath.Join(tmpDir, CommitUriFromVersion(2).Raw)
 	os.WriteFile(fakeCommit2, []byte("temp commit data"), 0700)
 
 	//Some other process writes commit 0003.json
-	fakeCommit3 := filepath.Join(tmpDir, table.CommitUriFromVersion(3).Raw)
+	fakeCommit3 := filepath.Join(tmpDir, CommitUriFromVersion(3).Raw)
 	os.WriteFile(fakeCommit3, []byte("temp commit data"), 0700)
 
 	//create the next commit, should be 004.json after trying 003.json
@@ -536,8 +535,8 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 		t.Errorf("want table.State.Version=4, has %d", table.State.Version)
 	}
 
-	if !fileExists(filepath.Join(tmpDir, table.CommitUriFromVersion(4).Raw)) {
-		t.Errorf("File %s should exist", table.CommitUriFromVersion(4).Raw)
+	if !fileExists(filepath.Join(tmpDir, CommitUriFromVersion(4).Raw)) {
+		t.Errorf("File %s should exist", CommitUriFromVersion(4).Raw)
 	}
 
 }
@@ -597,7 +596,7 @@ func TestCommitConcurrent(t *testing.T) {
 		t.Errorf("Final Version in lock should be 100")
 	}
 
-	lastCommitFile := filepath.Join(tmpDir, table.CommitUriFromVersion(100).Raw)
+	lastCommitFile := filepath.Join(tmpDir, CommitUriFromVersion(100).Raw)
 	if !fileExists(lastCommitFile) {
 		t.Errorf("File should exist")
 	}
@@ -707,7 +706,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		t.Errorf("Final Version in lock should be 100")
 	}
 
-	lastCommitFile := filepath.Join(tmpDir, table.CommitUriFromVersion(100).Raw)
+	lastCommitFile := filepath.Join(tmpDir, CommitUriFromVersion(100).Raw)
 	if !fileExists(lastCommitFile) {
 		t.Errorf("File should exist")
 	}
@@ -790,7 +789,6 @@ func (t *testData) UnmarshalJSON(data []byte) error {
 }
 
 func (data *testData) getSchema() SchemaTypeStruct {
-
 	// schema := GetSchema(data)
 	schema := SchemaTypeStruct{
 		Fields: []SchemaField{
@@ -852,7 +850,6 @@ type payload struct {
 }
 
 func writeParquet[T any](data []T, filename string) (*payload, error) {
-
 	p := new(payload)
 
 	file, err := os.Create(filename)
@@ -931,10 +928,8 @@ func TestCommitUriFromVersion(t *testing.T) {
 		{input: 1234567890123456789, want: "_delta_log/01234567890123456789.json"},
 	}
 
-	table, _, _ := setupTest(t)
-
 	for _, tc := range tests {
-		got := table.CommitUriFromVersion(tc.input)
+		got := CommitUriFromVersion(tc.input)
 		if got.Raw != tc.want {
 			t.Errorf("expected %s, got %s", tc.want, got)
 		}

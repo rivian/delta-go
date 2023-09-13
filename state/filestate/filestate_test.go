@@ -21,7 +21,6 @@ import (
 )
 
 func TestGetPutData(t *testing.T) {
-
 	tmpDir := t.TempDir()
 	// fileLockKey := filepath.Join(tmpDir, "_commit.state")
 	path := storage.NewPath(tmpDir)

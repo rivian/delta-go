@@ -87,15 +87,15 @@ func checkpointFromBytes(bytes []byte) (*CheckPoint, error) {
 	return checkpoint, nil
 }
 
-func lastCheckpointPath() *storage.Path {
+func lastCheckpointPath() storage.Path {
 	path := storage.PathFromIter([]string{"_delta_log", "_last_checkpoint"})
-	return &path
+	return path
 }
 
 // / Return the checkpoint version and total parts, and the current part index if the URI is a valid checkpoint filename
 // / If the checkpoint is single-part then part and checkpoint.Parts will both be zero
 // / If the URI is not a valid checkpoint filename then checkpoint will be nil
-func checkpointInfoFromURI(path *storage.Path) (checkpoint *CheckPoint, part int32, parseErr error) {
+func checkpointInfoFromURI(path storage.Path) (checkpoint *CheckPoint, part int32, parseErr error) {
 	// Check for a single-part checkpoint
 	groups := checkpointRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 2 {
@@ -145,7 +145,7 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 	// List all files starting with the version prefix.  This will also find commit logs and possible crc files
 	str := fmt.Sprintf("%020d", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
-	possibleCheckpointFiles, err := store.List(&path, nil)
+	possibleCheckpointFiles, err := store.List(path, nil)
 	if err != nil {
 		return false, err
 	}
@@ -155,7 +155,7 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 	totalParts := int32(0)
 
 	for _, possibleCheckpointFile := range possibleCheckpointFiles.Objects {
-		checkpoint, currentPart, err := checkpointInfoFromURI(&possibleCheckpointFile.Location)
+		checkpoint, currentPart, err := checkpointInfoFromURI(possibleCheckpointFile.Location)
 		if err != nil {
 			return false, err
 		}
@@ -231,11 +231,11 @@ func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore,
 			checkpointFileName = fmt.Sprintf("%020d.checkpoint.%010d.%010d.parquet", tableState.Version, part+1, numParts)
 		}
 		checkpointPath := storage.PathFromIter([]string{"_delta_log", checkpointFileName})
-		_, err = store.Head(&checkpointPath)
+		_, err = store.Head(checkpointPath)
 		if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
 			return ErrorCheckpointAlreadyExists
 		}
-		err = store.Put(&checkpointPath, parquetBytes)
+		err = store.Put(checkpointPath, parquetBytes)
 		if err != nil {
 			return err
 		}
@@ -302,7 +302,7 @@ func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandida
 		lastMaybeToDelete := maybeToDelete[len(maybeToDelete)-1]
 		if lastMaybeToDelete.Version < beforeVersion && lastMaybeToDelete.Meta.LastModified.UnixMilli() <= maxTimestamp.UnixMilli() {
 			for _, deleteFile := range maybeToDelete {
-				err := store.Delete(&deleteFile.Meta.Location)
+				err := store.Delete(deleteFile.Meta.Location)
 				if err != nil {
 					return deleted, err
 				}
@@ -334,7 +334,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 			break
 		}
-		isValid, version := CommitOrCheckpointVersionFromUri(&meta.Location)
+		isValid, version := CommitOrCheckpointVersionFromUri(meta.Location)
 		// Spark and Rust clients also use the file's last updated timestamp rather than opening the commit and using internal state
 		if isValid && version < beforeVersion && meta.LastModified.Before(maxTimestamp) {
 			candidatesForDeletion = append(candidatesForDeletion, DeletionCandidate{Version: version, Meta: *meta})

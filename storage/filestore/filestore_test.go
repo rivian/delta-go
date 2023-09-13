@@ -24,7 +24,6 @@ import (
 )
 
 func TestPut(t *testing.T) {
-
 	tmpDir := t.TempDir()
 	// fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 
@@ -52,7 +51,6 @@ func TestPut(t *testing.T) {
 }
 
 func TestHead(t *testing.T) {
-
 	tmpDir := t.TempDir()
 	// fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 
@@ -91,7 +89,6 @@ func TestHead(t *testing.T) {
 }
 
 func TestRenameIfNotExists(t *testing.T) {
-
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
@@ -127,7 +124,6 @@ func TestRenameIfNotExists(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
@@ -201,7 +197,7 @@ func TestList(t *testing.T) {
 	}
 
 	type args struct {
-		prefix *storage.Path
+		prefix storage.Path
 	}
 	tests := []struct {
 		name    string

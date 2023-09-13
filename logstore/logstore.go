@@ -15,12 +15,12 @@ package logstore
 import "github.com/rivian/delta-go/storage"
 
 type LogStore interface {
-	// Puts an entry into a log store in an exlusive way
+	// Puts an entry into a log store in an exclusive way
 	Put(entry *CommitEntry, overwrite bool) error
 
 	// Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName`
-	Get(tablePath *storage.Path, fileName *storage.Path) (*CommitEntry, error)
+	Get(tablePath storage.Path, fileName storage.Path) (*CommitEntry, error)
 
 	// Gets the latest entry corresponding to the Delta log file for given `tablePath`
-	GetLatest(tablePath *storage.Path) (*CommitEntry, error)
+	GetLatest(tablePath storage.Path) (*CommitEntry, error)
 }

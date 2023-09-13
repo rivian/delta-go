@@ -75,7 +75,6 @@ func TestLogEntryFromActions(t *testing.T) {
 }
 
 func TestLogEntryFromAction(t *testing.T) {
-
 	commit := make(CommitInfo)
 	commit["path"] = "part-1.snappy.parquet"
 	commit["size"] = 1
@@ -91,7 +90,6 @@ func TestLogEntryFromAction(t *testing.T) {
 
 // Test from example at https://github.com/delta-io/delta/blob/master/PROTOCOL.md#change-metadata
 func TestLogEntryFromActionChangeMetaData(t *testing.T) {
-
 	expectedStr := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(`
 	{
 		"metaData":{
@@ -140,7 +138,6 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 
 // TestUpdateStats tests gathering stats over a data set that includes pointers
 func TestUpdateStats(t *testing.T) {
-
 	type rowType struct {
 		Id    int      `parquet:"id,snappy"`
 		Label string   `parquet:"label,dict,snappy"`
@@ -161,7 +158,6 @@ func TestUpdateStats(t *testing.T) {
 
 	stats := Stats{}
 	for _, row := range data {
-
 		stats.NumRecords++
 		UpdateStats(&stats, "id", &row.Id)
 		UpdateStats(&stats, "label", &row.Label)
@@ -174,7 +170,6 @@ func TestUpdateStats(t *testing.T) {
 	if statsString != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", statsString, expectedStr)
 	}
-
 }
 
 func TestStatsFromJSON(t *testing.T) {
@@ -224,18 +219,15 @@ func TestStatsFromJSON(t *testing.T) {
 }
 
 func TestFormatDefault(t *testing.T) {
-
 	format := new(Format).Default()
 	b, _ := json.Marshal(format)
 	expectedStr := `{"provider":"parquet","options":{}}`
 	if string(b) != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", string(b), expectedStr)
 	}
-
 }
 
 func TestWriteOperationParameters(t *testing.T) {
-
 	write := Write{Mode: Append, PartitionBy: []string{"date"}}
 	commit := write.GetCommitInfo()
 	commit["timestamp"] = 1675020556534
@@ -253,7 +245,6 @@ func TestWriteOperationParameters(t *testing.T) {
 	if !reflect.DeepEqual(expectedStr, string(logs)) {
 		t.Errorf("expected %s, but got %s", expectedStr, string(logs))
 	}
-
 }
 
 func TestWrite_GetCommitInfo(t *testing.T) {

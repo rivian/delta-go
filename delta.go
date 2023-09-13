@@ -93,25 +93,25 @@ func (table *DeltaTable) CreateTransaction(options *DeltaTransactionOptions) *De
 }
 
 // / Return the uri of commit version.
-func (table *DeltaTable) CommitUriFromVersion(version int64) *storage.Path {
+func CommitUriFromVersion(version int64) storage.Path {
 	str := fmt.Sprintf("%020d.json", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
-	return &path
+	return path
 }
 
 // / The base path of commit uri's
-func BaseCommitUri() *storage.Path {
+func BaseCommitUri() storage.Path {
 	return storage.NewPath("_delta_log/")
 }
 
 // / Return true if URI is a valid commit filename (not a checkpoint file, and not a temp commit)
-func IsValidCommitUri(path *storage.Path) bool {
+func IsValidCommitUri(path storage.Path) bool {
 	match := commitFileRegex.MatchString(path.Base())
 	return match
 }
 
 // / Return true plus the version if the URI is a valid commit filename
-func CommitVersionFromUri(path *storage.Path) (bool, int64) {
+func CommitVersionFromUri(path storage.Path) (bool, int64) {
 	groups := commitFileRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 2 {
 		version, err := strconv.ParseInt(groups[1], 10, 64)
@@ -123,7 +123,7 @@ func CommitVersionFromUri(path *storage.Path) (bool, int64) {
 }
 
 // / Return true plus the version if the URI is a valid commit or checkpoint filename
-func CommitOrCheckpointVersionFromUri(path *storage.Path) (bool, int64) {
+func CommitOrCheckpointVersionFromUri(path storage.Path) (bool, int64) {
 	groups := commitOrCheckpointRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 5 {
 		version, err := strconv.ParseInt(groups[1], 10, 64)
@@ -192,7 +192,7 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 
 // / Exists checks if a DeltaTable with version 0 exists in the object store.
 func (table *DeltaTable) Exists() (bool, error) {
-	path := table.CommitUriFromVersion(0)
+	path := CommitUriFromVersion(0)
 
 	meta, err := table.Store.Head(path)
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
@@ -206,7 +206,7 @@ func (table *DeltaTable) Exists() (bool, error) {
 		}
 		for _, result := range results.Objects {
 			// Check each result to see if it is a version file
-			isValidCommitUri := IsValidCommitUri(&result.Location)
+			isValidCommitUri := IsValidCommitUri(result.Location)
 
 			if isValidCommitUri {
 				return true, nil
@@ -231,7 +231,7 @@ func (table *DeltaTable) Exists() (bool, error) {
 
 // / Read a commit log and return the actions from the log
 func (table *DeltaTable) ReadCommitVersion(version int64) ([]Action, error) {
-	path := table.CommitUriFromVersion(version)
+	path := CommitUriFromVersion(version)
 	return ReadCommitLog(table.Store, path)
 }
 
@@ -248,7 +248,7 @@ func (table *DeltaTable) LoadVersion(version *int64) error {
 	var err error
 	var checkpointLoadError error
 	if version != nil {
-		commitURI := table.CommitUriFromVersion(*version)
+		commitURI := CommitUriFromVersion(*version)
 		_, err := table.Store.Head(commitURI)
 		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 			return ErrorInvalidVersion
@@ -377,7 +377,7 @@ func (table *DeltaTable) findLatestCheckpointsForVersion(version *int64) (checkp
 		// Finally, if list results are ordered, check if this is a regular commit and the version is greater
 		// than the max version
 		if listResultsAreOrdered && version != nil {
-			isCommit, checkpointVersion := CommitVersionFromUri(&meta.Location)
+			isCommit, checkpointVersion := CommitVersionFromUri(meta.Location)
 			if isCommit && checkpointVersion > *version {
 				break
 			}
@@ -460,7 +460,7 @@ func (table *DeltaTable) updateIncremental(maxVersion *int64) error {
 // / If the next commit doesn't exist, returns false in the third return parameter
 func (table *DeltaTable) nextCommitDetails() (int64, []Action, bool, error) {
 	nextVersion := table.State.Version + 1
-	nextCommitURI := table.CommitUriFromVersion(nextVersion)
+	nextCommitURI := CommitUriFromVersion(nextVersion)
 	noMoreCommits := false
 	actions, err := ReadCommitLog(table.Store, nextCommitURI)
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
@@ -545,7 +545,7 @@ func validateCheckpointAndCleanup(table *DeltaTable, store storage.ObjectStore, 
 }
 
 // / Read a commit log and return the actions inside it
-func ReadCommitLog(store storage.ObjectStore, location *storage.Path) ([]Action, error) {
+func ReadCommitLog(store storage.ObjectStore, location storage.Path) ([]Action, error) {
 	commitData, err := store.Get(location)
 	if err != nil {
 		return nil, err
@@ -702,7 +702,6 @@ func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadat
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `DeltaTable.try_commit_transaction`.
 func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, appMetadata map[string]any) (PreparedCommit, error) {
-
 	anyCommitInfo := false
 	for _, action := range transaction.Actions {
 		switch action.(type) {
@@ -738,7 +737,7 @@ func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, app
 	path := storage.Path{Raw: filepath.Join("_delta_log", fileName)}
 	commit := PreparedCommit{URI: path}
 
-	err = transaction.DeltaTable.Store.Put(&path, logEntry)
+	err = transaction.DeltaTable.Store.Put(path, logEntry)
 	if err != nil {
 		return commit, err
 	}
@@ -822,7 +821,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) (err erro
 
 		// 3) Try to Rename the file
 		from := storage.NewPath(commit.URI.Raw)
-		to := transaction.DeltaTable.CommitUriFromVersion(version)
+		to := CommitUriFromVersion(version)
 		err = transaction.DeltaTable.Store.RenameIfNotExists(from, to)
 		if err != nil {
 			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)

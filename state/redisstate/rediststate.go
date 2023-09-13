@@ -58,7 +58,6 @@ func (s *RedisStateStore) Get() (state.CommitState, error) {
 }
 
 func (s *RedisStateStore) Put(commitState state.CommitState) error {
-
 	data, _ := json.Marshal(commitState)
 	err := s.RedisClient.Set(s.ctx, s.Key, data, 0).Err()
 	if err != nil {

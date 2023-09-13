@@ -44,7 +44,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestGetPutData(t *testing.T) {
-
 	var redisOpts = &redis.Options{
 		Network: "unix",
 		Addr:    servers[0].Socket(),

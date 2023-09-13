@@ -41,7 +41,7 @@ type S3ClientAPI interface {
 type S3ObjectStore struct {
 	// Source object key
 	Client  S3ClientAPI
-	BaseURI *storage.Path
+	BaseURI storage.Path
 	baseURL *url.URL
 	bucket  string
 	path    string
@@ -52,7 +52,7 @@ type S3ObjectStore struct {
 // Compile time check that S3ObjectStore implements storage.ObjectStore
 var _ storage.ObjectStore = (*S3ObjectStore)(nil)
 
-func New(client S3ClientAPI, baseURI *storage.Path) (*S3ObjectStore, error) {
+func New(client S3ClientAPI, baseURI storage.Path) (*S3ObjectStore, error) {
 	store := new(S3ObjectStore)
 	store.Client = client
 	store.BaseURI = baseURI
@@ -70,7 +70,7 @@ func New(client S3ClientAPI, baseURI *storage.Path) (*S3ObjectStore, error) {
 	return store, nil
 }
 
-func (s *S3ObjectStore) Put(location *storage.Path, data []byte) error {
+func (s *S3ObjectStore) Put(location storage.Path, data []byte) error {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
 		return errors.Join(storage.ErrorURLJoinPath, err)
@@ -88,7 +88,7 @@ func (s *S3ObjectStore) Put(location *storage.Path, data []byte) error {
 
 }
 
-func (s *S3ObjectStore) Get(location *storage.Path) ([]byte, error) {
+func (s *S3ObjectStore) Get(location storage.Path) ([]byte, error) {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
 		return nil, errors.Join(storage.ErrorURLJoinPath, err)
@@ -114,7 +114,7 @@ func (s *S3ObjectStore) Get(location *storage.Path) ([]byte, error) {
 	return bodyBytes, nil
 }
 
-func (s *S3ObjectStore) Delete(location *storage.Path) error {
+func (s *S3ObjectStore) Delete(location storage.Path) error {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
 		return errors.Join(storage.ErrorURLJoinPath, err)
@@ -130,7 +130,7 @@ func (s *S3ObjectStore) Delete(location *storage.Path) error {
 	return nil
 }
 
-func (s *S3ObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path) error {
+func (s *S3ObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
 	// return ErrorObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
 	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
@@ -144,7 +144,7 @@ func (s *S3ObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path) 
 	return nil
 }
 
-func (s *S3ObjectStore) Rename(from *storage.Path, to *storage.Path) error {
+func (s *S3ObjectStore) Rename(from storage.Path, to storage.Path) error {
 	srcKey, err := url.JoinPath(s.path, from.Raw)
 	if err != nil {
 		return errors.Join(storage.ErrorURLJoinPath, err)
@@ -173,7 +173,7 @@ func (s *S3ObjectStore) Rename(from *storage.Path, to *storage.Path) error {
 	return nil
 }
 
-func (s *S3ObjectStore) Head(location *storage.Path) (storage.ObjectMeta, error) {
+func (s *S3ObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) {
 	var m storage.ObjectMeta
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
@@ -193,14 +193,14 @@ func (s *S3ObjectStore) Head(location *storage.Path) (storage.ObjectMeta, error)
 		return m, errors.Join(storage.ErrorHeadObject, err)
 	}
 
-	m.Location = *location
+	m.Location = location
 	m.LastModified = *result.LastModified
 	m.Size = result.ContentLength
 
 	return m, nil
 }
 
-func getListInputAndTrimPrefix(s *S3ObjectStore, prefix *storage.Path, previousResult *storage.ListResult) (s3.ListObjectsV2Input, string, error) {
+func getListInputAndTrimPrefix(s *S3ObjectStore, prefix storage.Path, previousResult *storage.ListResult) (s3.ListObjectsV2Input, string, error) {
 	// We will need the store path with the trailing / for trimming results
 	pathWithSeparators := s.path
 	if !strings.HasSuffix(pathWithSeparators, "/") {
@@ -236,7 +236,7 @@ func getListInputAndTrimPrefix(s *S3ObjectStore, prefix *storage.Path, previousR
 	return listInput, pathWithSeparators, nil
 }
 
-func (s *S3ObjectStore) List(prefix *storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
+func (s *S3ObjectStore) List(prefix storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
 	listInput, resultsTrimPrefix, err := getListInputAndTrimPrefix(s, prefix, previousResult)
 	if err != nil {
 		return storage.ListResult{}, err
@@ -251,7 +251,7 @@ func (s *S3ObjectStore) List(prefix *storage.Path, previousResult *storage.ListR
 	for _, result := range results.Contents {
 		location := strings.TrimPrefix(*result.Key, resultsTrimPrefix)
 		listResult.Objects = append(listResult.Objects, storage.ObjectMeta{
-			Location:     *storage.NewPath(location),
+			Location:     storage.NewPath(location),
 			LastModified: *result.LastModified,
 			Size:         result.Size,
 		})
@@ -262,7 +262,7 @@ func (s *S3ObjectStore) List(prefix *storage.Path, previousResult *storage.ListR
 	return listResult, nil
 }
 
-func (s *S3ObjectStore) ListAll(prefix *storage.Path) (storage.ListResult, error) {
+func (s *S3ObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error) {
 	var listResult storage.ListResult
 	listInput, resultsTrimPrefix, err := getListInputAndTrimPrefix(s, prefix, nil)
 	if err != nil {
@@ -279,7 +279,7 @@ func (s *S3ObjectStore) ListAll(prefix *storage.Path) (storage.ListResult, error
 		for _, result := range page.Contents {
 			location := strings.TrimPrefix(*result.Key, resultsTrimPrefix)
 			listResult.Objects = append(listResult.Objects, storage.ObjectMeta{
-				Location:     *storage.NewPath(location),
+				Location:     storage.NewPath(location),
 				LastModified: *result.LastModified,
 				Size:         result.Size,
 			})

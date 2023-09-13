@@ -23,14 +23,14 @@ import (
 )
 
 type FileStateStore struct {
-	BaseURI *storage.Path
+	BaseURI storage.Path
 	Key     string
 }
 
 // Compile time check that FileStateStore implements state.StateStore
 var _ state.StateStore = (*FileStateStore)(nil)
 
-func New(baseURI *storage.Path, key string) *FileStateStore {
+func New(baseURI storage.Path, key string) *FileStateStore {
 	fs := new(FileStateStore)
 	fs.BaseURI = baseURI
 	fs.Key = key

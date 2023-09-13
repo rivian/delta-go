@@ -38,7 +38,7 @@ type S3MockClient struct {
 
 // newS3MockClient creates a mock S3 client that uses a filestore in a temporary directory to
 // store, retrieve, and manipulate files
-func NewS3MockClient(t *testing.T, baseURI *storage.Path) (*S3MockClient, error) {
+func NewS3MockClient(t *testing.T, baseURI storage.Path) (*S3MockClient, error) {
 	tmpDir := t.TempDir()
 	tmpPath := storage.NewPath(tmpDir)
 	fileStore := filestore.FileObjectStore{BaseURI: tmpPath}
@@ -58,10 +58,10 @@ func NewS3MockClient(t *testing.T, baseURI *storage.Path) (*S3MockClient, error)
 }
 
 // getFilePathFromS3Input generates the local file path from the S3 bucket and key
-func getFilePathFromS3Input(bucket string, key string) (*storage.Path, error) {
+func getFilePathFromS3Input(bucket string, key string) (storage.Path, error) {
 	filePath, err := url.JoinPath(bucket, key)
 	if err != nil {
-		return nil, err
+		return storage.NewPath(""), err
 	}
 	return storage.NewPath(filePath), nil
 }
@@ -199,17 +199,17 @@ func (m *S3MockClient) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV
 }
 
 // getFilePath returns the path of the location on the baseURI, ignoring the URI scheme
-func getFilePath(baseURI *storage.Path, location *storage.Path) (*storage.Path, error) {
+func getFilePath(baseURI storage.Path, location storage.Path) (storage.Path, error) {
 	baseURL, err := baseURI.ParseURL()
 	if err != nil {
-		return nil, err
+		return storage.NewPath(""), err
 	}
 	path, err := url.JoinPath(baseURL.Host, baseURL.Path, location.Raw)
 	return storage.NewPath(path), err
 }
 
 // getFile returns a file from the underlying filestore, for use in unit tests
-func (m *S3MockClient) GetFile(baseURI *storage.Path, location *storage.Path) ([]byte, error) {
+func (m *S3MockClient) GetFile(baseURI storage.Path, location storage.Path) ([]byte, error) {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
 		return nil, err
@@ -218,7 +218,7 @@ func (m *S3MockClient) GetFile(baseURI *storage.Path, location *storage.Path) ([
 }
 
 // putFile writes data to a file in the underlying filestore for use in unit tests
-func (m *S3MockClient) PutFile(baseURI *storage.Path, location *storage.Path, data []byte) error {
+func (m *S3MockClient) PutFile(baseURI storage.Path, location storage.Path, data []byte) error {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
 		return err
@@ -227,7 +227,7 @@ func (m *S3MockClient) PutFile(baseURI *storage.Path, location *storage.Path, da
 }
 
 // fileExists checks if a file exists in the underlying filestore for use in unit tests
-func (m *S3MockClient) FileExists(baseURI *storage.Path, location *storage.Path) (bool, error) {
+func (m *S3MockClient) FileExists(baseURI storage.Path, location storage.Path) (bool, error) {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
 		return false, err
