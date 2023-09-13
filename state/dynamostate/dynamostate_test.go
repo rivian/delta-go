@@ -21,17 +21,13 @@ import (
 )
 
 func TestGet(t *testing.T) {
-	// svc, err := dynamolock.GetDynamoDBClient()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
 	dynamoState, err := New(dynamodbutils.NewMockClient(), "storage-table", "_commit.state", Options{})
 	if err != nil {
 		t.Errorf("Error occurred in retrieving version.")
 	}
 	commitS, err := dynamoState.Get()
 	if err != nil {
-		t.Errorf("Error occurred in retrieving  version.")
+		t.Errorf("Error occurred in retrieving version.")
 	}
 	versionString := fmt.Sprintf("%v", commitS.Version)
 	if len(string(versionString)) < 1 {

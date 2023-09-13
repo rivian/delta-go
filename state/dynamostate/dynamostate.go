@@ -24,12 +24,15 @@ import (
 	"github.com/rivian/delta-go/state"
 )
 
+// Represents attribute names in DynamoDB items
+type Attribute string
+
 const (
-	KeyAttr                            string = "key"
-	VersionAttr                        string = "version"
-	DefaultMaxRetryTableCreateAttempts uint16 = 20
-	DefaultRCU                         int64  = 5
-	DefaultWCU                         int64  = 5
+	Key                                Attribute = "key"
+	Version                            Attribute = "version"
+	DefaultMaxRetryTableCreateAttempts uint16    = 20
+	DefaultRCU                         int64     = 5
+	DefaultWCU                         int64     = 5
 )
 
 type DynamoState struct {
@@ -66,7 +69,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 	createTableInput := dynamodb.CreateTableInput{
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(KeyAttr),
+				AttributeName: aws.String(string(Key)),
 				KeyType:       types.KeyTypeHash,
 			},
 		},
@@ -89,7 +92,7 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 	input := &dynamodb.GetItemInput{
 		TableName: aws.String(l.Table),
 		Key: map[string]types.AttributeValue{
-			KeyAttr: &types.AttributeValueMemberS{Value: l.Key},
+			string(Key): &types.AttributeValueMemberS{Value: l.Key},
 		},
 	}
 
@@ -106,7 +109,7 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 		return state.CommitState{Version: -1}, err
 	}
 
-	versionValue := result.Item[VersionAttr].(*types.AttributeValueMemberS).Value
+	versionValue := result.Item[string(Version)].(*types.AttributeValueMemberS).Value
 	version, err := strconv.Atoi(versionValue)
 	if err != nil {
 		//TODO wrap error rather than printing
@@ -125,8 +128,8 @@ func (l *DynamoState) Put(commitS state.CommitState) error {
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(l.Table),
 		Item: map[string]types.AttributeValue{
-			KeyAttr:     &types.AttributeValueMemberS{Value: l.Key},
-			VersionAttr: &types.AttributeValueMemberS{Value: versionString},
+			string(Key):     &types.AttributeValueMemberS{Value: l.Key},
+			string(Version): &types.AttributeValueMemberS{Value: versionString},
 		},
 	}
 
