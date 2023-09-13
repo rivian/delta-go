@@ -28,8 +28,8 @@ import (
 type Attribute string
 
 const (
-	KeyAttr                            Attribute = "key"
-	VersionAttr                        Attribute = "version"
+	Key                                Attribute = "key"
+	Version                            Attribute = "version"
 	DefaultMaxRetryTableCreateAttempts uint16    = 20
 	DefaultRCU                         int64     = 5
 	DefaultWCU                         int64     = 5
@@ -69,7 +69,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 	createTableInput := dynamodb.CreateTableInput{
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(string(KeyAttr)),
+				AttributeName: aws.String(string(Key)),
 				KeyType:       types.KeyTypeHash,
 			},
 		},
@@ -92,7 +92,7 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 	input := &dynamodb.GetItemInput{
 		TableName: aws.String(l.Table),
 		Key: map[string]types.AttributeValue{
-			string(KeyAttr): &types.AttributeValueMemberS{Value: l.Key},
+			string(Key): &types.AttributeValueMemberS{Value: l.Key},
 		},
 	}
 
@@ -109,7 +109,7 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 		return state.CommitState{Version: -1}, err
 	}
 
-	versionValue := result.Item[string(VersionAttr)].(*types.AttributeValueMemberS).Value
+	versionValue := result.Item[string(Version)].(*types.AttributeValueMemberS).Value
 	version, err := strconv.Atoi(versionValue)
 	if err != nil {
 		//TODO wrap error rather than printing
@@ -128,8 +128,8 @@ func (l *DynamoState) Put(commitS state.CommitState) error {
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(l.Table),
 		Item: map[string]types.AttributeValue{
-			string(KeyAttr):     &types.AttributeValueMemberS{Value: l.Key},
-			string(VersionAttr): &types.AttributeValueMemberS{Value: versionString},
+			string(Key):     &types.AttributeValueMemberS{Value: l.Key},
+			string(Version): &types.AttributeValueMemberS{Value: versionString},
 		},
 	}
 
