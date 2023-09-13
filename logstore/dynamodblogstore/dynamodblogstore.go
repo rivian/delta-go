@@ -109,8 +109,10 @@ type DynamoDBLogStoreOptions struct {
 	TableName                   string
 	ExpirationDelaySeconds      uint64
 	MaxRetryTableCreateAttempts uint16
-	RCU                         int64
-	WCU                         int64
+	// The number of read capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/)
+	RCU int64
+	// The number of write capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/)
+	WCU int64
 }
 
 // Gets the client from a DynamoDBLogStore instance
