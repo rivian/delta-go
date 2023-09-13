@@ -24,8 +24,11 @@ import (
 	"github.com/rivian/delta-go/lock"
 )
 
+// Represents attribute names in DynamoDB items
+type Attribute string
+
 const (
-	KeyAttr                            string        = "key"
+	Key                                Attribute     = "key"
 	DefaultTTL                         time.Duration = 60 * time.Second
 	DefaultHeartbeat                   time.Duration = 1 * time.Second
 	DefaultMaxRetryTableCreateAttempts uint16        = 20
@@ -88,7 +91,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 	createTableInput := dynamodb.CreateTableInput{
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(KeyAttr),
+				AttributeName: aws.String(string(Key)),
 				KeyType:       types.KeyTypeHash,
 			},
 		},
