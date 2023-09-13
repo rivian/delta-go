@@ -27,7 +27,7 @@ func TestGet(t *testing.T) {
 	}
 	commitS, err := dynamoState.Get()
 	if err != nil {
-		t.Errorf("Error occurred in retrieving  version.")
+		t.Errorf("Error occurred in retrieving version.")
 	}
 	versionString := fmt.Sprintf("%v", commitS.Version)
 	if len(string(versionString)) < 1 {
