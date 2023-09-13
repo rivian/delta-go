@@ -34,15 +34,15 @@ var (
 )
 
 // Represents attribute names in DynamoDB items
-type AttributeName string
+type Attribute string
 
 const (
 	// DynamoDB table attribute keys
-	TablePathAttr  AttributeName = "tablePath"
-	FileNameAttr   AttributeName = "fileName"
-	TempPathAttr   AttributeName = "tempPath"
-	CompleteAttr   AttributeName = "complete"
-	ExpireTimeAttr AttributeName = "expireTime"
+	TablePathAttr  Attribute = "tablePath"
+	FileNameAttr   Attribute = "fileName"
+	TempPathAttr   Attribute = "tempPath"
+	CompleteAttr   Attribute = "complete"
+	ExpireTimeAttr Attribute = "expireTime"
 
 	// The delay, in seconds, after a commit entry has been committed to the delta log at which
 	// point it is safe to be deleted from the log store.
