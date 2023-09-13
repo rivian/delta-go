@@ -25,14 +25,14 @@ import (
 )
 
 // Represents attribute names in DynamoDB items
-type AttributeName string
+type Attribute string
 
 const (
-	KeyAttr                            AttributeName = "key"
-	VersionAttr                        AttributeName = "version"
-	DefaultMaxRetryTableCreateAttempts uint16        = 20
-	DefaultRCU                         int64         = 5
-	DefaultWCU                         int64         = 5
+	KeyAttr                            Attribute = "key"
+	VersionAttr                        Attribute = "version"
+	DefaultMaxRetryTableCreateAttempts uint16    = 20
+	DefaultRCU                         int64     = 5
+	DefaultWCU                         int64     = 5
 )
 
 type DynamoState struct {
