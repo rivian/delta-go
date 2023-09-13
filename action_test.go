@@ -65,11 +65,11 @@ func TestLogEntryFromActions(t *testing.T) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
-	if !strings.Contains(string(logs), `{"add":{"path":"part-1.snappy.parquet","partitionValues":null,"size":1,"modificationTime":1675020556534,"dataChange":false,"stats":null}}`) {
+	if !strings.Contains(string(logs), `{"add":{"path":"part-1.snappy.parquet","partitionValues":null,"size":1,"modificationTime":1675020556534,"dataChange":false,"stats":""}}`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
-	if !strings.Contains(string(logs), `{"path":"part-2.snappy.parquet","partitionValues":null,"size":2,"modificationTime":1675020556534,"dataChange":false,"stats":null}`) {
+	if !strings.Contains(string(logs), `{"path":"part-2.snappy.parquet","partitionValues":null,"size":2,"modificationTime":1675020556534,"dataChange":false,"stats":""}`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 }
@@ -336,7 +336,7 @@ func TestActionFromLogEntry(t *testing.T) {
 	}{
 		{name: "Add", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`{"path":"mypath.parquet","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true,"stats":"{\"numRecords\":155,\"tightBounds\":false,\"minValues\":{\"timestamp\":1615338375007003},\"maxValues\":{\"timestamp\":1615338377517216},\"nullCount\":null}"}`)}},
 			want: &Add{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
-				Stats: &statsString}, wantErr: nil},
+				Stats: statsString}, wantErr: nil},
 		{name: "CommitInfo", args: args{unstructuredResult: map[string]json.RawMessage{"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
 			want: &CommitInfo{"clientVersion": "delta-go.alpha-0.0.0", "isBlindAppend": true, "operation": "delta-go.Write",
 				"timestamp": float64(1679610144893)}, wantErr: nil},
@@ -371,12 +371,11 @@ func TestActionsFromLogEntries(t *testing.T) {
 		NumRecords: 123,
 	}
 
-	statsString := string(stats.Json())
 	add := Add{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: 1675020556534,
-		Stats:            &statsString,
+		Stats:            string(stats.Json()),
 	}
 
 	write := Write{Mode: ErrorIfExists}
