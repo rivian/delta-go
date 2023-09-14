@@ -26,7 +26,7 @@ var (
 	ErrorExceededTableCreateRetryAttempts error = errors.New("failed to create table")
 )
 
-// Defines methods implemented in the DynamoDB mock implementation
+// Defines methods implemented by dynamodb.Client
 type DynamoDBClient interface {
 	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)

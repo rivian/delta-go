@@ -22,15 +22,15 @@ import (
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
-	"github.com/rivian/delta-go/internal/s3mock"
+	"github.com/rivian/delta-go/internal/s3utils"
 	"github.com/rivian/delta-go/storage"
 )
 
 // Test helper: setupTest does common setup for our tests, creating a mock S3 client and an S3ObjectStore
-func setupTest(t *testing.T) (baseURI storage.Path, mockClient *s3mock.S3MockClient, s3Store *S3ObjectStore) {
+func setupTest(t *testing.T) (baseURI storage.Path, mockClient *s3utils.MockS3Client, s3Store *S3ObjectStore) {
 	t.Helper()
 	baseURI = storage.NewPath("s3://test-bucket/test-delta-table")
-	mockClient, err := s3mock.NewS3MockClient(t, baseURI)
+	mockClient, err := s3utils.NewMockClient(t, baseURI)
 	if err != nil {
 		t.Fatalf("Error occurred setting up for tests %e.", err)
 	}
@@ -42,7 +42,7 @@ func setupTest(t *testing.T) (baseURI storage.Path, mockClient *s3mock.S3MockCli
 }
 
 // Test helper: verify the file exists and has the expected contents
-func verifyFileContents(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3mock.S3MockClient, data []byte, errorMessage string) {
+func verifyFileContents(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3utils.MockS3Client, data []byte, errorMessage string) {
 	t.Helper()
 	results, err := mockClient.GetFile(baseURI, path)
 	if err != nil {
@@ -54,7 +54,7 @@ func verifyFileContents(t *testing.T, baseURI storage.Path, path storage.Path, m
 }
 
 // Test helper: verify the file does not exist
-func verifyFileDoesNotExist(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3mock.S3MockClient, errorMessage string) {
+func verifyFileDoesNotExist(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3utils.MockS3Client, errorMessage string) {
 	t.Helper()
 	fileExists, err := mockClient.FileExists(baseURI, path)
 	if fileExists {
