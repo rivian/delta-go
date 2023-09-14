@@ -629,7 +629,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 	}
 
 	metadata := NewDeltaTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
-	err = table.Create(*metadata, Protocol{}, CommitInfo{}, []Add{add})
+	err = table.Create(*metadata, new(Protocol).Default(), CommitInfo{}, []Add{add})
 	if err != nil {
 		t.Error(err)
 	}
@@ -715,7 +715,6 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 func TestCreateWithParquet(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-
 	// First write
 	fileName := fmt.Sprintf("part-%s.snappy.parquet", uuid.New().String())
 	filePath := filepath.Join(tmpDir, fileName)
@@ -740,22 +739,22 @@ func TestCreateWithParquet(t *testing.T) {
 	}
 
 	metadata := NewDeltaTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
-	err = table.Create(*metadata, Protocol{}, CommitInfo{}, []Add{add})
+	err = table.Create(*metadata, new(Protocol).Default(), CommitInfo{}, []Add{add})
 	if err != nil {
 		t.Error(err)
 	}
+
 	//		`{"type":"struct","nullable":false,"fields":[{"name":"id","type":"integer","nullable":true},{"name":"label","type":"string","nullable":true},{"name":"value","type":"string","nullable":true}]}`
 	//	    `{"type":"struct","fields":[{"name":"letter","type":"string","nullable":true,"metadata":{}},{"name":"number","type":"long","nullable":true,"metadata":{}},{"name":"a_float","type":"double","nullable":true,"metadata":{}}]}"`
 }
 
 type testData struct {
-	Id int64 `json:"id" parquet:"name=id"`
-	T1 int64 `json:"t1" parquet:"name=t1, converted=timestamp_micros"`
-	// T2     time.Time `json:"t2" parquet:"name=t2, converted=timestamp_micros"` //`json:"t2" parquet:"name=t2,timestamp"`
-	Label  string   `json:"label" parquet:"name=label, converted=UTF8"`
-	Value1 float64  `json:"value1" parquet:"name=value1"`
-	Value2 *float64 `json:"value2" parquet:"name=value2"`
-	Data   []byte   `json:"data" parquet:"name=data"`
+	Id        int64    `json:"id" parquet:"name=id"`
+	Timestamp int64    `json:"timestamp" parquet:"name=timestamp, converted=timestamp_micros"`
+	Label     string   `json:"label" parquet:"name=label, converted=UTF8"`
+	Value1    float64  `json:"value1" parquet:"name=value1"`
+	Value2    *float64 `json:"value2" parquet:"name=value2"`
+	Data      []byte   `json:"data" parquet:"name=data"`
 }
 
 func (t *testData) UnmarshalJSON(data []byte) error {
@@ -769,11 +768,8 @@ func (t *testData) UnmarshalJSON(data []byte) error {
 		switch k {
 		case "id":
 			t.Id = int64(v.(float64))
-		case "t1":
-			t.T1 = int64(v.(float64))
-		case "t2":
-			// micros := int64(v.(float64))
-			// t.T2 = time.Unix(micros/1e6, micros%1e6)
+		case "timestamp":
+			t.Timestamp = int64(v.(float64))
 		case "label":
 			t.Label = v.(string)
 		case "value1":
@@ -793,8 +789,7 @@ func (data *testData) getSchema() SchemaTypeStruct {
 	schema := SchemaTypeStruct{
 		Fields: []SchemaField{
 			{Name: "id", Type: Long, Nullable: false, Metadata: make(map[string]any)},
-			{Name: "t1", Type: Timestamp, Nullable: false, Metadata: make(map[string]any)},
-			{Name: "t2", Type: Timestamp, Nullable: false, Metadata: make(map[string]any)},
+			{Name: "timestamp", Type: Timestamp, Nullable: false, Metadata: make(map[string]any)},
 			{Name: "label", Type: String, Nullable: false, Metadata: make(map[string]any)},
 			{Name: "value1", Type: Double, Nullable: false, Metadata: make(map[string]any)},
 			{Name: "value2", Type: Double, Nullable: true, Metadata: make(map[string]any)},
@@ -816,13 +811,12 @@ func makeTestData(n int) []testData {
 		b := make([]byte, 8)
 		binary.LittleEndian.PutUint64(b, uint64(rand.Int()))
 		row := testData{
-			Id: int64(id),
-			T1: time.Now().UnixMicro(),
-			// T2:     time.Now(),
-			Label:  uuid.NewString(),
-			Value1: v,
-			Value2: v2,
-			Data:   b,
+			Id:        int64(id),
+			Timestamp: time.Now().UnixMicro(),
+			Label:     uuid.NewString(),
+			Value1:    v,
+			Value2:    v2,
+			Data:      b,
 		}
 		data = append(data, row)
 	}
@@ -834,7 +828,7 @@ func makeTestDataStats(data []testData) Stats {
 	for _, row := range data {
 		stats.NumRecords++
 		UpdateStats(&stats, "id", &row.Id)
-		UpdateStats(&stats, "t1", &row.T1)
+		UpdateStats(&stats, "timestamp", &row.Timestamp)
 		// i := row.T2.UnixMicro()
 		// UpdateStats(&stats, "t2", &i)
 		UpdateStats(&stats, "label", &row.Label)
