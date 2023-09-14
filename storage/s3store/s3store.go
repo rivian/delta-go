@@ -25,22 +25,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/rivian/delta-go/internal/s3utils"
 	"github.com/rivian/delta-go/storage"
 )
-
-type S3ClientAPI interface {
-	CopyObject(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
-	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
-	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
-	HeadObject(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
-	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
-	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
-}
 
 // type filePutter func(key string, data io.ReadSeeker, creds *credentials.Credentials) error
 type S3ObjectStore struct {
 	// Source object key
-	Client  S3ClientAPI
+	Client  s3utils.S3Client
 	BaseURI storage.Path
 	baseURL *url.URL
 	bucket  string
@@ -52,7 +44,7 @@ type S3ObjectStore struct {
 // Compile time check that S3ObjectStore implements storage.ObjectStore
 var _ storage.ObjectStore = (*S3ObjectStore)(nil)
 
-func New(client S3ClientAPI, baseURI storage.Path) (*S3ObjectStore, error) {
+func New(client s3utils.S3Client, baseURI storage.Path) (*S3ObjectStore, error) {
 	store := new(S3ObjectStore)
 	store.Client = client
 	store.BaseURI = baseURI

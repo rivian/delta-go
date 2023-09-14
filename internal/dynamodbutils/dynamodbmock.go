@@ -42,6 +42,9 @@ type MockDynamoDBClient struct {
 	tablesToItems       map[string][]map[string]types.AttributeValue
 }
 
+// Compile time check that MockDynamoDBClient implements DynamoDBClient
+var _ DynamoDBClient = (*MockDynamoDBClient)(nil)
+
 // Creates a new MockDynamoDBClient instance
 func NewMockClient() *MockDynamoDBClient {
 	m := new(MockDynamoDBClient)

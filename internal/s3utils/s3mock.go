@@ -10,7 +10,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package s3mock
+package s3utils
 
 import (
 	"bytes"
@@ -27,7 +27,7 @@ import (
 	"github.com/rivian/delta-go/storage/filestore"
 )
 
-type S3MockClient struct {
+type MockS3Client struct {
 	// Use a FileObjectStore to mock S3 storage
 	fileStore filestore.FileObjectStore
 	// The S3 store path
@@ -36,13 +36,16 @@ type S3MockClient struct {
 	MockError error
 }
 
-// newS3MockClient creates a mock S3 client that uses a filestore in a temporary directory to
+// Compile time check that MockS3Client implements S3Client
+var _ S3Client = (*MockS3Client)(nil)
+
+// NewMockClient creates a mock S3 client that uses a filestore in a temporary directory to
 // store, retrieve, and manipulate files
-func NewS3MockClient(t *testing.T, baseURI storage.Path) (*S3MockClient, error) {
+func NewMockClient(t *testing.T, baseURI storage.Path) (*MockS3Client, error) {
 	tmpDir := t.TempDir()
 	tmpPath := storage.NewPath(tmpDir)
 	fileStore := filestore.FileObjectStore{BaseURI: tmpPath}
-	client := new(S3MockClient)
+	client := new(MockS3Client)
 	client.fileStore = fileStore
 	// The mock client needs information about the S3 store's path to avoid edge cases during List
 	baseURL, err := baseURI.ParseURL()
@@ -66,7 +69,7 @@ func getFilePathFromS3Input(bucket string, key string) (storage.Path, error) {
 	return storage.NewPath(filePath), nil
 }
 
-func (m *S3MockClient) HeadObject(ctx context.Context, input *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+func (m *MockS3Client) HeadObject(ctx context.Context, input *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
@@ -86,7 +89,7 @@ func (m *S3MockClient) HeadObject(ctx context.Context, input *s3.HeadObjectInput
 	return headObjectOutput, nil
 }
 
-func (m *S3MockClient) PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+func (m *MockS3Client) PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
@@ -103,7 +106,7 @@ func (m *S3MockClient) PutObject(ctx context.Context, input *s3.PutObjectInput, 
 	return putObjectOutput, err
 }
 
-func (m *S3MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+func (m *MockS3Client) GetObject(ctx context.Context, input *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
@@ -123,7 +126,7 @@ func (m *S3MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, 
 	return getObjectOutput, nil
 }
 
-func (m *S3MockClient) CopyObject(ctx context.Context, input *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+func (m *MockS3Client) CopyObject(ctx context.Context, input *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
@@ -148,7 +151,7 @@ func (m *S3MockClient) CopyObject(ctx context.Context, input *s3.CopyObjectInput
 	return copyObjectOutput, nil
 }
 
-func (m *S3MockClient) DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
+func (m *MockS3Client) DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
@@ -166,7 +169,7 @@ func (m *S3MockClient) DeleteObject(ctx context.Context, input *s3.DeleteObjectI
 	return deleteObjectOutput, nil
 }
 
-func (m *S3MockClient) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+func (m *MockS3Client) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
@@ -209,7 +212,7 @@ func getFilePath(baseURI storage.Path, location storage.Path) (storage.Path, err
 }
 
 // getFile returns a file from the underlying filestore, for use in unit tests
-func (m *S3MockClient) GetFile(baseURI storage.Path, location storage.Path) ([]byte, error) {
+func (m *MockS3Client) GetFile(baseURI storage.Path, location storage.Path) ([]byte, error) {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
 		return nil, err
@@ -218,7 +221,7 @@ func (m *S3MockClient) GetFile(baseURI storage.Path, location storage.Path) ([]b
 }
 
 // putFile writes data to a file in the underlying filestore for use in unit tests
-func (m *S3MockClient) PutFile(baseURI storage.Path, location storage.Path, data []byte) error {
+func (m *MockS3Client) PutFile(baseURI storage.Path, location storage.Path, data []byte) error {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
 		return err
@@ -227,7 +230,7 @@ func (m *S3MockClient) PutFile(baseURI storage.Path, location storage.Path, data
 }
 
 // fileExists checks if a file exists in the underlying filestore for use in unit tests
-func (m *S3MockClient) FileExists(baseURI storage.Path, location storage.Path) (bool, error) {
+func (m *MockS3Client) FileExists(baseURI storage.Path, location storage.Path) (bool, error) {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
 		return false, err

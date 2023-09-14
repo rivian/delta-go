@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	// Compile time check that DynamoDBLogStore implements LogStore
+	// Compile time check that DynamoDBLogStore implements logstore.LogStore
 	_                           logstore.LogStore = (*DynamoDBLogStore)(nil)
 	ErrorUnableToGetCommitEntry error             = errors.New("unable to get commit entry")
 )
