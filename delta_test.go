@@ -131,13 +131,12 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := new(Protocol).Default()
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
-	statsString := string(stats.Json())
 	path := "part-123.snappy.parquet"
 	add := Add{
 		Path:             path,
 		Size:             984,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            &statsString,
+		Stats:            string(stats.Json()),
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
@@ -184,7 +183,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 		t.Error("Add path not deserialized properly")
 	}
 	var s Stats
-	err = json.Unmarshal([]byte(*a.Stats), &s)
+	err = json.Unmarshal([]byte(a.Stats), &s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,13 +617,12 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
-	statsString := string(stats.Json())
 	add := Add{
 		Path:             fileName,
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            &statsString,
+		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
 
@@ -665,13 +663,12 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 				t.Error(err)
 			}
 
-			statsString := string(stats.Json())
 			add := Add{
 				Path:             fileName,
 				Size:             p.Size,
 				DataChange:       true,
 				ModificationTime: time.Now().UnixMilli(),
-				Stats:            &statsString,
+				Stats:            string(stats.Json()),
 				PartitionValues:  make(map[string]string),
 			}
 
@@ -728,13 +725,12 @@ func TestCreateWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
-	statsString := string(stats.Json())
 	add := Add{
 		Path:             fileName,
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            &statsString,
+		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
 
@@ -1053,7 +1049,7 @@ func TestLoadVersion(t *testing.T) {
 	dataChange := true
 	add.DataChange = dataChange
 	stats := "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:24.594Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
-	add.Stats = &stats
+	add.Stats = stats
 	expectedState.Files[add.Path] = *add
 	add = new(Add)
 	path2 := "date=2020-06-01/part-00000-762e2b03-6a04-4707-b676-5d38d1ef9fca.c000.snappy.parquet"
@@ -1064,7 +1060,7 @@ func TestLoadVersion(t *testing.T) {
 	add.ModificationTime = modificationTime2
 	add.DataChange = dataChange
 	stats2 := "{\"numRecords\":1,\"minValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"maxValues\":{\"value\":\"x\",\"ts\":\"2021-07-30T18:11:27.001Z\"},\"nullCount\":{\"value\":0,\"ts\":0}}"
-	add.Stats = &stats2
+	add.Stats = stats2
 	expectedState.Files[add.Path] = *add
 	var schema SchemaTypeStruct = SchemaTypeStruct{
 		Fields: []SchemaField{

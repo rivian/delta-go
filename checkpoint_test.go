@@ -209,7 +209,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 			Size:             4567,
 			ModificationTime: 1627668694000,
 			DataChange:       false,
-			Stats:            &expectedStats,
+			Stats:            expectedStats,
 		}
 		if !reflect.DeepEqual(expectedAdd, checkAdd) {
 			t.Errorf("Add does not match: expected %v found %v", expectedAdd, checkAdd)

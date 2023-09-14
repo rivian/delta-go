@@ -57,9 +57,9 @@ type Add struct {
 	// that would not affect the final results.
 	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	// Map containing metadata about this file
-	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
+	Tags map[string]string `json:"tags,omitempty" parquet:"name=tags, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats *string `json:"stats" parquet:"name=stats, repetition=OPTIONAL, converted=UTF8"`
+	Stats string `json:"stats" parquet:"name=stats, repetition=OPTIONAL, converted=UTF8"`
 
 	// TODO - parsed fields dropped after the parquet library switch.
 	// This requires dropping writer version to 2.
