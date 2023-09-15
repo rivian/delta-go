@@ -16,8 +16,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,6 +36,8 @@ type MockS3Client struct {
 	s3StorePath string
 	// For testing: if MockError is set, any S3ClientAPI function called will return that error
 	MockError error
+	// For testing: enable pagination
+	PaginateListResults bool
 }
 
 // Compile time check that MockS3Client implements S3Client
@@ -185,9 +189,39 @@ func (m *MockS3Client) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV
 	}
 
 	listObjectsOutput := new(s3.ListObjectsV2Output)
-	listObjectsOutput.Contents = make([]types.Object, 0, len(output.Objects))
+
+	var outputCount int
+	var offset int
+	if m.PaginateListResults {
+		page := 1000
+		if input.MaxKeys != 0 {
+			page = int(input.MaxKeys)
+		}
+		outputCount = page
+		remaining := len(output.Objects)
+		if input.ContinuationToken != nil && len(*input.ContinuationToken) > 0 {
+			offset, err = strconv.Atoi(*input.ContinuationToken)
+			if err == nil {
+				remaining = remaining - offset
+			}
+			if remaining < 0 {
+				remaining = 0
+			}
+		}
+		if remaining < outputCount {
+			outputCount = remaining
+		}
+		if remaining > outputCount {
+			nextToken := fmt.Sprintf("%d", offset+page)
+			listObjectsOutput.NextContinuationToken = &nextToken
+		}
+	} else {
+		outputCount = len(output.Objects)
+	}
+	listObjectsOutput.Contents = make([]types.Object, 0, outputCount)
 	trimmedStorePath := strings.TrimPrefix(m.s3StorePath, "/")
-	for _, r := range output.Objects {
+	for i := 0; i < outputCount; i++ {
+		r := output.Objects[offset+i]
 		key := strings.TrimPrefix(r.Location.Raw, *input.Bucket+"/")
 		if key != trimmedStorePath {
 			lastModified := r.LastModified

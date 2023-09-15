@@ -25,3 +25,4 @@ dump.rdb
 
 .DS_Store
 .vscode
+coverage.txt
