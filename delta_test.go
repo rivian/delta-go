@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rivian/delta-go/internal/s3utils"
 	"github.com/rivian/delta-go/lock"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/lock/nillock"
@@ -36,6 +37,7 @@ import (
 
 	"github.com/rivian/delta-go/storage"
 	"github.com/rivian/delta-go/storage/filestore"
+	"github.com/rivian/delta-go/storage/s3store"
 )
 
 func TestDeltaTransactionPrepareCommit(t *testing.T) {
@@ -464,6 +466,88 @@ func TestDeltaTableExists(t *testing.T) {
 	if tableExists {
 		t.Errorf("table should not exist")
 	}
+
+	// Test a checkpoint file
+	err = os.Rename(fakeCommitPath, filepath.Join(tmpDir, "_delta_log/00000000000000031000.checkpoint.0000000001.0000000003.parquet"))
+	if err != nil {
+		t.Error(err)
+	}
+	tableExists, err = table.Exists()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if !tableExists {
+		t.Errorf("table should exist")
+	}
+}
+
+// Do a test with a lot of random files in the folder
+func TestDeltaTableExistsManyTempFiles(t *testing.T) {
+	// Need pagination so use S3 mock client
+	baseURI := storage.NewPath("s3://test-bucket/test-delta-table")
+	mockClient, err := s3utils.NewMockClient(t, baseURI)
+	if err != nil {
+		t.Fatalf("Error occurred setting up for tests %e.", err)
+	}
+
+	mockClient.PaginateListResults = true
+
+	s3Store, err := s3store.New(mockClient, baseURI)
+	if err != nil {
+		t.Fatalf("Error occurred setting up for tests %e.", err)
+	}
+
+	tmpDir := os.TempDir()
+	tmpPath := storage.NewPath(tmpDir)
+	state := filestate.New(tmpPath, "_delta_log/_commit.state")
+	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
+	table := NewDeltaTable(s3Store, lock, state)
+
+	metadata := NewDeltaTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+
+	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
+	if err != nil {
+		t.Error(err)
+	}
+	// Create another version file
+	transaction, operation, appMetaData := setupTransaction(t, table, nil)
+	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	if err != nil {
+		t.Error(err)
+	}
+	err = transaction.TryCommit(&commit)
+	if err != nil {
+		t.Error(err)
+	}
+	// Delete original version file
+	err = s3Store.Delete(CommitUriFromVersion(0))
+	if err != nil {
+		t.Error(err)
+	}
+
+	tableExists, err := table.Exists()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if !tableExists {
+		t.Errorf("table should exist")
+	}
+
+	for i := 0; i < 1100; i++ {
+		tempFilePath := fmt.Sprintf("_delta_log/.fake_optimize_%d", i)
+		table.Store.Put(storage.NewPath(tempFilePath), []byte{})
+	}
+
+	tableExists, err = table.Exists()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if !tableExists {
+		t.Errorf("table should exist")
+	}
 }
 
 func TestDeltaTableTryCommitLoop(t *testing.T) {
@@ -873,7 +957,7 @@ func setupTest(t *testing.T) (table *DeltaTable, state *filestate.FileStateStore
 	tmpDir = t.TempDir()
 	tmpPath := storage.NewPath(tmpDir)
 	store := filestore.New(tmpPath)
-	state = filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
+	state = filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 	table = NewDeltaTable(store, lock, state)
 	return

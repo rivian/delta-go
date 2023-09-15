@@ -197,18 +197,17 @@ func (table *DeltaTable) Exists() (bool, error) {
 	meta, err := table.Store.Head(path)
 	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
 		// Fallback: check for other variants of the version
-		basePath := BaseCommitUri()
-		// Do not use paged result; if we aren't seeing a version file in the
-		// first page of results, it's very unlikely that this is a commit log folder
-		results, err := table.Store.List(basePath, nil)
-		if err != nil {
-			return false, err
-		}
-		for _, result := range results.Objects {
-			// Check each result to see if it is a version file
-			isValidCommitUri := IsValidCommitUri(result.Location)
-
-			if isValidCommitUri {
+		logIterator := storage.NewListIterator(BaseCommitUri(), table.Store)
+		for {
+			meta, err := logIterator.Next()
+			if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+				break
+			}
+			if err != nil {
+				return false, err
+			}
+			isCommitOrCheckpoint, _ := CommitOrCheckpointVersionFromUri(meta.Location)
+			if isCommitOrCheckpoint {
 				return true, nil
 			}
 		}

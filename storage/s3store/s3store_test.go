@@ -15,6 +15,7 @@ package s3store
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"testing"
@@ -483,6 +484,73 @@ func TestList(t *testing.T) {
 			}
 			compareExpectedPaths(t, tt.want, got.Objects)
 		})
+	}
+}
+
+// This tests the mock client pagination
+func TestListPagination(t *testing.T) {
+	baseURI, mockClient, store := setupTest(t)
+
+	// Create many files
+	var files []string
+	for i := 0; i < 2100; i++ {
+		filePath := fmt.Sprintf("temp_%d", i)
+		files = append(files, filePath)
+		err := mockClient.PutFile(baseURI, storage.NewPath(filePath), []byte{})
+		if err != nil {
+			t.Errorf("Error setting up TestList: %e", err)
+		}
+	}
+	sort.Strings(files)
+
+	mockClient.PaginateListResults = true
+
+	got, err := store.List(storage.NewPath("temp"), nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if got.NextToken != "1000" {
+		t.Errorf("Expected next token 1000, got %s", got.NextToken)
+	}
+	if len(got.Objects) != 1000 {
+		t.Errorf("Expected 1000 objects, got %d", len(got.Objects))
+	}
+	for i := 0; i < 1000; i++ {
+		if got.Objects[i].Location.Raw != files[i] {
+			t.Errorf("Expected %s got %s", files[i], got.Objects[i].Location.Raw)
+		}
+	}
+
+	got2, err := store.List(storage.NewPath("temp"), &got)
+	if err != nil {
+		t.Error(err)
+	}
+	if got2.NextToken != "2000" {
+		t.Errorf("Expected next token 2000, got %s", got2.NextToken)
+	}
+	if len(got2.Objects) != 1000 {
+		t.Errorf("Expected 1000 objects, got %d", len(got2.Objects))
+	}
+	for i := 1000; i < 2000; i++ {
+		if got2.Objects[i-1000].Location.Raw != files[i] {
+			t.Errorf("Expected %s got %s", files[i], got2.Objects[i-1000].Location.Raw)
+		}
+	}
+
+	got3, err := store.List(storage.NewPath("temp"), &got2)
+	if err != nil {
+		t.Error(err)
+	}
+	if got3.NextToken != "" {
+		t.Errorf("Expected next token empty, got %s", got3.NextToken)
+	}
+	if len(got3.Objects) != 100 {
+		t.Errorf("Expected 100 objects, got %d", len(got3.Objects))
+	}
+	for i := 2000; i < 2100; i++ {
+		if got3.Objects[i-2000].Location.Raw != files[i] {
+			t.Errorf("Expected %s got %s", files[i], got3.Objects[i-2000].Location.Raw)
+		}
 	}
 }
 
