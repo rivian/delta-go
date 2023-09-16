@@ -1150,7 +1150,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Expected latest version to be %d.", 1)
 	}
 
-	for tempFileNum := 0; tempFileNum < 1100; tempFileNum++ {
+	for tempFileNum := 0; tempFileNum < 2100; tempFileNum++ {
 		token := uuid.New().String()
 		fileName := fmt.Sprintf("_commit_%s.json.tmp", token)
 
@@ -1168,7 +1168,7 @@ func TestGetLatestVersion(t *testing.T) {
 	}
 
 	var commitVersion int64
-	for commitVersion = 2; commitVersion < 1100; commitVersion++ {
+	for commitVersion = 2; commitVersion < 2100; commitVersion++ {
 		relativeFilePath := CommitUriFromVersion(commitVersion)
 
 		table.Store.Put(relativeFilePath, []byte{})
@@ -1178,11 +1178,11 @@ func TestGetLatestVersion(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
-	if latestVersion != 1099 {
-		t.Errorf("Expected latest version to be %d.", 1099)
+	if latestVersion != 2099 {
+		t.Errorf("Expected latest version to be %d.", 2099)
 	}
 
-	for checkpointVersion := 1; checkpointVersion < 1100; checkpointVersion = checkpointVersion + 10 {
+	for checkpointVersion := 1; checkpointVersion < 2100; checkpointVersion = checkpointVersion + 10 {
 		fileName := fmt.Sprintf("%020d", checkpointVersion) + ".checkpoint.parquet"
 
 		relativeFilePath := storage.PathFromIter([]string{"_delta_log", fileName})
@@ -1194,8 +1194,8 @@ func TestGetLatestVersion(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
-	if latestVersion != 1099 {
-		t.Errorf("Expected latest version to be %d.", 1099)
+	if latestVersion != 2099 {
+		t.Errorf("Expected latest version to be %d.", 2099)
 	}
 }
 
