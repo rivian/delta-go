@@ -13,8 +13,10 @@
 package delta
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -28,6 +30,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 )
 
 const DELTA_CLIENT_VERSION = "alpha-0.0.0"
@@ -42,6 +45,8 @@ var (
 	ErrorExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
 	ErrorNotATable                   error = errors.New("not a Delta table")
 	ErrorInvalidVersion              error = errors.New("invalid version")
+	ErrorUnableToGetVersionFromURI   error = errors.New("unable to get version from URI")
+	ErrorUnableToListDeltaLog        error = errors.New("unable to list Delta log")
 	ErrorUnableToLoadVersion         error = errors.New("unable to load specified version")
 	ErrorLockFailed                  error = errors.New("lock failed unexpectedly without an error")
 	ErrorNotImplemented              error = errors.New("not implemented")
@@ -237,6 +242,32 @@ func (table *DeltaTable) ReadCommitVersion(version int64) ([]Action, error) {
 // / Load the table state at the latest version
 func (table *DeltaTable) Load() error {
 	return table.LoadVersion(nil)
+}
+
+func (table *DeltaTable) GetLatestVersion() (int64, error) {
+	deltaLogFilesAndDirs, err := table.Store.ListAll(storage.NewPath("_delta_log/"))
+	if err != nil {
+		log.Debugf("delta-go: Failed to list all Delta log files and directories. %v", err)
+		return math.MaxInt64, ErrorUnableToListDeltaLog
+	}
+
+	commitLogs := slices.DeleteFunc(deltaLogFilesAndDirs.Objects, func(objectMeta storage.ObjectMeta) bool {
+		return !IsValidCommitUri(objectMeta.Location)
+	})
+
+	slices.SortFunc(commitLogs, func(firstObjectMeta, secondObjectMeta storage.ObjectMeta) int {
+		return cmp.Compare(firstObjectMeta.Location.Raw, secondObjectMeta.Location.Raw)
+	})
+
+	latestCommitURI := commitLogs[len(commitLogs)-1].Location
+
+	parsed, latestVersion := CommitVersionFromUri(latestCommitURI)
+	if !parsed {
+		log.Debugf("delta-go: Failed to parse commit version from URI. %v", err)
+		return math.MaxInt64, ErrorUnableToGetVersionFromURI
+	}
+
+	return latestVersion, nil
 }
 
 // / Load the table state at the specified version

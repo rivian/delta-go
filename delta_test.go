@@ -1089,6 +1089,93 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 	}
 }
 
+func TestGetLatestVersion(t *testing.T) {
+	baseURI := storage.NewPath("s3://low-fidelity-prod/tables/v2/dtc_snapshot_v2")
+
+	mockClient, err := s3utils.NewMockClient(t, baseURI)
+	if err != nil {
+		t.Fatalf("Failed to create S3 mock client. %v", err)
+	}
+
+	s3Store, err := s3store.New(mockClient, baseURI)
+	if err != nil {
+		t.Fatalf("Failed to create S3 object store. %v", err)
+	}
+
+	tempDir := os.TempDir()
+	tempPath := storage.NewPath(tempDir)
+	state := filestate.New(tempPath, "_delta_log/_commit.state")
+	lock := filelock.New(tempPath, "_delta_log/_commit.lock", filelock.Options{})
+	table := NewDeltaTable(s3Store, lock, state)
+
+	metadata := NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+
+	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
+	if err != nil {
+		t.Errorf("Failed to create table. %v", err)
+	}
+
+	latestVersion, err := table.GetLatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version. %v", err)
+	}
+	if latestVersion != 0 {
+		t.Errorf("Expected latest version to be %d", 101)
+	}
+
+	transaction, operation, appMetadata := setupTransaction(t, table, nil)
+	commit, err := transaction.PrepareCommit(operation, appMetadata)
+	if err != nil {
+		t.Errorf("Failed to prepare commit. %v", err)
+	}
+	err = transaction.TryCommit(&commit)
+	if err != nil {
+		t.Errorf("Failed to try commit. %v", err)
+	}
+
+	latestVersion, err = table.GetLatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version. %v", err)
+	}
+	if latestVersion != 1 {
+		t.Errorf("Expected latest version to be %d", 101)
+	}
+
+	for tempFileNum := 0; tempFileNum < 1100; tempFileNum++ {
+		token := uuid.New().String()
+		tempFileName := fmt.Sprintf("_commit_%s.json.tmp", token)
+
+		relativeTempFilePath := filepath.Join("_delta_log", tempFileName)
+
+		table.Store.Put(storage.NewPath(relativeTempFilePath), []byte{})
+	}
+
+	latestVersion, err = table.GetLatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version. %v", err)
+	}
+	if latestVersion != 1 {
+		t.Errorf("Expected latest version to be %d", 101)
+	}
+
+	var commitVersion int64
+	for commitVersion = 2; commitVersion < 1100; commitVersion++ {
+		fileName := CommitUriFromVersion(commitVersion)
+
+		relativeFilePath := filepath.Join("_delta_log", fileName.Raw)
+
+		table.Store.Put(storage.NewPath(relativeFilePath), []byte{})
+	}
+
+	latestVersion, err = table.GetLatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version. %v", err)
+	}
+	if latestVersion != 1099 {
+		t.Errorf("Expected latest version to be %d", 101)
+	}
+}
+
 func TestLoadVersion(t *testing.T) {
 	// Use setupCheckpointTest() to copy testdata commits
 	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
