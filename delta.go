@@ -248,7 +248,7 @@ func (table *DeltaTable) GetLatestVersion() (int64, error) {
 	deltaLogFilesAndDirs, err := table.Store.ListAll(storage.NewPath("_delta_log/"))
 	if err != nil {
 		log.Debugf("delta-go: Failed to list all Delta log files and directories. %v", err)
-		return math.MaxInt64, ErrorUnableToListDeltaLog
+		return math.MinInt64, ErrorUnableToListDeltaLog
 	}
 
 	commitLogs := slices.DeleteFunc(deltaLogFilesAndDirs.Objects, func(objectMeta storage.ObjectMeta) bool {
@@ -264,7 +264,7 @@ func (table *DeltaTable) GetLatestVersion() (int64, error) {
 	parsed, latestVersion := CommitVersionFromUri(latestCommitURI)
 	if !parsed {
 		log.Debugf("delta-go: Failed to parse commit version from URI. %v", err)
-		return math.MaxInt64, ErrorUnableToGetVersionFromURI
+		return math.MinInt64, ErrorUnableToGetVersionFromURI
 	}
 
 	return latestVersion, nil
