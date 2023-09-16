@@ -1120,7 +1120,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 0 {
-		t.Errorf("Expected latest version to be %d", 101)
+		t.Errorf("Expected latest version to be %d.", 101)
 	}
 
 	transaction, operation, appMetadata := setupTransaction(t, table, nil)
@@ -1138,7 +1138,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1 {
-		t.Errorf("Expected latest version to be %d", 101)
+		t.Errorf("Expected latest version to be %d.", 101)
 	}
 
 	for tempFileNum := 0; tempFileNum < 1100; tempFileNum++ {
@@ -1155,7 +1155,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1 {
-		t.Errorf("Expected latest version to be %d", 101)
+		t.Errorf("Expected latest version to be %d.", 101)
 	}
 
 	var commitVersion int64
@@ -1170,7 +1170,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1099 {
-		t.Errorf("Expected latest version to be %d", 101)
+		t.Errorf("Expected latest version to be %d.", 101)
 	}
 
 	for checkpointVersion := 1; checkpointVersion < 1100; checkpointVersion = checkpointVersion + 10 {
@@ -1186,7 +1186,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1099 {
-		t.Errorf("Expected latest version to be %d", 101)
+		t.Errorf("Expected latest version to be %d.", 101)
 	}
 }
 
