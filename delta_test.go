@@ -1160,9 +1160,7 @@ func TestGetLatestVersion(t *testing.T) {
 
 	var commitVersion int64
 	for commitVersion = 2; commitVersion < 1100; commitVersion++ {
-		fileName := CommitUriFromVersion(commitVersion)
-
-		relativeFilePath := storage.PathFromIter([]string{"_delta_log", fileName.Raw})
+		relativeFilePath := CommitUriFromVersion(commitVersion)
 
 		table.Store.Put(relativeFilePath, []byte{})
 	}
@@ -1175,7 +1173,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Expected latest version to be %d", 101)
 	}
 
-	for checkpointVersion := 2; checkpointVersion < 1100; checkpointVersion = checkpointVersion + 10 {
+	for checkpointVersion := 1; checkpointVersion < 1100; checkpointVersion = checkpointVersion + 10 {
 		fileName := fmt.Sprintf("%020d", checkpointVersion) + ".checkpoint.parquet"
 
 		relativeFilePath := storage.PathFromIter([]string{"_delta_log", fileName})
