@@ -254,6 +254,10 @@ func (table *DeltaTable) GetLatestVersion() (int64, error) {
 	commitLogs := slices.DeleteFunc(deltaLogFilesAndDirs.Objects, func(objectMeta storage.ObjectMeta) bool {
 		return !IsValidCommitUri(objectMeta.Location)
 	})
+	if len(commitLogs) == 0 {
+		log.Debug("delta-go: There are no commit logs in the Delta log.")
+		return math.MinInt64, ErrorNotATable
+	}
 
 	slices.SortFunc(commitLogs, func(firstObjectMeta, secondObjectMeta storage.ObjectMeta) int {
 		return cmp.Compare(firstObjectMeta.Location.Raw, secondObjectMeta.Location.Raw)

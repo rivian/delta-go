@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -1108,6 +1109,14 @@ func TestGetLatestVersion(t *testing.T) {
 	lock := filelock.New(tempPath, "_delta_log/_commit.lock", filelock.Options{})
 	table := NewDeltaTable(s3Store, lock, state)
 
+	latestVersion, err := table.GetLatestVersion()
+	if !errors.Is(err, ErrorNotATable) {
+		t.Errorf("Expected table to not exist.")
+	}
+	if latestVersion != math.MinInt64 {
+		t.Errorf("Expected latest version to be %d.", math.MinInt64)
+	}
+
 	metadata := NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 
 	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
@@ -1115,12 +1124,12 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to create table. %v", err)
 	}
 
-	latestVersion, err := table.GetLatestVersion()
+	latestVersion, err = table.GetLatestVersion()
 	if err != nil {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 0 {
-		t.Errorf("Expected latest version to be %d.", 101)
+		t.Errorf("Expected latest version to be %d.", 0)
 	}
 
 	transaction, operation, appMetadata := setupTransaction(t, table, nil)
@@ -1138,7 +1147,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1 {
-		t.Errorf("Expected latest version to be %d.", 101)
+		t.Errorf("Expected latest version to be %d.", 1)
 	}
 
 	for tempFileNum := 0; tempFileNum < 1100; tempFileNum++ {
@@ -1155,7 +1164,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1 {
-		t.Errorf("Expected latest version to be %d.", 101)
+		t.Errorf("Expected latest version to be %d.", 1)
 	}
 
 	var commitVersion int64
@@ -1170,7 +1179,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1099 {
-		t.Errorf("Expected latest version to be %d.", 101)
+		t.Errorf("Expected latest version to be %d.", 1099)
 	}
 
 	for checkpointVersion := 1; checkpointVersion < 1100; checkpointVersion = checkpointVersion + 10 {
@@ -1186,7 +1195,7 @@ func TestGetLatestVersion(t *testing.T) {
 		t.Errorf("Failed to get latest version. %v", err)
 	}
 	if latestVersion != 1099 {
-		t.Errorf("Expected latest version to be %d.", 101)
+		t.Errorf("Expected latest version to be %d.", 1099)
 	}
 }
 
