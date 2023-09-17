@@ -244,7 +244,7 @@ func (table *DeltaTable) Load() error {
 	return table.LoadVersion(nil)
 }
 
-// Load the latest version of a table.
+// Loads the latest version of a table.
 func (table *DeltaTable) GetLatestVersion() (int64, error) {
 	deltaLogFilesAndDirs, err := table.Store.ListAll(storage.NewPath("_delta_log/"))
 	if err != nil {
