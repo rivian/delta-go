@@ -1089,7 +1089,7 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 	}
 }
 
-func TestGetLatestVersion(t *testing.T) {
+func TestLatestVersion(t *testing.T) {
 	uri := storage.NewPath("s3://test-bucket/test-delta-table")
 
 	client, err := s3utils.NewMockClient(t, uri)
