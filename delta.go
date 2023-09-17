@@ -45,8 +45,6 @@ var (
 	ErrorExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
 	ErrorNotATable                   error = errors.New("not a Delta table")
 	ErrorInvalidVersion              error = errors.New("invalid version")
-	ErrorUnableToGetVersionFromURI   error = errors.New("unable to get version from URI")
-	ErrorUnableToListDeltaLog        error = errors.New("unable to list Delta log")
 	ErrorUnableToLoadVersion         error = errors.New("unable to load specified version")
 	ErrorLockFailed                  error = errors.New("lock failed unexpectedly without an error")
 	ErrorNotImplemented              error = errors.New("not implemented")
@@ -244,33 +242,30 @@ func (table *DeltaTable) Load() error {
 	return table.LoadVersion(nil)
 }
 
-// Loads the latest version of a table.
-func (table *DeltaTable) GetLatestVersion() (int64, error) {
-	deltaLogFilesAndDirs, err := table.Store.ListAll(storage.NewPath("_delta_log/"))
+// LatestVersion gets the latest version of a table.
+func (t *DeltaTable) LatestVersion() (int64, error) {
+	objects, err := t.Store.ListAll(storage.NewPath("_delta_log/"))
 	if err != nil {
-		log.Debugf("delta-go: Failed to list all Delta log files and directories. %v", err)
-		return math.MinInt64, ErrorUnableToListDeltaLog
+		return math.MinInt64, fmt.Errorf("list Delta log: %w", err)
 	}
 
-	commitLogs := slices.DeleteFunc(deltaLogFilesAndDirs.Objects, func(objectMeta storage.ObjectMeta) bool {
-		return !IsValidCommitUri(objectMeta.Location)
+	logs := slices.DeleteFunc(objects.Objects, func(om storage.ObjectMeta) bool {
+		return !IsValidCommitUri(om.Location)
 	})
-	if len(commitLogs) == 0 {
-		log.Debug("delta-go: There are no commit logs in the Delta log.")
+	if len(logs) == 0 {
 		return math.MinInt64, ErrorNotATable
 	}
 
-	latestCommitURI := slices.MaxFunc(commitLogs, func(firstObjectMeta, secondObjectMeta storage.ObjectMeta) int {
-		return cmp.Compare(firstObjectMeta.Location.Raw, secondObjectMeta.Location.Raw)
+	uri := slices.MaxFunc(logs, func(fom, som storage.ObjectMeta) int {
+		return cmp.Compare(fom.Location.Raw, som.Location.Raw)
 	}).Location
 
-	parsed, latestVersion := CommitVersionFromUri(latestCommitURI)
+	parsed, version := CommitVersionFromUri(uri)
 	if !parsed {
-		log.Debugf("delta-go: Failed to parse commit version from URI. %v", err)
-		return math.MinInt64, ErrorUnableToGetVersionFromURI
+		return math.MinInt64, errors.New("failed to parse version")
 	}
 
-	return latestVersion, nil
+	return version, nil
 }
 
 // / Load the table state at the specified version

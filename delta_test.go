@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -1091,111 +1090,102 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 }
 
 func TestGetLatestVersion(t *testing.T) {
-	baseURI := storage.NewPath("s3://test-bucket/test-delta-table")
+	uri := storage.NewPath("s3://test-bucket/test-delta-table")
 
-	mockClient, err := s3utils.NewMockClient(t, baseURI)
+	client, err := s3utils.NewMockClient(t, uri)
 	if err != nil {
-		t.Fatalf("Failed to create S3 mock client. %v", err)
+		t.Fatalf("Failed to create new S3 mock client: %v", err)
 	}
-
-	s3Store, err := s3store.New(mockClient, baseURI)
+	store, err := s3store.New(client, uri)
 	if err != nil {
-		t.Fatalf("Failed to create S3 object store. %v", err)
+		t.Fatalf("Failed to create new S3 object store: %v", err)
 	}
 
-	tempDir := os.TempDir()
-	tempPath := storage.NewPath(tempDir)
-	state := filestate.New(tempPath, "_delta_log/_commit.state")
-	lock := filelock.New(tempPath, "_delta_log/_commit.lock", filelock.Options{})
-	table := NewDeltaTable(s3Store, lock, state)
+	var (
+		dir      = os.TempDir()
+		path     = storage.NewPath(dir)
+		state    = filestate.New(path, "_delta_log/_commit.state")
+		lock     = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
+		table    = NewDeltaTable(store, lock, state)
+		metadata = NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
+	)
 
-	latestVersion, err := table.GetLatestVersion()
-	if !errors.Is(err, ErrorNotATable) {
-		t.Errorf("Expected table to not exist.")
+	if _, err := table.LatestVersion(); !errors.Is(err, ErrorNotATable) { // if NO error
+		t.Errorf("Expected: %v", ErrorNotATable)
 	}
-	if latestVersion != math.MinInt64 {
-		t.Errorf("Expected latest version to be %d.", math.MinInt64)
+
+	if err := table.Create(*metadata, Protocol{}, make(map[string]any), []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
 	}
 
-	metadata := NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
-
-	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
+	version, err := table.LatestVersion()
 	if err != nil {
-		t.Errorf("Failed to create table. %v", err)
+		t.Errorf("Failed to get latest version: %v", err)
 	}
-
-	latestVersion, err = table.GetLatestVersion()
-	if err != nil {
-		t.Errorf("Failed to get latest version. %v", err)
-	}
-	if latestVersion != 0 {
-		t.Errorf("Expected latest version to be %d.", 0)
+	if version != 0 {
+		t.Errorf("After adding first commit: LatestVersion() = %v, want %v", version, 0)
 	}
 
 	transaction, operation, appMetadata := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetadata)
 	if err != nil {
-		t.Errorf("Failed to prepare commit. %v", err)
+		t.Errorf("Failed to prepare commit: %v", err)
 	}
-	err = transaction.TryCommit(&commit)
-	if err != nil {
-		t.Errorf("Failed to try commit. %v", err)
-	}
-
-	latestVersion, err = table.GetLatestVersion()
-	if err != nil {
-		t.Errorf("Failed to get latest version. %v", err)
-	}
-	if latestVersion != 1 {
-		t.Errorf("Expected latest version to be %d.", 1)
+	if err := transaction.TryCommit(&commit); err != nil {
+		t.Errorf("Failed to try commit: %v", err)
 	}
 
-	for tempFileNum := 0; tempFileNum < 2100; tempFileNum++ {
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 1 {
+		t.Errorf("After adding second commit: LatestVersion() = %v, want %v", version, 1)
+	}
+
+	for i := 0; i < 2100; i++ {
 		token := uuid.New().String()
 		fileName := fmt.Sprintf("_commit_%s.json.tmp", token)
+		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
 
-		relativeFilePath := storage.PathFromIter([]string{"_delta_log", fileName})
-
-		table.Store.Put(relativeFilePath, []byte{})
+		table.Store.Put(filePath, nil)
 	}
 
-	latestVersion, err = table.GetLatestVersion()
+	version, err = table.LatestVersion()
 	if err != nil {
-		t.Errorf("Failed to get latest version. %v", err)
+		t.Errorf("Failed to get latest version: %v", err)
 	}
-	if latestVersion != 1 {
-		t.Errorf("Expected latest version to be %d.", 1)
-	}
-
-	var commitVersion int64
-	for commitVersion = 2; commitVersion < 2100; commitVersion++ {
-		relativeFilePath := CommitUriFromVersion(commitVersion)
-
-		table.Store.Put(relativeFilePath, []byte{})
+	if version != 1 {
+		t.Errorf("After adding temp commits: LatestVersion() = %v, want %v", version, 1)
 	}
 
-	latestVersion, err = table.GetLatestVersion()
+	for version := 2; version < 2100; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Put(filePath, nil)
+	}
+
+	version, err = table.LatestVersion()
 	if err != nil {
-		t.Errorf("Failed to get latest version. %v", err)
+		t.Errorf("Failed to get latest version: %v", err)
 	}
-	if latestVersion != 2099 {
-		t.Errorf("Expected latest version to be %d.", 2099)
-	}
-
-	for checkpointVersion := 1; checkpointVersion < 2100; checkpointVersion = checkpointVersion + 10 {
-		fileName := fmt.Sprintf("%020d", checkpointVersion) + ".checkpoint.parquet"
-
-		relativeFilePath := storage.PathFromIter([]string{"_delta_log", fileName})
-
-		table.Store.Put(relativeFilePath, []byte{})
+	if version != 2099 {
+		t.Errorf("After adding many commits: LatestVersion() = %v, want %v", version, 2099)
 	}
 
-	latestVersion, err = table.GetLatestVersion()
+	for version := 1; version < 2100; version = version + 10 {
+		fileName := fmt.Sprintf("%020d", version) + ".checkpoint.parquet"
+		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
+
+		table.Store.Put(filePath, nil)
+	}
+
+	version, err = table.LatestVersion()
 	if err != nil {
-		t.Errorf("Failed to get latest version. %v", err)
+		t.Errorf("Failed to get latest version: %v", err)
 	}
-	if latestVersion != 2099 {
-		t.Errorf("Expected latest version to be %d.", 2099)
+	if version != 2099 {
+		t.Errorf("After adding checkpoints: LatestVersion() = %v, want %v", version, 2099)
 	}
 }
 
