@@ -260,11 +260,9 @@ func (table *DeltaTable) GetLatestVersion() (int64, error) {
 		return math.MinInt64, ErrorNotATable
 	}
 
-	slices.SortFunc(commitLogs, func(firstObjectMeta, secondObjectMeta storage.ObjectMeta) int {
+	latestCommitURI := slices.MaxFunc(commitLogs, func(firstObjectMeta, secondObjectMeta storage.ObjectMeta) int {
 		return cmp.Compare(firstObjectMeta.Location.Raw, secondObjectMeta.Location.Raw)
-	})
-
-	latestCommitURI := commitLogs[len(commitLogs)-1].Location
+	}).Location
 
 	parsed, latestVersion := CommitVersionFromUri(latestCommitURI)
 	if !parsed {
