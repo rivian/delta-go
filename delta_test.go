@@ -1114,7 +1114,7 @@ func TestLatestVersion(t *testing.T) {
 		t.Errorf("Expected: %v", ErrorNotATable)
 	}
 
-	if err := table.Create(*metadata, Protocol{}, make(map[string]any), []Add{}); err != nil {
+	if err := table.Create(*metadata, Protocol{}, make(map[string]any), nil); err != nil {
 		t.Errorf("Failed to create table: %v", err)
 	}
 
