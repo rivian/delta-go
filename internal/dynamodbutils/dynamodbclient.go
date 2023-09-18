@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	ErrorExceededTableCreateRetryAttempts error = errors.New("failed to create table")
+	ErrExceededTableCreateRetryAttempts error = errors.New("failed to create table")
 )
 
 // Defines methods implemented by dynamodb.Client
@@ -45,7 +45,7 @@ func TryEnsureDynamoDBTableExists(client DynamoDBClient, tableName string, creat
 	for {
 		if attemptNumber >= int(maxRetryTableCreateAttempts) {
 			log.Debugf("delta-go: Table create attempt failed. Attempts exhausted beyond maxRetryDynamoDbTableCreateAttempts of %d so failing.", maxRetryTableCreateAttempts)
-			return ErrorExceededTableCreateRetryAttempts
+			return ErrExceededTableCreateRetryAttempts
 		}
 
 		status := "CREATING"

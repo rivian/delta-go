@@ -25,9 +25,9 @@ import (
 )
 
 var (
-	ErrorActionJSONFormat error = errors.New("invalid format for action JSON")
-	ErrorActionUnknown    error = errors.New("unknown action")
-	ErrorActionConversion error = errors.New("error reading action")
+	ErrActionJSONFormat error = errors.New("invalid format for action JSON")
+	ErrActionUnknown    error = errors.New("unknown action")
+	ErrActionConversion error = errors.New("error reading action")
 )
 
 // Delta log action that describes a parquet data file that is part of the table.
@@ -284,7 +284,7 @@ const (
 // / Retrieve an action from a log entry
 func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, error) {
 	if len(unstructuredResult) != 1 {
-		return nil, errors.Join(ErrorActionJSONFormat, errors.New("log entry JSON must have one value"))
+		return nil, errors.Join(ErrActionJSONFormat, errors.New("log entry JSON must have one value"))
 	}
 
 	var action Action
@@ -308,12 +308,12 @@ func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, 
 	} else if _, actionFound = unstructuredResult[string(CDCActionKey)]; actionFound {
 		return nil, ErrorCDCNotSupported
 	} else {
-		return nil, ErrorActionUnknown
+		return nil, ErrActionUnknown
 	}
 
 	err := json.Unmarshal(marshalledAction, action)
 	if err != nil {
-		return nil, errors.Join(ErrorActionJSONFormat, err)
+		return nil, errors.Join(ErrActionJSONFormat, err)
 	}
 
 	return action, nil
@@ -330,7 +330,7 @@ func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 		var unstructuredResult map[string]json.RawMessage
 		err := json.Unmarshal(currentLine, &unstructuredResult)
 		if err != nil {
-			return nil, errors.Join(ErrorActionJSONFormat, err)
+			return nil, errors.Join(ErrActionJSONFormat, err)
 		}
 		action, err := actionFromLogEntry(unstructuredResult)
 		if err != nil {

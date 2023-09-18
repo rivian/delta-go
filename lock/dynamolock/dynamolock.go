@@ -131,7 +131,7 @@ func (l *DynamoLock) TryLock() (bool, error) {
 	lItem, err := l.lockClient.AcquireLock(l.key)
 	l.lockedItem = lItem
 	if err != nil {
-		return false, errors.Join(lock.ErrorLockNotObtained, err)
+		return false, errors.Join(lock.ErrLockNotObtained, err)
 	}
 	return true, nil
 }
@@ -140,11 +140,11 @@ func (l *DynamoLock) TryLock() (bool, error) {
 func (l *DynamoLock) Unlock() error {
 	success, err := l.lockClient.ReleaseLock(l.lockedItem, dynamolock.WithDeleteLock(l.opts.DeleteOnRelease))
 	if !success {
-		return lock.ErrorUnableToUnlock
+		return lock.ErrUnableToUnlock
 	}
 	l.lockClient.Close()
 	if err != nil {
-		return errors.Join(lock.ErrorUnableToUnlock, err)
+		return errors.Join(lock.ErrUnableToUnlock, err)
 	}
 	return nil
 }

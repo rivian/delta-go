@@ -215,7 +215,7 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 
 	//try again with the same version
 	err = transaction.TryCommit(&commit)
-	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Error(err)
 	}
 	if transaction.DeltaTable.State.Version != 2 {
@@ -254,7 +254,7 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 
 	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 3})
 	version, err := transaction.Commit(operation, appMetaData)
-	if !errors.Is(err, ErrorExceededCommitRetryAttempts) {
+	if !errors.Is(err, ErrExceededCommitRetryAttempts) {
 		t.Error(err)
 	}
 	if version != -1 {
@@ -289,7 +289,7 @@ type testBrokenUnlockLocker struct {
 }
 
 func (l *testBrokenUnlockLocker) Unlock() error {
-	return lock.ErrorUnableToUnlock
+	return lock.ErrUnableToUnlock
 }
 
 func TestCommitUnlockFailure(t *testing.T) {
@@ -308,7 +308,7 @@ func TestCommitUnlockFailure(t *testing.T) {
 
 	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 3})
 	_, err := transaction.Commit(operation, appMetaData)
-	if !errors.Is(err, lock.ErrorUnableToUnlock) {
+	if !errors.Is(err, lock.ErrUnableToUnlock) {
 		t.Error(err)
 	}
 }
@@ -1166,7 +1166,7 @@ func TestLoadVersion(t *testing.T) {
 	// Invalid version should return error
 	version = 20
 	err = table.LoadVersion(&version)
-	if !errors.Is(err, ErrorInvalidVersion) {
+	if !errors.Is(err, ErrInvalidVersion) {
 		t.Error("loading an invalid version did not return correct error")
 	}
 

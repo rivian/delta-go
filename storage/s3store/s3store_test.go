@@ -97,7 +97,7 @@ func TestPutErrorHandling(t *testing.T) {
 	data := []byte("data1")
 	mockClient.MockError = errors.New("Something went wrong")
 	err := s3Store.Put(path, data)
-	if !errors.Is(err, storage.ErrorPutObject) {
+	if !errors.Is(err, storage.ErrPutObject) {
 		t.Errorf("Expected error calling Put")
 	}
 }
@@ -128,7 +128,7 @@ func TestGetErrorHandling(t *testing.T) {
 	// Test calling Get on a nonexistent file returns an error
 	path := storage.NewPath("test.txt")
 	_, err := s3Store.Get(path)
-	if !errors.Is(err, storage.ErrorGetObject) && !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrGetObject) && !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Calling Get on a nonexistent file did not return an appropriate error")
 	}
 
@@ -141,7 +141,7 @@ func TestGetErrorHandling(t *testing.T) {
 	}
 	mockClient.MockError = errors.New("Something went wrong")
 	_, err = s3Store.Get(path)
-	if !errors.Is(err, storage.ErrorGetObject) {
+	if !errors.Is(err, storage.ErrGetObject) {
 		t.Errorf("Calling Get did not return an appropriate error")
 	}
 
@@ -156,7 +156,7 @@ func TestGetErrorHandling(t *testing.T) {
 	responseError.ResponseError = smithyResponseError
 	mockClient.MockError = responseError
 	_, err = s3Store.Get(path)
-	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Head did not return an appropriate error")
 	}
 }
@@ -212,7 +212,7 @@ func TestRenameErrorHandling(t *testing.T) {
 	// Test rename where source does not exist
 	newPath := storage.NewPath("second_copy.txt")
 	err := s3Store.Rename(path, newPath)
-	if !errors.Is(err, storage.ErrorCopyObject) && !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrCopyObject) && !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Rename did not return an appropriate error")
 	}
 
@@ -226,7 +226,7 @@ func TestRenameErrorHandling(t *testing.T) {
 	// Test rename where client returns an error
 	mockClient.MockError = errors.New("Something went wrong")
 	err = s3Store.Rename(path, newPath)
-	if !errors.Is(err, storage.ErrorCopyObject) && !errors.Is(err, storage.ErrorDeleteObject) {
+	if !errors.Is(err, storage.ErrCopyObject) && !errors.Is(err, storage.ErrDeleteObject) {
 		t.Errorf("Rename did not return an appropriate error")
 	}
 }
@@ -277,7 +277,7 @@ func TestRenameIfNotExistsErrorHandling(t *testing.T) {
 
 	// Renaming and overwriting should return an error
 	err = s3Store.RenameIfNotExists(path, overwritePath)
-	if !errors.Is(err, storage.ErrorObjectAlreadyExists) {
+	if !errors.Is(err, storage.ErrObjectAlreadyExists) {
 		t.Errorf("RenameIfNotExists did not return expected error when overwriting")
 	}
 
@@ -285,7 +285,7 @@ func TestRenameIfNotExistsErrorHandling(t *testing.T) {
 	mockClient.MockError = errors.New("Something went wrong")
 	newPath := storage.NewPath("third_copy.txt")
 	err = s3Store.Rename(path, newPath)
-	if !errors.Is(err, storage.ErrorCopyObject) && !errors.Is(err, storage.ErrorDeleteObject) {
+	if !errors.Is(err, storage.ErrCopyObject) && !errors.Is(err, storage.ErrDeleteObject) {
 		t.Errorf("Rename did not return an error")
 	}
 }
@@ -327,7 +327,7 @@ func TestHeadErrorHandling(t *testing.T) {
 
 	// Test calling Head() on a nonexistent file
 	_, err := s3Store.Head(path)
-	if !errors.Is(err, storage.ErrorHeadObject) && !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrHeadObject) && !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Head did not return an expected error for nonexistent file")
 	}
 
@@ -339,7 +339,7 @@ func TestHeadErrorHandling(t *testing.T) {
 	}
 	mockClient.MockError = errors.New("Something went wrong")
 	_, err = s3Store.Head(path)
-	if !errors.Is(err, storage.ErrorHeadObject) {
+	if !errors.Is(err, storage.ErrHeadObject) {
 		t.Errorf("Head did not return an appropriate error")
 	}
 
@@ -354,7 +354,7 @@ func TestHeadErrorHandling(t *testing.T) {
 	responseError.ResponseError = smithyResponseError
 	mockClient.MockError = responseError
 	_, err = s3Store.Head(path)
-	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Head did not return an appropriate error")
 	}
 }
@@ -391,7 +391,7 @@ func TestDeleteErrorHandling(t *testing.T) {
 	// Test deleting a nonexistent file
 	path := storage.NewPath("first_copy.txt")
 	err := s3Store.Delete(path)
-	if !errors.Is(err, storage.ErrorDeleteObject) && !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrDeleteObject) && !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Delete did not return an expected error for nonexistent file")
 	}
 
@@ -403,7 +403,7 @@ func TestDeleteErrorHandling(t *testing.T) {
 	}
 	mockClient.MockError = errors.New("Something went wrong")
 	err = s3Store.Delete(path)
-	if !errors.Is(err, storage.ErrorDeleteObject) {
+	if !errors.Is(err, storage.ErrDeleteObject) {
 		t.Errorf("Delete did not return an expected error")
 	}
 }
@@ -561,11 +561,11 @@ func TestListErrorHandling(t *testing.T) {
 	mockClient.MockError = errors.New("Something went wrong")
 	path := storage.NewPath("data.txt")
 	_, err := store.List(path, nil)
-	if !errors.Is(err, storage.ErrorListObjects) {
+	if !errors.Is(err, storage.ErrListObjects) {
 		t.Errorf("Delete did not return an expected error")
 	}
 	_, err = store.ListAll(path)
-	if !errors.Is(err, storage.ErrorListObjects) {
+	if !errors.Is(err, storage.ErrListObjects) {
 		t.Errorf("Delete did not return an expected error")
 	}
 }

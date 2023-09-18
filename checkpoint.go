@@ -232,7 +232,7 @@ func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore,
 		}
 		checkpointPath := storage.PathFromIter([]string{"_delta_log", checkpointFileName})
 		_, err = store.Head(checkpointPath)
-		if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+		if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 			return ErrorCheckpointAlreadyExists
 		}
 		err = store.Put(checkpointPath, parquetBytes)
@@ -321,7 +321,7 @@ func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandida
 func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time, store storage.ObjectStore) (int, error) {
 	if !store.IsListOrdered() {
 		// Currently all object stores return list results sorted
-		return 0, errors.Join(ErrorNotImplemented, errors.New("removing expired logs is not implemented for this object store"))
+		return 0, errors.Join(ErrNotImplemented, errors.New("removing expired logs is not implemented for this object store"))
 	}
 
 	candidatesForDeletion := make([]DeletionCandidate, 0, 200)
@@ -331,7 +331,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 	// First collect all the logs/checkpoints that might be eligible for deletion
 	for {
 		meta, err := logIterator.Next()
-		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+		if errors.Is(err, storage.ErrObjectDoesNotExist) {
 			break
 		}
 		isValid, version := CommitOrCheckpointVersionFromUri(meta.Location)

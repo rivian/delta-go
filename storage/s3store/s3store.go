@@ -65,7 +65,7 @@ func New(client s3utils.S3Client, baseURI storage.Path) (*S3ObjectStore, error) 
 func (s *S3ObjectStore) Put(location storage.Path, data []byte) error {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
-		return errors.Join(storage.ErrorURLJoinPath, err)
+		return errors.Join(storage.ErrURLJoinPath, err)
 	}
 	_, err = s.Client.PutObject(context.Background(),
 		&s3.PutObjectInput{
@@ -74,7 +74,7 @@ func (s *S3ObjectStore) Put(location storage.Path, data []byte) error {
 			Body:   bytes.NewReader(data),
 		})
 	if err != nil {
-		return errors.Join(storage.ErrorPutObject, err)
+		return errors.Join(storage.ErrPutObject, err)
 	}
 	return nil
 
@@ -83,7 +83,7 @@ func (s *S3ObjectStore) Put(location storage.Path, data []byte) error {
 func (s *S3ObjectStore) Get(location storage.Path) ([]byte, error) {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
-		return nil, errors.Join(storage.ErrorURLJoinPath, err)
+		return nil, errors.Join(storage.ErrURLJoinPath, err)
 	}
 	// Get the object from S3.
 	resp, err := s.Client.GetObject(context.Background(),
@@ -94,14 +94,14 @@ func (s *S3ObjectStore) Get(location storage.Path) ([]byte, error) {
 	// Check for a 404 response, indicating that the object does not exist
 	var re *awshttp.ResponseError
 	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
-		return nil, errors.Join(storage.ErrorObjectDoesNotExist, err)
+		return nil, errors.Join(storage.ErrObjectDoesNotExist, err)
 	}
 	if err != nil {
-		return nil, errors.Join(storage.ErrorGetObject, err)
+		return nil, errors.Join(storage.ErrGetObject, err)
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.Join(storage.ErrorGetObject, err)
+		return nil, errors.Join(storage.ErrGetObject, err)
 	}
 	return bodyBytes, nil
 }
@@ -109,7 +109,7 @@ func (s *S3ObjectStore) Get(location storage.Path) ([]byte, error) {
 func (s *S3ObjectStore) Delete(location storage.Path) error {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
-		return errors.Join(storage.ErrorURLJoinPath, err)
+		return errors.Join(storage.ErrURLJoinPath, err)
 	}
 	_, err = s.Client.DeleteObject(context.Background(),
 		&s3.DeleteObjectInput{
@@ -117,7 +117,7 @@ func (s *S3ObjectStore) Delete(location storage.Path) error {
 			Key:    aws.String(key),
 		})
 	if err != nil {
-		return errors.Join(storage.ErrorDeleteObject, err)
+		return errors.Join(storage.ErrDeleteObject, err)
 	}
 	return nil
 }
@@ -125,8 +125,8 @@ func (s *S3ObjectStore) Delete(location storage.Path) error {
 func (s *S3ObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
 	// return ErrorObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
-	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
-		return errors.Join(storage.ErrorObjectAlreadyExists, fmt.Errorf("object at location %s already exists", to.Raw))
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+		return errors.Join(storage.ErrObjectAlreadyExists, fmt.Errorf("object at location %s already exists", to.Raw))
 	}
 
 	err = s.Rename(from, to)
@@ -139,14 +139,14 @@ func (s *S3ObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) er
 func (s *S3ObjectStore) Rename(from storage.Path, to storage.Path) error {
 	srcKey, err := url.JoinPath(s.path, from.Raw)
 	if err != nil {
-		return errors.Join(storage.ErrorURLJoinPath, err)
+		return errors.Join(storage.ErrURLJoinPath, err)
 	}
 	// The CopySource parameter needs to include the bucket.
 	// However, we can't use url.JoinPath() since it will drop any leading / in the key.
 	srcKey = s.bucket + "/" + srcKey
 	destKey, err := url.JoinPath(s.path, to.Raw)
 	if err != nil {
-		return errors.Join(storage.ErrorURLJoinPath, err)
+		return errors.Join(storage.ErrURLJoinPath, err)
 	}
 	_, err = s.Client.CopyObject(context.Background(),
 		&s3.CopyObjectInput{
@@ -156,11 +156,11 @@ func (s *S3ObjectStore) Rename(from storage.Path, to storage.Path) error {
 			CopySourceIfNoneMatch: aws.String("null"),
 		})
 	if err != nil {
-		return errors.Join(storage.ErrorCopyObject, err)
+		return errors.Join(storage.ErrCopyObject, err)
 	}
 	err = s.Delete(from)
 	if err != nil {
-		return errors.Join(storage.ErrorDeleteObject, err)
+		return errors.Join(storage.ErrDeleteObject, err)
 	}
 	return nil
 }
@@ -169,7 +169,7 @@ func (s *S3ObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) 
 	var m storage.ObjectMeta
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
-		return m, errors.Join(storage.ErrorURLJoinPath, err)
+		return m, errors.Join(storage.ErrURLJoinPath, err)
 	}
 	result, err := s.Client.HeadObject(context.Background(),
 		&s3.HeadObjectInput{
@@ -179,10 +179,10 @@ func (s *S3ObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) 
 	// Check for a 404 response, indicating that the object does not exist
 	var re *awshttp.ResponseError
 	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
-		return m, errors.Join(storage.ErrorObjectDoesNotExist, err)
+		return m, errors.Join(storage.ErrObjectDoesNotExist, err)
 	}
 	if err != nil {
-		return m, errors.Join(storage.ErrorHeadObject, err)
+		return m, errors.Join(storage.ErrHeadObject, err)
 	}
 
 	m.Location = location
@@ -212,7 +212,7 @@ func getListInputAndTrimPrefix(s *S3ObjectStore, prefix storage.Path, previousRe
 	} else {
 		fullPrefix, err = url.JoinPath(s.path, prefix.Raw)
 		if err != nil {
-			return s3.ListObjectsV2Input{}, "", errors.Join(storage.ErrorURLJoinPath, err)
+			return s3.ListObjectsV2Input{}, "", errors.Join(storage.ErrURLJoinPath, err)
 		}
 	}
 
@@ -235,7 +235,7 @@ func (s *S3ObjectStore) List(prefix storage.Path, previousResult *storage.ListRe
 	}
 	results, err := s.Client.ListObjectsV2(context.Background(), &listInput)
 	if err != nil {
-		return storage.ListResult{}, errors.Join(storage.ErrorListObjects, err)
+		return storage.ListResult{}, errors.Join(storage.ErrListObjects, err)
 	}
 
 	listResult := storage.ListResult{Objects: make([]storage.ObjectMeta, 0, results.KeyCount)}
@@ -265,7 +265,7 @@ func (s *S3ObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error)
 	for p.HasMorePages() {
 		page, err := p.NextPage(context.TODO())
 		if err != nil {
-			return listResult, errors.Join(storage.ErrorListObjects, err)
+			return listResult, errors.Join(storage.ErrListObjects, err)
 		}
 
 		for _, result := range page.Contents {
