@@ -6,9 +6,9 @@ require (
 	cirello.io/dynamolock/v2 v2.0.2
 	github.com/apache/arrow/go/v13 v13.0.0
 	github.com/aws/aws-sdk-go v1.44.313
-	github.com/aws/aws-sdk-go-v2 v1.20.0
+	github.com/aws/aws-sdk-go-v2 v1.21.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.19.2
-	github.com/aws/smithy-go v1.14.0
+	github.com/aws/smithy-go v1.14.2
 	github.com/go-redsync/redsync/v4 v4.8.1
 	github.com/gofrs/flock v0.8.1
 	github.com/google/uuid v1.3.0
