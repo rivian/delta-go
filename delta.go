@@ -36,17 +36,17 @@ const MAX_READER_VERSION_SUPPORTED = 1
 const MAX_WRITER_VERSION_SUPPORTED = 1
 
 var (
-	ErrorDeltaTable                  error = errors.New("failed to apply transaction log")
-	ErrorRetrieveLockBytes           error = errors.New("failed to retrieve bytes from lock")
-	ErrorLockDataEmpty               error = errors.New("lock data is empty")
-	ErrorExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
-	ErrorNotATable                   error = errors.New("not a Delta table")
-	ErrorInvalidVersion              error = errors.New("invalid version")
-	ErrorUnableToLoadVersion         error = errors.New("unable to load specified version")
-	ErrorLockFailed                  error = errors.New("lock failed unexpectedly without an error")
-	ErrorNotImplemented              error = errors.New("not implemented")
-	ErrorUnsupportedReaderVersion    error = errors.New("reader version is unsupported")
-	ErrorUnsupportedWriterVersion    error = errors.New("writer version is unsupported")
+	ErrDeltaTable                  error = errors.New("failed to apply transaction log")
+	ErrRetrieveLockBytes           error = errors.New("failed to retrieve bytes from lock")
+	ErrLockDataEmpty               error = errors.New("lock data is empty")
+	ErrExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
+	ErrNotATable                   error = errors.New("not a Delta table")
+	ErrInvalidVersion              error = errors.New("invalid version")
+	ErrUnableToLoadVersion         error = errors.New("unable to load specified version")
+	ErrLockFailed                  error = errors.New("lock failed unexpectedly without an error")
+	ErrNotImplemented              error = errors.New("not implemented")
+	ErrUnsupportedReaderVersion    error = errors.New("reader version is unsupported")
+	ErrUnsupportedWriterVersion    error = errors.New("writer version is unsupported")
 )
 
 var (
@@ -181,10 +181,10 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 
 	// If either version is too high, we return an error, but we still create the table first
 	if protocol.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
-		err = ErrorUnsupportedReaderVersion
+		err = ErrUnsupportedReaderVersion
 	}
 	if protocol.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
-		err = errors.Join(err, ErrorUnsupportedWriterVersion)
+		err = errors.Join(err, ErrUnsupportedWriterVersion)
 	}
 
 	return err
@@ -195,12 +195,12 @@ func (table *DeltaTable) Exists() (bool, error) {
 	path := CommitUriFromVersion(0)
 
 	meta, err := table.Store.Head(path)
-	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		// Fallback: check for other variants of the version
 		logIterator := storage.NewListIterator(BaseCommitUri(), table.Store)
 		for {
 			meta, err := logIterator.Next()
-			if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+			if errors.Is(err, storage.ErrObjectDoesNotExist) {
 				break
 			}
 			if err != nil {
@@ -249,8 +249,8 @@ func (table *DeltaTable) LoadVersion(version *int64) error {
 	if version != nil {
 		commitURI := CommitUriFromVersion(*version)
 		_, err := table.Store.Head(commitURI)
-		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
-			return ErrorInvalidVersion
+		if errors.Is(err, storage.ErrObjectDoesNotExist) {
+			return ErrInvalidVersion
 		}
 		if err != nil {
 			return err
@@ -303,7 +303,7 @@ func (table *DeltaTable) LoadVersion(version *int64) error {
 	}
 	// If there was no error but we failed to load the specified version, return error indicating that
 	if version != nil && table.State.Version != *version {
-		return errors.Join(ErrorUnableToLoadVersion, checkpointLoadError)
+		return errors.Join(ErrUnableToLoadVersion, checkpointLoadError)
 	}
 	return nil
 }
@@ -328,7 +328,7 @@ func (table *DeltaTable) findLatestCheckpointsForVersion(version *int64) (checkp
 				return []CheckPoint{*checkpoint}, false, nil
 			}
 		}
-	} else if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	} else if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		return nil, false, err
 	}
 
@@ -340,7 +340,7 @@ func (table *DeltaTable) findLatestCheckpointsForVersion(version *int64) (checkp
 	for {
 		meta, err := logIterator.Next()
 
-		if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+		if errors.Is(err, storage.ErrObjectDoesNotExist) {
 			break
 		}
 		if err != nil {
@@ -450,7 +450,7 @@ func (table *DeltaTable) updateIncremental(maxVersion *int64) error {
 	}
 
 	if table.State.Version == -1 {
-		return ErrorInvalidVersion
+		return ErrInvalidVersion
 	}
 	return nil
 }
@@ -462,7 +462,7 @@ func (table *DeltaTable) nextCommitDetails() (int64, []Action, bool, error) {
 	nextCommitURI := CommitUriFromVersion(nextVersion)
 	noMoreCommits := false
 	actions, err := ReadCommitLog(table.Store, nextCommitURI)
-	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		noMoreCommits = true
 		err = nil
 	}
@@ -486,7 +486,7 @@ func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, che
 	table, err := OpenTableWithVersion(store, nil, nil, version)
 	if err != nil {
 		// If the UnsafeIgnoreUnsupportedReaderWriterVersionErrors option is true, we can ignore unsupported version errors
-		isUnsupportedVersionError := errors.Is(err, ErrorUnsupportedReaderVersion) || errors.Is(err, ErrorUnsupportedWriterVersion)
+		isUnsupportedVersionError := errors.Is(err, ErrUnsupportedReaderVersion) || errors.Is(err, ErrUnsupportedWriterVersion)
 		if !(isUnsupportedVersionError && checkpointConfiguration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors) {
 			return false, err
 		}
@@ -497,7 +497,7 @@ func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, che
 	}
 	if !locked {
 		// This is unexpected
-		return false, ErrorLockFailed
+		return false, ErrLockFailed
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if unlock fails
@@ -753,13 +753,13 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 		}
 		if attemptNumber > int(transaction.Options.MaxRetryCommitAttempts)+1 {
 			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
-			return ErrorExceededCommitRetryAttempts
+			return ErrExceededCommitRetryAttempts
 		}
 
 		err := transaction.TryCommit(commit)
 		//Reset local state with the version tried in the commit
 		//The next attempt should use the max of the remote state and local state, enables local incrimination if the remote state is stuck
-		if errors.Is(err, storage.ErrorObjectAlreadyExists) || errors.Is(err, lock.ErrorLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
+		if errors.Is(err, storage.ErrObjectAlreadyExists) || errors.Is(err, lock.ErrLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
 			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
 				attemptNumber += 1
 				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
@@ -791,7 +791,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) (err erro
 	}()
 	if err != nil {
 		log.Debugf("delta-go: Lock attempt failed. %v", err)
-		return errors.Join(lock.ErrorLockNotObtained, err)
+		return errors.Join(lock.ErrLockNotObtained, err)
 	}
 
 	if locked {
@@ -829,7 +829,7 @@ func (transaction *DeltaTransaction) TryCommit(commit *PreparedCommit) (err erro
 
 	} else {
 		log.Debug("delta-go: Lock not obtained")
-		return errors.Join(lock.ErrorLockNotObtained, err)
+		return errors.Join(lock.ErrLockNotObtained, err)
 	}
 	return nil
 }
@@ -872,11 +872,11 @@ func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStor
 	}
 
 	if table.State.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
-		err = errors.Join(ErrorUnsupportedReaderVersion, fmt.Errorf("table minimum reader version %d, max supported reader version %d", table.State.MinReaderVersion, MAX_READER_VERSION_SUPPORTED))
+		err = errors.Join(ErrUnsupportedReaderVersion, fmt.Errorf("table minimum reader version %d, max supported reader version %d", table.State.MinReaderVersion, MAX_READER_VERSION_SUPPORTED))
 	}
 
 	if table.State.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
-		err = errors.Join(err, ErrorUnsupportedWriterVersion, fmt.Errorf("table minimum writer version %d, max supported writer version %d", table.State.MinWriterVersion, MAX_WRITER_VERSION_SUPPORTED))
+		err = errors.Join(err, ErrUnsupportedWriterVersion, fmt.Errorf("table minimum writer version %d, max supported writer version %d", table.State.MinWriterVersion, MAX_WRITER_VERSION_SUPPORTED))
 	}
 
 	return table, err
@@ -892,11 +892,11 @@ func OpenTable(store storage.ObjectStore, lock lock.Locker, stateStore state.Sta
 	}
 
 	if table.State.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
-		err = ErrorUnsupportedReaderVersion
+		err = ErrUnsupportedReaderVersion
 	}
 
 	if table.State.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
-		err = errors.Join(err, ErrorUnsupportedWriterVersion)
+		err = errors.Join(err, ErrUnsupportedWriterVersion)
 	}
 
 	return table, err

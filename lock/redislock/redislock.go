@@ -95,7 +95,7 @@ func (l *RedisLock) TryLock() (bool, error) {
 	// Obtain a lock for our given mutex. After this is successful, no one else
 	// can obtain the same lock (the same mutex name) until we unlock it.
 	if err := l.redsyncMutex.Lock(); err != nil {
-		return false, errors.Join(lock.ErrorLockNotObtained, err)
+		return false, errors.Join(lock.ErrLockNotObtained, err)
 	}
 
 	return true, nil
@@ -105,7 +105,7 @@ func (l *RedisLock) TryLock() (bool, error) {
 func (l *RedisLock) Unlock() error {
 	// Release the lock so other processes or threads can obtain a lock.
 	if ok, err := l.redsyncMutex.Unlock(); !ok || err != nil {
-		return errors.Join(lock.ErrorUnableToUnlock, err)
+		return errors.Join(lock.ErrUnableToUnlock, err)
 	}
 
 	return nil

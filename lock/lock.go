@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	ErrorLockNotObtained error = errors.New("the lock could not be obtained")
-	ErrorUnableToUnlock  error = errors.New("the lock could not be released")
+	ErrLockNotObtained error = errors.New("the lock could not be obtained")
+	ErrUnableToUnlock  error = errors.New("the lock could not be released")
 )
 
 // Locker is the abstract interface for providing a lock client that stores data in the lock

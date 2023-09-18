@@ -22,16 +22,16 @@ import (
 )
 
 var (
-	ErrorObjectAlreadyExists error = errors.New("the object already exists")
-	ErrorObjectDoesNotExist  error = errors.New("the object does not exist")
-	ErrorObjectIsDir         error = errors.New("the object is a directory")
-	ErrorCopyObject          error = errors.New("error while copying the object")
-	ErrorPutObject           error = errors.New("error while putting the object")
-	ErrorGetObject           error = errors.New("error while getting the object")
-	ErrorHeadObject          error = errors.New("error while getting the object head")
-	ErrorDeleteObject        error = errors.New("error while deleting the object")
-	ErrorURLJoinPath         error = errors.New("error during url.JoinPath")
-	ErrorListObjects         error = errors.New("error while listing objects")
+	ErrObjectAlreadyExists error = errors.New("the object already exists")
+	ErrObjectDoesNotExist  error = errors.New("the object does not exist")
+	ErrObjectIsDir         error = errors.New("the object is a directory")
+	ErrCopyObject          error = errors.New("error while copying the object")
+	ErrPutObject           error = errors.New("error while putting the object")
+	ErrGetObject           error = errors.New("error while getting the object")
+	ErrHeadObject          error = errors.New("error while getting the object head")
+	ErrDeleteObject        error = errors.New("error while deleting the object")
+	ErrURLJoinPath         error = errors.New("error during url.JoinPath")
+	ErrListObjects         error = errors.New("error while listing objects")
 )
 
 type DeltaStorageResult struct {
@@ -262,7 +262,7 @@ func (listIterator *ListIterator) Next() (*ObjectMeta, error) {
 	}
 
 	if listIterator.nextIndex >= len(listIterator.listResult.Objects) {
-		return nil, ErrorObjectDoesNotExist
+		return nil, ErrObjectDoesNotExist
 	}
 
 	result := listIterator.listResult.Objects[listIterator.nextIndex]

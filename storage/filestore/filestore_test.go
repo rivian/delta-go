@@ -63,7 +63,7 @@ func TestHead(t *testing.T) {
 	//check before writing the file
 	meta, err := store.Head(putPath)
 	//err object should not exist
-	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("err = %e;", err)
 	}
 
@@ -110,7 +110,7 @@ func TestRenameIfNotExists(t *testing.T) {
 
 	//File already exists from previous rename, so err should be storage.ErrorVersionAlreadyExists
 	err = store.RenameIfNotExists(fromPath, toPath)
-	if !errors.Is(err, storage.ErrorObjectAlreadyExists) {
+	if !errors.Is(err, storage.ErrObjectAlreadyExists) {
 		t.Errorf("err = %e;", err)
 	}
 
@@ -156,7 +156,7 @@ func TestDelete(t *testing.T) {
 	if err == nil {
 		t.Errorf("Expected an error calling Delete on a non-existent file")
 	}
-	if !errors.Is(err, storage.ErrorDeleteObject) && !errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrDeleteObject) && !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Invalid error from Delete: %e", err)
 	}
 }

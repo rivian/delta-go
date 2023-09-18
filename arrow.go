@@ -485,15 +485,15 @@ func appendGoValueToArrowBuilder(goValue reflect.Value, builder array.Builder, g
 	case arrow.FLOAT64:
 		builder.(*array.Float64Builder).Append(goValue.Float())
 	case arrow.INTERVAL_DAY_TIME:
-		return errors.Join(ErrorNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type INTERVAL_DAY_TIME"))
+		return errors.Join(ErrNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type INTERVAL_DAY_TIME"))
 	case arrow.INTERVAL_MONTHS:
-		return errors.Join(ErrorNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type INTERVAL_MONTHS"))
+		return errors.Join(ErrNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type INTERVAL_MONTHS"))
 	case arrow.INTERVAL_MONTH_DAY_NANO:
-		return errors.Join(ErrorNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type INTERVAL_MONTH_DAY_NANO"))
+		return errors.Join(ErrNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type INTERVAL_MONTH_DAY_NANO"))
 	case arrow.NULL:
 		builder.AppendNull()
 	case arrow.RUN_END_ENCODED:
-		return errors.Join(ErrorNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type RUN_END_ENCODED"))
+		return errors.Join(ErrNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type RUN_END_ENCODED"))
 	case arrow.STRING:
 		builder.(*array.StringBuilder).Append(goValue.String())
 	case arrow.TIME32:
@@ -507,7 +507,7 @@ func appendGoValueToArrowBuilder(goValue reflect.Value, builder array.Builder, g
 		builder.(*array.TimestampBuilder).Append(arrow.Timestamp(goValue.Int()))
 	// Nested types
 	case arrow.DICTIONARY:
-		return errors.Join(ErrorNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type DICTIONARY"))
+		return errors.Join(ErrNotImplemented, ErrorGeneratingCheckpoint, errors.New("unsupported arrow type DICTIONARY"))
 	case arrow.FIXED_SIZE_LIST:
 		listBuilder := builder.(*array.FixedSizeListBuilder)
 		if goValue.Len() == 0 {
@@ -571,7 +571,7 @@ func appendGoValueToArrowBuilder(goValue reflect.Value, builder array.Builder, g
 			// If not in the goNameArrowIndexMap, we don't want to try to append it
 		}
 	default:
-		return errors.Join(ErrorNotImplemented, ErrorGeneratingCheckpoint, fmt.Errorf("unsupported arrow type %s", builder.Type().Name()))
+		return errors.Join(ErrNotImplemented, ErrorGeneratingCheckpoint, fmt.Errorf("unsupported arrow type %s", builder.Type().Name()))
 	}
 	return nil
 }

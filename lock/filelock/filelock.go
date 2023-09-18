@@ -100,7 +100,7 @@ func (l *FileLock) TryLock() (bool, error) {
 	}
 
 	if err != nil || !locked {
-		return locked, errors.Join(lock.ErrorLockNotObtained, err)
+		return locked, errors.Join(lock.ErrLockNotObtained, err)
 	}
 	return locked, err
 }
@@ -109,7 +109,7 @@ func (l *FileLock) TryLock() (bool, error) {
 func (l *FileLock) Unlock() error {
 	err := l.lock.Unlock()
 	if err != nil {
-		return errors.Join(lock.ErrorUnableToUnlock, err)
+		return errors.Join(lock.ErrUnableToUnlock, err)
 	}
 
 	if l.opts.DeleteOnRelease {

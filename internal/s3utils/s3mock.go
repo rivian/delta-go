@@ -270,7 +270,7 @@ func (m *MockS3Client) FileExists(baseURI storage.Path, location storage.Path) (
 		return false, err
 	}
 	_, err = m.fileStore.Head(filePath)
-	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		return false, nil
 	}
 	if err != nil {

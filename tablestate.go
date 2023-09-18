@@ -152,7 +152,7 @@ func (tableState *DeltaTableState) processAction(actionInterface Action) error {
 	case *Cdc:
 		return ErrorCDCNotSupported
 	default:
-		return errors.Join(ErrorActionUnknown, fmt.Errorf("unknown %v", action))
+		return errors.Join(ErrActionUnknown, fmt.Errorf("unknown %v", action))
 	}
 	return nil
 }

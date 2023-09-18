@@ -966,11 +966,11 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			var version int64 = 0
 			err = table.LoadVersion(&version)
 			if shouldCleanup {
-				if !errors.Is(err, ErrorInvalidVersion) {
+				if !errors.Is(err, ErrInvalidVersion) {
 					t.Fatal("did not remove version 0")
 				}
 			} else {
-				if errors.Is(err, ErrorInvalidVersion) {
+				if errors.Is(err, ErrInvalidVersion) {
 					t.Fatal("should not remove version 0")
 				}
 				if err != nil {
@@ -980,11 +980,11 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			version = 1
 			err = table.LoadVersion(&version)
 			if shouldCleanup {
-				if !errors.Is(err, ErrorInvalidVersion) {
+				if !errors.Is(err, ErrInvalidVersion) {
 					t.Fatal("did not remove version 1")
 				}
 			} else {
-				if errors.Is(err, ErrorInvalidVersion) {
+				if errors.Is(err, ErrInvalidVersion) {
 					t.Fatal("should not remove version 1")
 				}
 				if err != nil {
@@ -993,7 +993,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			}
 			version = 2
 			err = table.LoadVersion(&version)
-			if errors.Is(err, ErrorInvalidVersion) {
+			if errors.Is(err, ErrInvalidVersion) {
 				t.Fatal("unable to load version 2")
 			}
 			if err != nil {
@@ -1087,31 +1087,31 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 	// because of the time adjustment we should only have removed versions 0 and 1
 	var version int64 = 0
 	err = table.LoadVersion(&version)
-	if !errors.Is(err, ErrorInvalidVersion) {
+	if !errors.Is(err, ErrInvalidVersion) {
 		t.Fatal("did not remove version 0")
 	}
 	version = 1
 	err = table.LoadVersion(&version)
-	if !errors.Is(err, ErrorInvalidVersion) {
+	if !errors.Is(err, ErrInvalidVersion) {
 		t.Fatal("did not remove version 1")
 	}
 	// We can't load versions 2 and 3 but the logs should persist
 	_, err = store.Head(CommitUriFromVersion(2))
-	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Fatal("should not remove version 2")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = store.Head(CommitUriFromVersion(3))
-	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Fatal("should not remove version 3")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = store.Head(CommitUriFromVersion(4))
-	if errors.Is(err, storage.ErrorObjectDoesNotExist) {
+	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Fatal("should not remove version 4")
 	}
 	if err != nil {
@@ -1120,7 +1120,7 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 
 	version = 5
 	err = table.LoadVersion(&version)
-	if errors.Is(err, ErrorInvalidVersion) {
+	if errors.Is(err, ErrInvalidVersion) {
 		t.Fatal("should not remove version 5")
 	}
 	if err != nil {
@@ -1142,7 +1142,7 @@ func TestCheckpointLocked(t *testing.T) {
 	localLock := filelock.New(store.BaseURI, "_delta_log/_checkpoint.lock", filelock.Options{})
 
 	checkpointed, err := CreateCheckpoint(store, localLock, NewCheckpointConfiguration(), 5)
-	if !errors.Is(err, lock.ErrorLockNotObtained) {
+	if !errors.Is(err, lock.ErrLockNotObtained) {
 		t.Fatalf("expected ErrorLockNotObtained when calling checkpoint with lock already in use, got %v", err)
 	}
 	if checkpointed {
@@ -1168,7 +1168,7 @@ func TestCheckpointUnlockFailure(t *testing.T) {
 	brokenLock := testBrokenUnlockLocker{*filelock.New(store.BaseURI, "_delta_log/_commit.lock", filelock.Options{TTL: 60 * time.Second})}
 
 	checkpointed, err := CreateCheckpoint(store, &brokenLock, NewCheckpointConfiguration(), 5)
-	if !errors.Is(err, lock.ErrorUnableToUnlock) {
+	if !errors.Is(err, lock.ErrUnableToUnlock) {
 		t.Fatalf("expected ErrorUnableToUnlock when calling checkpoint with broken test lock, got %v", err)
 	}
 	if !checkpointed {
@@ -1186,7 +1186,7 @@ func TestCheckpointInvalidVersion(t *testing.T) {
 	protocol.MinReaderVersion = 2
 	protocol.MinWriterVersion = 2
 	err := table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
-	if !errors.Is(err, ErrorUnsupportedReaderVersion) || !errors.Is(err, ErrorUnsupportedWriterVersion) {
+	if !errors.Is(err, ErrUnsupportedReaderVersion) || !errors.Is(err, ErrUnsupportedWriterVersion) {
 		t.Error("should return unsupported reader/writer version errors")
 		if err != nil {
 			t.Error(err)
@@ -1212,7 +1212,7 @@ func TestCheckpointInvalidVersion(t *testing.T) {
 	// Create a checkpoint with default configuration - should fail
 	configuration := NewCheckpointConfiguration()
 	checkpointed, err := CreateCheckpoint(store, checkpointLock, configuration, 2)
-	if !errors.Is(err, ErrorUnsupportedReaderVersion) || !errors.Is(err, ErrorUnsupportedWriterVersion) {
+	if !errors.Is(err, ErrUnsupportedReaderVersion) || !errors.Is(err, ErrUnsupportedWriterVersion) {
 		t.Error("should return unsupported reader/writer version errors")
 	}
 	if checkpointed {
