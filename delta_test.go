@@ -1110,8 +1110,8 @@ func TestLatestVersion(t *testing.T) {
 		metadata = NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
 	)
 
-	if _, err := table.LatestVersion(); !errors.Is(err, ErrorNotATable) { // if NO error
-		t.Errorf("Expected: %v", ErrorNotATable)
+	if _, err := table.LatestVersion(); !errors.Is(err, ErrorInvalidVersion) { // if NO error
+		t.Errorf("Expected: %v", ErrorInvalidVersion)
 	}
 
 	if err := table.Create(*metadata, Protocol{}, make(map[string]any), nil); err != nil {

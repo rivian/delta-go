@@ -13,10 +13,8 @@
 package delta
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
-	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -30,7 +28,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
 
 const DELTA_CLIENT_VERSION = "alpha-0.0.0"
@@ -237,35 +234,18 @@ func (table *DeltaTable) ReadCommitVersion(version int64) ([]Action, error) {
 	return ReadCommitLog(table.Store, path)
 }
 
+// LatestVersion gets the latest version of a table.
+func (t *DeltaTable) LatestVersion() (int64, error) {
+	if err := t.Load(); err != nil {
+		return -1, fmt.Errorf("load table state: %w", err)
+	}
+
+	return t.State.Version, nil
+}
+
 // / Load the table state at the latest version
 func (table *DeltaTable) Load() error {
 	return table.LoadVersion(nil)
-}
-
-// LatestVersion gets the latest version of a table.
-func (t *DeltaTable) LatestVersion() (int64, error) {
-	objects, err := t.Store.ListAll(storage.NewPath("_delta_log/"))
-	if err != nil {
-		return math.MinInt64, fmt.Errorf("list Delta log: %w", err)
-	}
-
-	logs := slices.DeleteFunc(objects.Objects, func(om storage.ObjectMeta) bool {
-		return !IsValidCommitUri(om.Location)
-	})
-	if len(logs) == 0 {
-		return math.MinInt64, ErrorNotATable
-	}
-
-	uri := slices.MaxFunc(logs, func(fom, som storage.ObjectMeta) int {
-		return cmp.Compare(fom.Location.Raw, som.Location.Raw)
-	}).Location
-
-	parsed, version := CommitVersionFromUri(uri)
-	if !parsed {
-		return math.MinInt64, errors.New("failed to parse version")
-	}
-
-	return version, nil
 }
 
 // / Load the table state at the specified version
