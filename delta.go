@@ -234,6 +234,15 @@ func (table *DeltaTable) ReadCommitVersion(version int64) ([]Action, error) {
 	return ReadCommitLog(table.Store, path)
 }
 
+// LatestVersion gets the latest version of a table.
+func (t *DeltaTable) LatestVersion() (int64, error) {
+	if err := t.Load(); err != nil {
+		return -1, fmt.Errorf("load table state: %w", err)
+	}
+
+	return t.State.Version, nil
+}
+
 // / Load the table state at the latest version
 func (table *DeltaTable) Load() error {
 	return table.LoadVersion(nil)

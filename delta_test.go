@@ -1089,6 +1089,105 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 	}
 }
 
+func TestLatestVersion(t *testing.T) {
+	uri := storage.NewPath("s3://test-bucket/test-delta-table")
+
+	client, err := s3utils.NewMockClient(t, uri)
+	if err != nil {
+		t.Fatalf("Failed to create new S3 mock client: %v", err)
+	}
+	store, err := s3store.New(client, uri)
+	if err != nil {
+		t.Fatalf("Failed to create new S3 object store: %v", err)
+	}
+
+	var (
+		dir      = os.TempDir()
+		path     = storage.NewPath(dir)
+		state    = filestate.New(path, "_delta_log/_commit.state")
+		lock     = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
+		table    = NewDeltaTable(store, lock, state)
+		metadata = NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
+	)
+
+	if _, err := table.LatestVersion(); !errors.Is(err, ErrorInvalidVersion) { // if NO error
+		t.Errorf("Expected: %v", ErrorInvalidVersion)
+	}
+
+	if err := table.Create(*metadata, Protocol{}, make(map[string]any), nil); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
+	version, err := table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 0 {
+		t.Errorf("After adding first commit: LatestVersion() = %v, want %v", version, 0)
+	}
+
+	transaction, operation, appMetadata := setupTransaction(t, table, nil)
+	commit, err := transaction.PrepareCommit(operation, appMetadata)
+	if err != nil {
+		t.Errorf("Failed to prepare commit: %v", err)
+	}
+	if err := transaction.TryCommit(&commit); err != nil {
+		t.Errorf("Failed to try commit: %v", err)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 1 {
+		t.Errorf("After adding second commit: LatestVersion() = %v, want %v", version, 1)
+	}
+
+	for i := 0; i < 2100; i++ {
+		fileName := fmt.Sprintf("_commit_%s.json.tmp", uuid.New().String())
+		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
+
+		table.Store.Put(filePath, nil)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 1 {
+		t.Errorf("After adding temp commits: LatestVersion() = %v, want %v", version, 1)
+	}
+
+	for version := 2; version < 2100; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Put(filePath, nil)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 2099 {
+		t.Errorf("After adding many commits: LatestVersion() = %v, want %v", version, 2099)
+	}
+
+	for version := 1; version < 2100; version = version + 10 {
+		fileName := fmt.Sprintf("%020d", version) + ".checkpoint.parquet"
+		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
+
+		table.Store.Put(filePath, nil)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 2099 {
+		t.Errorf("After adding checkpoints: LatestVersion() = %v, want %v", version, 2099)
+	}
+}
+
 func TestLoadVersion(t *testing.T) {
 	// Use setupCheckpointTest() to copy testdata commits
 	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
