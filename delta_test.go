@@ -1144,8 +1144,7 @@ func TestLatestVersion(t *testing.T) {
 	}
 
 	for i := 0; i < 2100; i++ {
-		token := uuid.New().String()
-		fileName := fmt.Sprintf("_commit_%s.json.tmp", token)
+		fileName := fmt.Sprintf("_commit_%s.json.tmp", uuid.New().String())
 		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
 
 		table.Store.Put(filePath, nil)
