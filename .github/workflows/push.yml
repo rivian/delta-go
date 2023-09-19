@@ -16,6 +16,7 @@ jobs:
         goVersion: [1.21.x]
         redis:
           - 'latest'
+          - '6.x'
 
     steps:
       - name: Set up Redis
