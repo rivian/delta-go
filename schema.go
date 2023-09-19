@@ -24,12 +24,6 @@ import (
 // / Type alias for a string expected to match a GUID/UUID format
 type Guid string
 
-const (
-	structTag = "struct"
-	arrayTag  = "array"
-	mapTag    = "map"
-)
-
 // Represents the schema of the delta table.
 type Schema = SchemaTypeStruct
 
