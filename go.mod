@@ -1,6 +1,6 @@
 module github.com/rivian/delta-go
 
-go 1.21
+go 1.20
 
 require (
 	cirello.io/dynamolock/v2 v2.0.2
