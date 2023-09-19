@@ -30,10 +30,10 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-const DELTA_CLIENT_VERSION = "alpha-0.0.0"
+const deltaClientVersion = "alpha-0.0.0"
 
-const MAX_READER_VERSION_SUPPORTED = 1
-const MAX_WRITER_VERSION_SUPPORTED = 1
+const maxReaderVersionSupported = 1
+const maxWriterVersionSupported = 1
 
 var (
 	ErrDeltaTable                  error = errors.New("failed to apply transaction log")
@@ -142,7 +142,7 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 
 	// delta-rs commit info will include the delta-rs version and timestamp as of now
 	enrichedCommitInfo := maps.Clone(commitInfo)
-	enrichedCommitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", DELTA_CLIENT_VERSION)
+	enrichedCommitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", deltaClientVersion)
 	enrichedCommitInfo["timestamp"] = time.Now().UnixMilli()
 
 	actions := []Action{
@@ -180,10 +180,10 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 	table.State.merge(newState)
 
 	// If either version is too high, we return an error, but we still create the table first
-	if protocol.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
+	if protocol.MinReaderVersion > maxReaderVersionSupported {
 		err = ErrUnsupportedReaderVersion
 	}
-	if protocol.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
+	if protocol.MinWriterVersion > maxWriterVersionSupported {
 		err = errors.Join(err, ErrUnsupportedWriterVersion)
 	}
 
@@ -721,7 +721,7 @@ func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, app
 	if !anyCommitInfo {
 		commitInfo := make(CommitInfo)
 		commitInfo["timestamp"] = time.Now().UnixMilli()
-		commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", DELTA_CLIENT_VERSION)
+		commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", deltaClientVersion)
 		if operation != nil {
 			maps.Copy(commitInfo, operation.GetCommitInfo())
 		}
@@ -856,7 +856,7 @@ type PreparedCommit struct {
 	URI storage.Path
 }
 
-const DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS uint32 = 10000000
+const defaultDeltaMaxRetryCommitAttempts uint32 = 10000000
 
 // Options for customizing behavior of a `DeltaTransaction`
 type DeltaTransactionOptions struct {
@@ -868,7 +868,7 @@ type DeltaTransactionOptions struct {
 
 // NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS = 10000000
 func NewDeltaTransactionOptions() *DeltaTransactionOptions {
-	return &DeltaTransactionOptions{MaxRetryCommitAttempts: DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS}
+	return &DeltaTransactionOptions{MaxRetryCommitAttempts: defaultDeltaMaxRetryCommitAttempts}
 }
 
 // / Open the table at this specific version
@@ -880,12 +880,12 @@ func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStor
 		return nil, err
 	}
 
-	if table.State.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
-		err = errors.Join(ErrUnsupportedReaderVersion, fmt.Errorf("table minimum reader version %d, max supported reader version %d", table.State.MinReaderVersion, MAX_READER_VERSION_SUPPORTED))
+	if table.State.MinReaderVersion > maxReaderVersionSupported {
+		err = errors.Join(ErrUnsupportedReaderVersion, fmt.Errorf("table minimum reader version %d, max supported reader version %d", table.State.MinReaderVersion, maxReaderVersionSupported))
 	}
 
-	if table.State.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
-		err = errors.Join(err, ErrUnsupportedWriterVersion, fmt.Errorf("table minimum writer version %d, max supported writer version %d", table.State.MinWriterVersion, MAX_WRITER_VERSION_SUPPORTED))
+	if table.State.MinWriterVersion > maxWriterVersionSupported {
+		err = errors.Join(err, ErrUnsupportedWriterVersion, fmt.Errorf("table minimum writer version %d, max supported writer version %d", table.State.MinWriterVersion, maxWriterVersionSupported))
 	}
 
 	return table, err
@@ -900,11 +900,11 @@ func OpenTable(store storage.ObjectStore, lock lock.Locker, stateStore state.Sta
 		return nil, err
 	}
 
-	if table.State.MinReaderVersion > MAX_READER_VERSION_SUPPORTED {
+	if table.State.MinReaderVersion > maxReaderVersionSupported {
 		err = ErrUnsupportedReaderVersion
 	}
 
-	if table.State.MinWriterVersion > MAX_WRITER_VERSION_SUPPORTED {
+	if table.State.MinWriterVersion > maxWriterVersionSupported {
 		err = errors.Join(err, ErrUnsupportedWriterVersion)
 	}
 

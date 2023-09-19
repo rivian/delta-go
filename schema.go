@@ -25,9 +25,9 @@ import (
 type Guid string
 
 const (
-	STRUCT_TAG = "struct"
-	ARRAY_TAG  = "array"
-	MAP_TAG    = "map"
+	structTag = "struct"
+	arrayTag  = "array"
+	mapTag    = "map"
 )
 
 // Represents the schema of the delta table.
