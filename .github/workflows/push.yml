@@ -20,8 +20,6 @@ jobs:
     steps:
       - name: Set up Redis
         uses: shogo82148/actions-setup-redis@v1
-        with:
-          redis-version: ${{ matrix.redis }}
 
       - name: Checkout
         uses: actions/checkout@v4
