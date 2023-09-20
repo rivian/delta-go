@@ -5,7 +5,6 @@ go 1.20
 require (
 	cirello.io/dynamolock/v2 v2.0.2
 	github.com/apache/arrow/go/v13 v13.0.0
-	github.com/aws/aws-sdk-go v1.44.313
 	github.com/aws/aws-sdk-go-v2 v1.21.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.21.5
 	github.com/aws/smithy-go v1.14.2
