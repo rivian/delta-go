@@ -772,6 +772,12 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
 				attemptNumber += 1
 				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
+				// TODO: check if state is higher then current latest version of table by checking n-1
+				if attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+					//Every 100 attepmts, try looking up the latest table version from the delta table
+					//LatestVersion overwrites DeltaTable.State.Version which will be compared with the StateStore.Version in TryCommit()
+					transaction.DeltaTable.LatestVersion()
+				}
 			} else {
 				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
 				return err
@@ -857,6 +863,7 @@ type PreparedCommit struct {
 }
 
 const defaultDeltaMaxRetryCommitAttempts uint32 = 10000000
+const defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
 
 // Options for customizing behavior of a `DeltaTransaction`
 type DeltaTransactionOptions struct {
@@ -864,11 +871,17 @@ type DeltaTransactionOptions struct {
 	MaxRetryCommitAttempts uint32
 	// RetryWaitDuration sets the amount of times between retry's on the transaction
 	RetryWaitDuration time.Duration
+	// number of retry commit attempts before loading the latest version from the table rather
+	// than using the state store
+	RetryCommitAttemptsBeforeLoadingTable uint32
 }
 
 // NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS = 10000000
 func NewDeltaTransactionOptions() *DeltaTransactionOptions {
-	return &DeltaTransactionOptions{MaxRetryCommitAttempts: defaultDeltaMaxRetryCommitAttempts}
+	return &DeltaTransactionOptions{
+		MaxRetryCommitAttempts:                defaultDeltaMaxRetryCommitAttempts,
+		RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable,
+	}
 }
 
 // / Open the table at this specific version

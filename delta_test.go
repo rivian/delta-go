@@ -624,6 +624,60 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 
 }
 
+func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
+	table, _, tmpDir := setupTest(t)
+	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{
+		MaxRetryCommitAttempts:                100,
+		RetryWaitDuration:                     time.Second,
+		RetryCommitAttemptsBeforeLoadingTable: 2,
+	})
+
+	for i := 1; i < 10; i++ {
+		commit, err := transaction.PrepareCommit(operation, appMetaData)
+		if err != nil {
+			t.Error(err)
+		}
+		//commit_001.json
+		err = transaction.TryCommit(&commit)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	// Write 0 to state
+	commitState, _ := table.StateStore.Get()
+	commitState.Version = 0
+	table.StateStore.Put(commitState)
+	table.State.Version = 0
+
+	//create the next commit, should be 010.json after finding that 000.json exists and loading the tabel state
+	newCommit, err := transaction.PrepareCommit(operation, appMetaData)
+	if err != nil {
+		t.Error(err)
+	}
+
+	//Should exceed attempt retry count
+	err = transaction.TryCommitLoop(&newCommit)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if table.State.Version != 10 {
+		t.Errorf("want table.State.Version=4, has %d", table.State.Version)
+	}
+
+	commitState, _ = table.StateStore.Get()
+	if commitState.Version != 10 {
+		t.Errorf("want table.State.Version=4, has %d", table.State.Version)
+	}
+
+	if !fileExists(filepath.Join(tmpDir, CommitUriFromVersion(10).Raw)) {
+		t.Errorf("File %s should exist", CommitUriFromVersion(10).Raw)
+	}
+
+}
+
 func TestCommitConcurrent(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 	table, state, tmpDir := setupTest(t)
