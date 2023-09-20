@@ -753,7 +753,7 @@ func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, app
 	return commit, nil
 }
 
-// TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
+// TryCommitLoop loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
 func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error {
 	attemptNumber := 0
 	for {
@@ -773,7 +773,8 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 				attemptNumber += 1
 				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
 				// TODO: check if state is higher then current latest version of table by checking n-1
-				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 && attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
+					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 					//Every 100 attepmts, try looking up the latest table version from the delta table
 					//LatestVersion overwrites DeltaTable.State.Version which will be compared with the StateStore.Version in TryCommit()
 					transaction.DeltaTable.LatestVersion()
