@@ -15,7 +15,6 @@ package delta
 import (
 	"errors"
 	"fmt"
-	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -262,9 +261,9 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 			uri             = objects.Objects[0].Location
 			parsed, version = CommitOrCheckpointVersionFromUri(uri)
 		)
+		// The version will fail to be parsed from the commit or checkpoint URI for
+		// the minimum version if the URI isn't first in UTF-8 binary order.
 		if !parsed {
-			// The version will fail to be parsed from the commit or checkpoint URI for
-			// the minimum version if the URI isn't first in UTF-8 binary order.
 			for {
 				uri = slices.MinFunc(objects.Objects, func(fom, som storage.ObjectMeta) int {
 					if !IsValidCommitOrCheckpointURI(som.Location) {
@@ -303,19 +302,15 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 	}
 
 	var (
-		maxVersion int64 = minVersion
+		maxVersion int64 = minVersion + 1
 		count      float64
 	)
 	for {
-		if _, err = t.Store.Head(CommitUriFromVersion(maxVersion)); err != nil {
+		if _, err = t.Store.Head(CommitUriFromVersion(maxVersion)); errors.Is(err, storage.ErrObjectDoesNotExist) {
 			break
 		} else {
-			if maxVersion == 0 {
-				maxVersion = 1
-			} else {
-				count++
-				maxVersion += int64(math.Pow(2, count))
-			}
+			count++
+			maxVersion += int64(count)
 		}
 	}
 
