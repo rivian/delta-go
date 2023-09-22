@@ -13,6 +13,7 @@
 package delta
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/internal/s3utils"
 	"github.com/rivian/delta-go/lock"
@@ -984,11 +988,15 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	b, err := writeStructsToParquetBytes(data)
+	buf := new(bytes.Buffer)
+	props := parquet.NewWriterProperties(
+		parquet.WithCompression(compress.Codecs.Snappy),
+	)
+	err = rfarrow.WriteGoStructsToParquet(data, buf, props)
 	if err != nil {
 		return p, err
 	}
-	i, err := file.Write(b)
+	i, err := file.Write(buf.Bytes())
 	println(i)
 	if err != nil {
 		return p, err
@@ -1164,8 +1172,19 @@ func TestLatestVersion(t *testing.T) {
 		metadata = NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
 	)
 
-	if _, err := table.LatestVersion(); !errors.Is(err, ErrInvalidVersion) { // if NO error
-		t.Errorf("Expected: %v", ErrInvalidVersion)
+	if _, err := table.LatestVersion(); !errors.Is(err, ErrNotATable) { // if NO error
+		t.Errorf("Expected: %v", ErrNotATable)
+	}
+
+	for i := 0; i < 2000; i++ {
+		fileName := fmt.Sprintf(")_%s.json", uuid.New().String())
+		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
+
+		table.Store.Put(filePath, nil)
+	}
+
+	if _, err := table.LatestVersion(); !errors.Is(err, ErrNotATable) { // if NO error
+		t.Errorf("Expected: %v", ErrNotATable)
 	}
 
 	if err := table.Create(*metadata, Protocol{}, make(map[string]any), nil); err != nil {
@@ -1226,7 +1245,7 @@ func TestLatestVersion(t *testing.T) {
 		t.Errorf("After adding many commits: LatestVersion() = %v, want %v", version, 2099)
 	}
 
-	for version := 1; version < 2100; version = version + 10 {
+	for version := 1000; version < 2100; version = version + 10 {
 		fileName := fmt.Sprintf("%020d", version) + ".checkpoint.parquet"
 		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
 
@@ -1240,11 +1259,93 @@ func TestLatestVersion(t *testing.T) {
 	if version != 2099 {
 		t.Errorf("After adding checkpoints: LatestVersion() = %v, want %v", version, 2099)
 	}
+
+	for version := 0; version < 1000; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Delete(filePath)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 2099 {
+		t.Errorf("After deleting many commits: LatestVersion() = %v, want %v", version, 2099)
+	}
+
+	for version := 2100; version < 4100; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Put(filePath, nil)
+	}
+
+	checkpoint := CheckPoint{
+		Version: 3000,
+	}
+	bytes, err := json.Marshal(checkpoint)
+	if err != nil {
+		t.Errorf("Failed to marshal checkpoint: %v", err)
+	}
+	if err := store.Put(lastCheckpointPath(), bytes); err != nil {
+		t.Errorf("Failed to put checkpoint bytes: %v", err)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 4099 {
+		t.Errorf("After adding last checkpoint file: LatestVersion() = %v, want %v", version, 4099)
+	}
+}
+
+func BenchmarkLatestVersion(b *testing.B) {
+	uri := storage.NewPath("s3://test-bucket/test-delta-table")
+
+	var (
+		dir       = b.TempDir()
+		path      = storage.NewPath(dir)
+		fileStore = filestore.FileObjectStore{BaseURI: path}
+		client    = new(s3utils.MockS3Client)
+	)
+
+	client.SetFileStore(fileStore)
+
+	baseURL, err := uri.ParseURL()
+	if err != nil {
+		b.Fatalf("Failed to parse URL: %v", err)
+	}
+
+	if strings.HasSuffix(baseURL.Path, "/") {
+		client.SetS3StorePath(baseURL.Path)
+	} else {
+		client.SetS3StorePath(baseURL.Path + "/")
+	}
+
+	s3Store, err := s3store.New(client, uri)
+	if err != nil {
+		b.Fatalf("Failed to create new S3 object store: %v", err)
+	}
+
+	var (
+		state = filestate.New(path, "_delta_log/_commit.state")
+		lock  = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
+		table = NewDeltaTable(s3Store, lock, state)
+	)
+
+	for version := 0; version < 1000; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Put(filePath, nil)
+	}
+
+	table.LatestVersion()
 }
 
 func TestLoadVersion(t *testing.T) {
 	// Use setupCheckpointTest() to copy testdata commits
-	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
+	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints/simple")
 
 	// Load version 2
 	table := NewDeltaTable(store, lock, stateStore)
@@ -1255,7 +1356,7 @@ func TestLoadVersion(t *testing.T) {
 	}
 	// Check contents
 	// Set up the expected state based on the commits we are reading
-	expectedState := NewDeltaTableState(version)
+	expectedState := NewTableState(version)
 	operationParams := make(map[string]interface{}, 4)
 	operationParams["isManaged"] = "false"
 	operationParams["description"] = nil
