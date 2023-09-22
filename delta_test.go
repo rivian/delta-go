@@ -1110,8 +1110,19 @@ func TestLatestVersion(t *testing.T) {
 		metadata = NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
 	)
 
-	if _, err := table.LatestVersion(); !errors.Is(err, ErrInvalidVersion) { // if NO error
-		t.Errorf("Expected: %v", ErrInvalidVersion)
+	if _, err := table.LatestVersion(); !errors.Is(err, ErrNotATable) { // if NO error
+		t.Errorf("Expected: %v", ErrNotATable)
+	}
+
+	for i := 0; i < 2000; i++ {
+		fileName := fmt.Sprintf(")_%s.json", uuid.New().String())
+		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
+
+		table.Store.Put(filePath, nil)
+	}
+
+	if _, err := table.LatestVersion(); !errors.Is(err, ErrNotATable) { // if NO error
+		t.Errorf("Expected: %v", ErrNotATable)
 	}
 
 	if err := table.Create(*metadata, Protocol{}, make(map[string]any), nil); err != nil {
@@ -1172,7 +1183,7 @@ func TestLatestVersion(t *testing.T) {
 		t.Errorf("After adding many commits: LatestVersion() = %v, want %v", version, 2099)
 	}
 
-	for version := 1; version < 2100; version = version + 10 {
+	for version := 1000; version < 2100; version = version + 10 {
 		fileName := fmt.Sprintf("%020d", version) + ".checkpoint.parquet"
 		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
 
@@ -1185,6 +1196,45 @@ func TestLatestVersion(t *testing.T) {
 	}
 	if version != 2099 {
 		t.Errorf("After adding checkpoints: LatestVersion() = %v, want %v", version, 2099)
+	}
+
+	for version := 0; version < 1000; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Delete(filePath)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 2099 {
+		t.Errorf("After deleting many commits: LatestVersion() = %v, want %v", version, 2099)
+	}
+
+	for version := 2100; version < 4100; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Put(filePath, nil)
+	}
+
+	checkpoint := CheckPoint{
+		Version: 3000,
+	}
+	bytes, err := json.Marshal(checkpoint)
+	if err != nil {
+		t.Errorf("Failed to marshal checkpoint: %v", err)
+	}
+	if err := store.Put(lastCheckpointPath(), bytes); err != nil {
+		t.Errorf("Failed to put checkpoint bytes: %v", err)
+	}
+
+	version, err = table.LatestVersion()
+	if err != nil {
+		t.Errorf("Failed to get latest version: %v", err)
+	}
+	if version != 4099 {
+		t.Errorf("After adding last checkpoint file: LatestVersion() = %v, want %v", version, 4099)
 	}
 }
 
