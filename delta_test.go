@@ -632,9 +632,9 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
 	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{
-		MaxRetryCommitAttempts:                100,
+		MaxRetryCommitAttempts:                5, //Should break on max attempts if the latest version logic fails
 		RetryWaitDuration:                     time.Second,
-		RetryCommitAttemptsBeforeLoadingTable: 2,
+		RetryCommitAttemptsBeforeLoadingTable: 2, //Should get the latest version after 2 attempts
 	})
 
 	for i := 1; i < 10; i++ {
