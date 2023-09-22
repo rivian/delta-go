@@ -267,10 +267,10 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 			// the minimum version if the URI isn't first in UTF-8 binary order.
 			for {
 				uri = slices.MinFunc(objects.Objects, func(fom, som storage.ObjectMeta) int {
-					if !IsValidCommitOrCheckpointUri(som.Location) {
+					if !IsValidCommitOrCheckpointURI(som.Location) {
 						return -1
 					}
-					if !IsValidCommitOrCheckpointUri(fom.Location) || fom.Location.Raw >= som.Location.Raw {
+					if !IsValidCommitOrCheckpointURI(fom.Location) || fom.Location.Raw >= som.Location.Raw {
 						return 1
 					}
 					return -1
