@@ -296,7 +296,7 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 		} else {
 			count++
 			minVersion = maxVersion
-			maxVersion += int64(math.Pow(2, count))
+			maxVersion += int64(math.Pow(count, 2))
 		}
 	}
 

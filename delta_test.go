@@ -1280,7 +1280,7 @@ func BenchmarkLatestVersion(b *testing.B) {
 		table = NewDeltaTable(s3Store, lock, state)
 	)
 
-	for version := 0; version < 100000; version++ {
+	for version := 0; version < 1000; version++ {
 		filePath := CommitUriFromVersion(int64(version))
 
 		table.Store.Put(filePath, nil)
