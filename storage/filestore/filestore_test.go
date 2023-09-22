@@ -13,6 +13,7 @@
 package filestore
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -26,7 +27,6 @@ import (
 
 func TestPut(t *testing.T) {
 	tmpDir := t.TempDir()
-	// fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 
 	tmpPath := storage.NewPath(tmpDir)
 	store := FileObjectStore{baseURI: tmpPath}
@@ -35,20 +35,19 @@ func TestPut(t *testing.T) {
 	putPath := storage.NewPath("test_file.json")
 	err := store.Put(putPath, []byte("some data"))
 	if err != nil {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 
 	exists, err := fileExists(filepath.Join(tmpDir, putPath.Raw))
 	if err != nil {
-		t.Errorf("err = %e;", err)
-	}
-	if !exists {
+		t.Error(err)
+	} else if !exists {
 		t.Errorf("File does not exist")
 	}
 
 	data, err := os.ReadFile(filepath.Join(tmpDir, putPath.Raw))
 	if err != nil {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 	if string(data) != "some data" {
 		t.Errorf("file has: %s, want 'some data'", string(data))
@@ -57,7 +56,6 @@ func TestPut(t *testing.T) {
 
 func TestHead(t *testing.T) {
 	tmpDir := t.TempDir()
-	// fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 
 	tmpPath := storage.NewPath(tmpDir)
 	store := FileObjectStore{baseURI: tmpPath}
@@ -69,7 +67,7 @@ func TestHead(t *testing.T) {
 	meta, err := store.Head(putPath)
 	//err object should not exist
 	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 
 	//size should be 0
@@ -79,12 +77,12 @@ func TestHead(t *testing.T) {
 
 	err = store.Put(putPath, []byte("some data"))
 	if err != nil {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 
 	meta, err = store.Head(putPath)
 	if err != nil {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 
 	if meta.Size != 9 {
@@ -105,23 +103,23 @@ func TestRenameIfNotExists(t *testing.T) {
 	// Write data to be renamed
 	err := store.Put(fromPath, []byte("some data"))
 	if err != nil {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 
 	err = store.RenameIfNotExists(fromPath, toPath)
 	if err != nil {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 
 	//File already exists from previous rename, so err should be storage.ErrorVersionAlreadyExists
 	err = store.RenameIfNotExists(fromPath, toPath)
 	if !errors.Is(err, storage.ErrObjectAlreadyExists) {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(tmpDir, toPath.Raw))
 	if err != nil {
-		t.Errorf("err = %e;", err)
+		t.Error(err)
 	}
 	if string(data) != "some data" {
 		t.Errorf("file has: %s, want 'some data'", string(data))
@@ -145,9 +143,8 @@ func TestDelete(t *testing.T) {
 	// Verify file exists before test
 	exists, err := fileExists(filepath.Join(tmpDir, filePath.Raw))
 	if err != nil {
-		t.Fatalf("Error setting up TestDelete: %e", err)
-	}
-	if !exists {
+		t.Error(err)
+	} else if !exists {
 		t.Errorf("File does not exist")
 	}
 
@@ -156,11 +153,11 @@ func TestDelete(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error calling Delete: %e", err)
 	}
+
 	exists, err = fileExists(filepath.Join(tmpDir, filePath.Raw))
 	if err != nil {
 		t.Error(err)
-	}
-	if exists {
+	} else if exists {
 		t.Errorf("File exists after Delete")
 	}
 
@@ -288,6 +285,55 @@ func TestList(t *testing.T) {
 			}
 			compareExpectedPaths(t, tt.want, got.Objects)
 
+		})
+	}
+}
+
+func TestReadAt(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpPath := storage.NewPath(tmpDir)
+	store := FileObjectStore{baseURI: tmpPath}
+	putPath := storage.NewPath("test_file.json")
+	err := store.Put(putPath, []byte("01234567890123456789"))
+	if err != nil {
+		t.Error(err)
+	}
+
+	type args struct {
+		location storage.Path
+		offset   int64
+		max      int64
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantN   int
+		wantErr bool
+	}{
+		{name: "Everything", args: args{location: putPath, offset: 0, max: 19}, want: "01234567890123456789", wantN: 20, wantErr: false},
+		{name: "Start", args: args{location: putPath, offset: 0, max: 9}, want: "0123456789", wantN: 10, wantErr: false},
+		{name: "End", args: args{location: putPath, offset: 17, max: 19}, want: "789", wantN: 3, wantErr: false},
+		{name: "Middle", args: args{location: putPath, offset: 3, max: 5}, want: "345", wantN: 3, wantErr: false},
+		{name: "Negative", args: args{location: putPath, offset: -3, max: 5}, want: "\000\000\000\000\000\000\000\000\000", wantN: 0, wantErr: true},
+		{name: "Off the End", args: args{location: putPath, offset: 15, max: 24}, want: "56789\000\000\000\000\000", wantN: 5, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := make([]byte, tt.args.max-tt.args.offset+1)
+			n, err := store.ReadAt(tt.args.location, p, tt.args.offset, tt.args.max)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FileObjectStore.ReadAt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if n != tt.wantN {
+				t.Errorf("FileObjectStore.ReadAt() n = %d, want %d", n, tt.wantN)
+				return
+			}
+			if !bytes.Equal(p, []byte(tt.want)) {
+				t.Errorf("FileObjectStore.ReadAt() result = %v, want %v", p, []byte(tt.want))
+				return
+			}
 		})
 	}
 }

@@ -15,12 +15,15 @@ package delta
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rivian/delta-go/storage"
 )
 
 // TODO Make more unit tests for commits
@@ -134,88 +137,6 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(b))
 	}
 
-}
-
-// TestUpdateStats tests gathering stats over a data set that includes pointers
-func TestUpdateStats(t *testing.T) {
-	type rowType struct {
-		Id    int      `parquet:"id,snappy"`
-		Label string   `parquet:"label,dict,snappy"`
-		Value *float64 `parquet:"value,snappy" nullable:"true"`
-	}
-
-	// schema := GetSchema(new(rowType))
-	// println(string(schema.SchemaBytes()))
-
-	v1 := 1.23
-	v2 := 2.13
-	data := []rowType{
-		{Id: 0, Label: "row0"},
-		{Id: 1, Label: "row1", Value: &v1},
-		{Id: 2, Label: "row2", Value: &v2},
-		{Id: 3, Label: "row3"},
-	}
-
-	stats := Stats{}
-	for _, row := range data {
-		stats.NumRecords++
-		UpdateStats(&stats, "id", &row.Id)
-		UpdateStats(&stats, "label", &row.Label)
-		UpdateStats(&stats, "value", row.Value)
-	}
-
-	b, _ := json.Marshal(stats)
-	expectedStr := `{"numRecords":4,"tightBounds":false,"minValues":{"id":0,"label":"row0","value":1.23},"maxValues":{"id":3,"label":"row3","value":2.13},"nullCount":{"id":0,"label":0,"value":2}}`
-	statsString := string(b)
-	if statsString != expectedStr {
-		t.Errorf("has:\n%s\nwant:\n%s", statsString, expectedStr)
-	}
-}
-
-func TestStatsFromJSON(t *testing.T) {
-	minValues := make(map[string]any)
-	minValues["id"] = 5
-	minValues["field1"] = "hello"
-
-	maxValues := make(map[string]any)
-	maxValues["id"] = 50
-	maxValues["field1"] = "world"
-
-	nullValues := make(map[string]int64)
-	nullValues["id"] = 0
-	nullValues["field1"] = 2
-
-	expectedStats := Stats{
-		NumRecords:  123,
-		TightBounds: true,
-		MinValues:   minValues,
-		MaxValues:   maxValues,
-		NullCount:   nullValues,
-	}
-
-	statsStr := "{\"numRecords\":123,\"tightBounds\":true,\"minValues\":{\"field1\":\"hello\",\"id\":5},\"maxValues\":{\"field1\":\"world\",\"id\":50},\"nullCount\":{\"field1\":2,\"id\":0}}"
-
-	stats, err := StatsFromJson([]byte(statsStr))
-	if err != nil {
-		t.Fatalf("Error in StatsFromJson: %v", err)
-	}
-
-	if !reflect.DeepEqual(stats.NumRecords, expectedStats.NumRecords) {
-		t.Errorf("NumRecords did not match: %d vs %d", stats.NumRecords, expectedStats.NumRecords)
-	}
-	if !reflect.DeepEqual(stats.TightBounds, expectedStats.TightBounds) {
-		t.Errorf("NumRecords did not match: %t vs %t", stats.TightBounds, expectedStats.TightBounds)
-	}
-	// MinValues and MaxValues will not match because unmarshalling JSON changes the type of the numeric fields
-	// if !reflect.DeepEqual(stats.MinValues, expectedStats.MinValues) {
-	// 	t.Errorf("MinValues did not match: %v vs %v", stats.MinValues, expectedStats.MinValues)
-	// }
-	// if !reflect.DeepEqual(stats.MaxValues, expectedStats.MaxValues) {
-	// 	t.Errorf("MaxValues did not match: %v vs %v", stats.MaxValues, expectedStats.MaxValues)
-	// }
-	if !reflect.DeepEqual(stats.NullCount, expectedStats.NullCount) {
-		t.Errorf("NullCount did not match: %v vs %v", stats.NullCount, expectedStats.NullCount)
-	}
 }
 
 func TestFormatDefault(t *testing.T) {
@@ -535,5 +456,127 @@ func TestMetadataGetSchema(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewAdd(t *testing.T) {
+	table, _, tmpDir := setupTest(t)
+
+	// First write
+	fileName := fmt.Sprintf("part-%s.snappy.parquet", uuid.NewString())
+	filePath := filepath.Join(tmpDir, fileName)
+
+	//Make some data
+	data := makeTestData(5)
+
+	// Calculate expected stats
+	expectedStats := makeTestDataStats(data)
+	if expectedStats.NullCount["value2"] == 5 {
+		// First test is with value2 set
+		v := 1.0123451234512344
+		data[4].Value2 = &v
+		expectedStats = makeTestDataStats(data)
+	}
+
+	_, err := writeParquet(data, filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make sure to match float formatting
+	minV1, err := json.Marshal(expectedStats.MinValues["value1"])
+	if err != nil {
+		t.Error(err)
+	}
+	maxV1, err := json.Marshal(expectedStats.MaxValues["value1"])
+	if err != nil {
+		t.Error(err)
+	}
+	minV2, err := json.Marshal(expectedStats.MinValues["value2"])
+	if err != nil {
+		t.Error(err)
+	}
+	maxV2, err := json.Marshal(expectedStats.MaxValues["value2"])
+	if err != nil {
+		t.Error(err)
+	}
+
+	minTime := time.Unix(expectedStats.MinValues["timestamp"].(int64)/microsecondsPerSecond, (expectedStats.MinValues["timestamp"].(int64)%microsecondsPerSecond)*int64(time.Microsecond))
+	maxTime := time.Unix(expectedStats.MaxValues["timestamp"].(int64)/microsecondsPerSecond, (expectedStats.MaxValues["timestamp"].(int64)%microsecondsPerSecond)*int64(time.Microsecond))
+	expectedStatsString := fmt.Sprintf(`{"numRecords":5,"tightBounds":false,"minValues":{"id":%d,"label":"%s","timestamp":"%s","value1":%s,"value2":%s},`+
+		`"maxValues":{"id":%d,"label":"%s","timestamp":"%s","value1":%s,"value2":%s},`+
+		`"nullCount":{"data":%d,"id":%d,"label":%d,"timestamp":%d,"value1":%d,"value2":%d}}`,
+		expectedStats.MinValues["id"], expectedStats.MinValues["label"],
+		minTime.UTC().Format("2006-01-02T15:04:05.000Z0700"),
+		minV1, minV2,
+		expectedStats.MaxValues["id"], expectedStats.MaxValues["label"],
+		maxTime.UTC().Format("2006-01-02T15:04:05.000Z0700"),
+		maxV1, maxV2,
+		expectedStats.NullCount["data"], expectedStats.NullCount["id"], expectedStats.NullCount["label"],
+		expectedStats.NullCount["timestamp"], expectedStats.NullCount["value1"], expectedStats.NullCount["value2"])
+
+	add, missingColumns, err := NewAdd(table.Store, storage.NewPath(fileName), nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(missingColumns) > 0 {
+		t.Errorf("unexpected missing columns %v", missingColumns)
+	}
+	if add == nil {
+		t.Error("Expected non-empty add")
+	} else {
+		if add.Path != fileName {
+			t.Errorf("Wrong add path: expected %s found %s", fileName, add.Path)
+		}
+		if add.Stats != expectedStatsString {
+			t.Errorf("Wrong add stats: expected\n%s found\n%s", expectedStatsString, add.Stats)
+		}
+	}
+
+	// Test with all null value2 - should be excluded from min/max
+	for i := 0; i < 5; i++ {
+		data[i].Value2 = nil
+	}
+	fileName = fmt.Sprintf("part-%s.snappy.parquet", uuid.NewString())
+	filePath = filepath.Join(tmpDir, fileName)
+	_, err = writeParquet(data, filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minV1, err = json.Marshal(expectedStats.MinValues["value1"])
+	if err != nil {
+		t.Error(err)
+	}
+	maxV1, err = json.Marshal(expectedStats.MaxValues["value1"])
+	if err != nil {
+		t.Error(err)
+	}
+	expectedStatsString = fmt.Sprintf(`{"numRecords":5,"tightBounds":false,"minValues":{"id":%d,"label":"%s","timestamp":"%s","value1":%s},`+
+		`"maxValues":{"id":%d,"label":"%s","timestamp":"%s","value1":%s},`+
+		`"nullCount":{"data":%d,"id":%d,"label":%d,"timestamp":%d,"value1":%d,"value2":%d}}`,
+		expectedStats.MinValues["id"], expectedStats.MinValues["label"],
+		minTime.UTC().Format("2006-01-02T15:04:05.000Z0700"),
+		minV1,
+		expectedStats.MaxValues["id"], expectedStats.MaxValues["label"],
+		maxTime.UTC().Format("2006-01-02T15:04:05.000Z0700"),
+		maxV1,
+		expectedStats.NullCount["data"], expectedStats.NullCount["id"], expectedStats.NullCount["label"],
+		expectedStats.NullCount["timestamp"], expectedStats.NullCount["value1"], 5)
+	add, missingColumns, err = NewAdd(table.Store, storage.NewPath(fileName), nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(missingColumns) > 0 {
+		t.Errorf("unexpected missing columns %v", missingColumns)
+	}
+	if add == nil {
+		t.Error("Expected non-empty add")
+	} else {
+		if add.Path != fileName {
+			t.Errorf("Wrong add path: expected %s found %s", fileName, add.Path)
+		}
+		if add.Stats != expectedStatsString {
+			t.Errorf("Wrong add stats: expected\n%s found\n%s", expectedStatsString, add.Stats)
+		}
 	}
 }

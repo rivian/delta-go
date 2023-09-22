@@ -320,3 +320,43 @@ func (s *S3ObjectStore) DeleteFolder(location storage.Path) error {
 func (s *S3ObjectStore) BaseURI() storage.Path {
 	return s.baseURI
 }
+
+func (s *S3ObjectStore) ReadAt(location storage.Path, p []byte, off int64, max int64) (n int, err error) {
+	key, err := url.JoinPath(s.path, location.Raw)
+	if err != nil {
+		return 0, errors.Join(storage.ErrURLJoinPath, err)
+	}
+	if off < 0 {
+		return 0, errors.Join(storage.ErrReadAt, errors.New("offset should not be negative"))
+	}
+	// Get the object from S3.
+	input := s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", off, max)),
+	}
+	resp, err := s.Client.GetObject(context.Background(), &input)
+	// Check for a 404 response, indicating that the object does not exist
+	var re *awshttp.ResponseError
+	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
+		return 0, errors.Join(storage.ErrObjectDoesNotExist, err)
+	}
+	if err != nil {
+		return 0, errors.Join(storage.ErrReadAt, err)
+	}
+	n, err = resp.Body.Read(p)
+	if err != nil {
+		return n, err
+	}
+	// If we read less than len(p) due to EOF, make sure that we capture and return the EOF
+	if n < len(p) {
+		testEOFData := make([]byte, 1)
+		n2, err2 := resp.Body.Read(testEOFData)
+		if n2 != 0 || !errors.Is(err2, io.EOF) {
+			// We did not see the expected 0, EOF
+			return n, errors.Join(storage.ErrReadAt, err, err2, errors.New("reading response body read < len(p) but EOF not seen"))
+		}
+		err = err2
+	}
+	return n, err
+}
