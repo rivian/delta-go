@@ -28,7 +28,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
 
 const deltaClientVersion = "alpha-0.0.0"
@@ -247,51 +246,25 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 		minVersion int64
 		path       = lastCheckpointPath()
 		bytes, err = t.Store.Get(path)
+		objects    *storage.ListResult
 	)
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
-		objects, err := t.Store.List(storage.NewPath("_delta_log/"), nil)
-		if err != nil {
-			return -1, fmt.Errorf("list Delta log: %w", err)
-		}
-		if len(objects.Objects) == 0 {
-			return -1, ErrNotATable
-		}
-
-		var (
-			uri             = objects.Objects[0].Location
-			parsed, version = CommitOrCheckpointVersionFromUri(uri)
-		)
-		// The version will fail to be parsed from the commit or checkpoint URI for
-		// the minimum version if the URI isn't first in UTF-8 binary order.
-		if !parsed {
-			for {
-				uri = slices.MinFunc(objects.Objects, func(fom, som storage.ObjectMeta) int {
-					if !IsValidCommitOrCheckpointURI(som.Location) {
-						return -1
-					}
-					if !IsValidCommitOrCheckpointURI(fom.Location) || fom.Location.Raw >= som.Location.Raw {
-						return 1
-					}
-					return -1
-				}).Location
-
-				parsed, v := CommitOrCheckpointVersionFromUri(uri)
-				if !parsed {
-					if objects.NextToken == "" {
-						return -1, ErrNotATable
-					}
-					o, err := t.Store.List(storage.NewPath("_delta_log/"), &objects)
-					if err != nil {
-						return -1, fmt.Errorf("list Delta log: %w", err)
-					}
-					objects = o
-					continue
-				}
-				minVersion = v
-				break
+		for {
+			o, err := t.Store.List(storage.NewPath("_delta_log/"), objects)
+			if err != nil {
+				return -1, fmt.Errorf("list Delta log: %w", err)
 			}
-		} else {
-			minVersion = version
+			objects = &o
+
+			found, v := findValidCommitOrCheckpointURI(objects.Objects)
+			if !found {
+				if objects.NextToken == "" {
+					return -1, ErrNotATable
+				}
+				continue
+			}
+			minVersion = v
+			break
 		}
 	} else {
 		if checkpoint, err := checkpointFromBytes(bytes); err != nil {
@@ -335,6 +308,20 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 	}
 
 	return latestVersion, nil
+}
+
+func findValidCommitOrCheckpointURI(metadata []storage.ObjectMeta) (bool, int64) {
+	for _, m := range metadata {
+		if IsValidCommitOrCheckpointURI(m.Location) {
+			parsed, version := CommitVersionFromUri(m.Location)
+			if !parsed {
+				continue
+			}
+			return true, version
+		}
+	}
+
+	return false, -1
 }
 
 // / Load the table state at the latest version
