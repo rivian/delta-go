@@ -13,17 +13,24 @@
 package delta
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
+	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/chelseajonesr/rfarrow"
 	"github.com/rivian/delta-go/storage"
+	"golang.org/x/sync/errgroup"
 )
 
-// / Metadata for a checkpoint file
-// / This gets written out to _last_checkpoint
+// CheckPoint holds the metadata for a checkpoint file.
+// This gets written out to _last_checkpoint.
 type CheckPoint struct {
 	/// Delta table version
 	Version int64 `json:"version"`
@@ -36,7 +43,8 @@ type CheckPoint struct {
 	NumOfAddFiles int64 `json:"numOfAddFiles"`
 }
 
-// / A single checkpoint entry in the checkpoint Parquet file
+// CheckpointEntry contains a single entry in the checkpoint Parquet file
+// All but one of the pointers should be nil
 type CheckpointEntry struct {
 	Txn      *Txn      `parquet:"name=txn"`
 	Add      *Add      `parquet:"name=add"`
@@ -46,7 +54,7 @@ type CheckpointEntry struct {
 	Cdc      *Cdc      `parquet:"-"` // CDC not implemented yet
 }
 
-// / Additional configuration for checkpointing
+// CheckpointConfiguration contains additional configuration for checkpointing
 type CheckpointConfiguration struct {
 	// Maximum numbers of rows to include in each multi-part checkpoint part
 	// Current default 50k
@@ -59,11 +67,14 @@ type CheckpointConfiguration struct {
 	// Disable any cleanup after checkpointing, even if it was enabled in the table configuration.
 	// Defaults to false.
 	DisableCleanup bool
+	// Configure use of on-disk intermediate storage to reduce memory requirements
+	ReadWriteConfiguration OptimizeCheckpointConfiguration
 }
 
+// NewCheckpointConfiguration returns the default configuration for creating checkpoints
 func NewCheckpointConfiguration() *CheckpointConfiguration {
 	checkpointConfiguration := new(CheckpointConfiguration)
-	// TODO try to find what Spark uses
+	// From inspection of Spark generated checkpoint files
 	checkpointConfiguration.MaxRowsPerPart = 50000
 	checkpointConfiguration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors = false
 	checkpointConfiguration.DisableCleanup = false
@@ -71,11 +82,20 @@ func NewCheckpointConfiguration() *CheckpointConfiguration {
 }
 
 var (
-	ErrorCheckpointAlreadyExists    error = errors.New("checkpoint already exists")
-	ErrorCheckpointRowCountMismatch error = errors.New("checkpoint generated with unexpected row count")
-	ErrorCheckpointIncomplete       error = errors.New("checkpoint is missing parts")
-	ErrorCheckpointInvalidFileName  error = errors.New("checkpoint file name is invalid")
-	ErrorCheckpointAddZeroSize      error = errors.New("zero size in add not allowed")
+	// ErrCheckpointAlreadyExists is returned when trying to create a checkpoint but it already exists
+	ErrCheckpointAlreadyExists error = errors.New("checkpoint already exists")
+	// ErrCheckpointRowCountMismatch is returned when the checkpoint is generated with a different row count
+	// than expected from the table state.  This indicates an internal error.
+	ErrCheckpointRowCountMismatch error = errors.New("checkpoint generated with unexpected row count")
+	// ErrCheckpointIncomplete is returned when trying to read a multi-part checkpoint but not all parts exist
+	ErrCheckpointIncomplete error = errors.New("checkpoint is missing parts")
+	// ErrCheckpointInvalidMultipartFileName is returned when a multi-part checkpoint file has the wrong number of parts in the filename
+	ErrCheckpointInvalidMultipartFileName error = errors.New("checkpoint file name is invalid")
+	// ErrCheckpointAddZeroSize is returned if there is an Add action with size 0
+	// because including this would cause subsequent Optimize operations to fail.
+	ErrCheckpointAddZeroSize error = errors.New("zero size in add not allowed")
+	// ErrCheckpointEntryMultipleActions if a checkpoint entry has more than one non-null action
+	ErrCheckpointEntryMultipleActions error = errors.New("checkpoint entry contains multiple actions")
 )
 
 func checkpointFromBytes(bytes []byte) (*CheckPoint, error) {
@@ -165,7 +185,7 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 				return true, nil
 			}
 			if totalParts > 0 && *checkpoint.Parts != totalParts {
-				return false, errors.Join(ErrorCheckpointInvalidFileName, fmt.Errorf("different number of total parts found between checkpoint files for version %d", version))
+				return false, errors.Join(ErrCheckpointInvalidMultipartFileName, fmt.Errorf("different number of total parts found between checkpoint files for version %d", version))
 			}
 			totalParts = *checkpoint.Parts
 			partsFound[currentPart] = true
@@ -176,7 +196,7 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 		for i := int32(0); i < totalParts; i++ {
 			found, ok := partsFound[i+1]
 			if !ok || !found {
-				return false, ErrorCheckpointIncomplete
+				return false, ErrCheckpointIncomplete
 			}
 		}
 		return true, nil
@@ -187,18 +207,18 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 // / Create a checkpoint for the given state in the given store
 // / Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
 // / Applies tombstone expiration first
-func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
+func createCheckpointFor(tableState *TableState, store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
 	checkpointExists, err := doesCheckpointVersionExist(store, tableState.Version, false)
 	if err != nil {
 		return err
 	}
 	if checkpointExists {
-		return ErrorCheckpointAlreadyExists
+		return ErrCheckpointAlreadyExists
 	}
 
-	tableState.prepareStateForCheckpoint()
+	tableState.prepareStateForCheckpoint(&checkpointConfiguration.ReadWriteConfiguration)
 
-	totalRows := len(tableState.Files) + len(tableState.Tombstones) + len(tableState.AppTransactionVersion) + 2
+	totalRows := tableState.FileCount() + tableState.TombstoneCount() + len(tableState.AppTransactionVersion) + 2
 	numParts := int32(((totalRows - 1) / checkpointConfiguration.MaxRowsPerPart) + 1)
 
 	// From https://github.com/delta-io/delta/blob/master/PROTOCOL.md#checkpoints:
@@ -208,22 +228,27 @@ func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore,
 	//
 	// We are not doing this, because we are using a separate checkpointing lock so only one writer can checkpoint
 	// at a time. (Note that this does not apply to external writers such as Spark.)
-	// We are however sorting all entries, so the results should still be deterministic, except for the possibility
-	// of tombstones expiring between different calls to the function.
 
 	var totalBytes int64 = 0
-	offsetRow := 0
-	for part := int32(0); part < numParts; part++ {
-		records, err := checkpointRows(tableState, offsetRow, checkpointConfiguration.MaxRowsPerPart)
-		if err != nil {
-			return err
-		}
-		offsetRow += len(records)
+	var rowsWritten int32 = 0
 
-		parquetBytes, err := writeStructsToParquetBytes(records)
+	generatePart := func(part int) error {
+		partOffsetRow := part * checkpointConfiguration.MaxRowsPerPart
+		checkpointEntries, err := checkpointRows(tableState, partOffsetRow, checkpointConfiguration)
 		if err != nil {
 			return err
 		}
+		atomic.AddInt32(&rowsWritten, int32(len(checkpointEntries)))
+
+		buf := new(bytes.Buffer)
+		props := parquet.NewWriterProperties(
+			parquet.WithCompression(compress.Codecs.Snappy),
+		)
+		err = rfarrow.WriteGoStructsToParquet(checkpointEntries, buf, props)
+		if err != nil {
+			return err
+		}
+		parquetBytes := buf.Bytes()
 		var checkpointFileName string
 		if numParts == 1 {
 			checkpointFileName = fmt.Sprintf("%020d.checkpoint.parquet", tableState.Version)
@@ -233,16 +258,62 @@ func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore,
 		checkpointPath := storage.PathFromIter([]string{"_delta_log", checkpointFileName})
 		_, err = store.Head(checkpointPath)
 		if !errors.Is(err, storage.ErrObjectDoesNotExist) {
-			return ErrorCheckpointAlreadyExists
+			return errors.Join(ErrCheckpointAlreadyExists, fmt.Errorf("checkpoint file %s", checkpointPath.Raw))
 		}
 		err = store.Put(checkpointPath, parquetBytes)
 		if err != nil {
 			return err
 		}
-		totalBytes += int64(len(parquetBytes))
+		atomic.AddInt64(&totalBytes, int64(len(parquetBytes)))
+		return nil
 	}
-	if offsetRow != totalRows {
-		return ErrorCheckpointRowCountMismatch
+
+	// Optional concurrency support
+	if checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointWrite > 1 {
+		g, ctx := errgroup.WithContext(context.Background())
+		partIndexChannel := make(chan int)
+
+		for i := 0; i < checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointWrite; i++ {
+			g.Go(func() error {
+				for part := range partIndexChannel {
+					err := generatePart(part)
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		}
+		g.Go(func() error {
+			defer close(partIndexChannel)
+			done := ctx.Done()
+			for part := 0; part < int(numParts); part++ {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				select {
+				case partIndexChannel <- part:
+					continue
+				case <-done:
+					return ctx.Err()
+				}
+			}
+			return ctx.Err()
+		})
+		err := g.Wait()
+		if err != nil {
+			return err
+		}
+	} else {
+		for part := 0; part < int(numParts); part++ {
+			err := generatePart(part)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if int(rowsWritten) != totalRows {
+		return errors.Join(ErrCheckpointRowCountMismatch, fmt.Errorf("expected %d rows, got %d rows", totalRows, rowsWritten))
 	}
 
 	var reportedParts *int32
@@ -256,7 +327,7 @@ func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore,
 		Size:          int64(totalRows),
 		SizeInBytes:   totalBytes,
 		Parts:         reportedParts,
-		NumOfAddFiles: int64(len(tableState.Files)),
+		NumOfAddFiles: int64(tableState.FileCount()),
 	}
 	checkpointBytes, err := json.Marshal(checkpoint)
 	if err != nil {
@@ -270,23 +341,44 @@ func createCheckpointFor(tableState *DeltaTableState, store storage.ObjectStore,
 }
 
 // / Generate an Add action for a checkpoint (with additional fields) from a basic Add action
+// / Note that parsed stats and partition have been removed during the parquet library change.
+// / TODO add them back
 func checkpointAdd(add *Add) (*Add, error) {
-	if add.Size == 0 {
-		return nil, errors.Join(ErrorCheckpointAddZeroSize, fmt.Errorf("zero size add for path %s", add.Path))
-	}
+	// stats, err := StatsFromJson([]byte(add.Stats))
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// parsedStats, err := statsAsGenericStats[RowType](stats)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
+	addDataChange := false
 	checkpointAdd := new(Add)
-	checkpointAdd.DataChange = false
-	checkpointAdd.ModificationTime = add.ModificationTime
-	checkpointAdd.PartitionValues = add.PartitionValues
-	checkpointAdd.Path = add.Path
-	checkpointAdd.Size = add.Size
-	checkpointAdd.Stats = add.Stats
-	checkpointAdd.Tags = add.Tags
+	switch typedAdd := any(checkpointAdd).(type) {
+	case *Add:
+		// *typedAdd = *add
+		typedAdd.DataChange = addDataChange
+		typedAdd.ModificationTime = add.ModificationTime
+		typedAdd.PartitionValues = add.PartitionValues
+		typedAdd.Path = add.Path
+		typedAdd.Size = add.Size
+		if typedAdd.Size == 0 {
+			return nil, errors.Join(ErrCheckpointAddZeroSize, fmt.Errorf("zero size add for path %s", add.Path))
+		}
+		typedAdd.Stats = add.Stats
+		typedAdd.Tags = add.Tags
+		// typedAdd.StatsParsed = *parsedStats
+		// partitionValuesParsed, err := partitionValuesAsGeneric[PartitionType](add.PartitionValues)
+		// if err != nil {
+		// 	return checkpointAdd, err
+		// }
+		// typedAdd.PartitionValuesParsed = *partitionValuesParsed
+	}
 	return checkpointAdd, nil
 }
 
-type DeletionCandidate struct {
+type deletionCandidate struct {
 	Version int64
 	Meta    storage.ObjectMeta
 }
@@ -295,7 +387,7 @@ type DeletionCandidate struct {
 // / "Safe to delete" is determined by the version and timestamp of the last file in the maybeToDelete list.
 // / For more details see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
 // / Returns the number of files deleted.
-func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []DeletionCandidate, beforeVersion int64, maxTimestamp time.Time) (int, error) {
+func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []deletionCandidate, beforeVersion int64, maxTimestamp time.Time) (int, error) {
 	deleted := 0
 
 	if len(maybeToDelete) > 0 {
@@ -324,7 +416,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 		return 0, errors.Join(ErrNotImplemented, errors.New("removing expired logs is not implemented for this object store"))
 	}
 
-	candidatesForDeletion := make([]DeletionCandidate, 0, 200)
+	candidatesForDeletion := make([]deletionCandidate, 0, 200)
 
 	logIterator := storage.NewListIterator(BaseCommitUri(), store)
 
@@ -337,7 +429,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 		isValid, version := CommitOrCheckpointVersionFromUri(meta.Location)
 		// Spark and Rust clients also use the file's last updated timestamp rather than opening the commit and using internal state
 		if isValid && version < beforeVersion && meta.LastModified.Before(maxTimestamp) {
-			candidatesForDeletion = append(candidatesForDeletion, DeletionCandidate{Version: version, Meta: *meta})
+			candidatesForDeletion = append(candidatesForDeletion, deletionCandidate{Version: version, Meta: *meta})
 		}
 		if version >= beforeVersion {
 			break
@@ -345,10 +437,10 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 	}
 
 	// Now look for actually deletable ones based on adjusted timestamp
-	maybeToDelete := make([]DeletionCandidate, 0, len(candidatesForDeletion))
+	maybeToDelete := make([]deletionCandidate, 0, len(candidatesForDeletion))
 	deletedCount := 0
 
-	var lastFile, currentFile DeletionCandidate
+	var lastFile, currentFile deletionCandidate
 
 	if len(candidatesForDeletion) > 0 {
 		lastFile = candidatesForDeletion[0]
@@ -368,7 +460,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 
 		if lastFile.Version < currentFile.Version && lastFile.Meta.LastModified.UnixMilli() >= currentFile.Meta.LastModified.UnixMilli() {
 			// The last version is earlier than the current, but the last timestamp is >= current: current needs time adjustment
-			currentFile = DeletionCandidate{Version: currentFile.Version, Meta: storage.ObjectMeta{
+			currentFile = deletionCandidate{Version: currentFile.Version, Meta: storage.ObjectMeta{
 				Location:     currentFile.Meta.Location,
 				Size:         currentFile.Meta.Size,
 				LastModified: lastFile.Meta.LastModified.Add(1 * time.Millisecond)}}

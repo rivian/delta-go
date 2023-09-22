@@ -123,7 +123,7 @@ func (s *S3ObjectStore) Delete(location storage.Path) error {
 }
 
 func (s *S3ObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
-	// return ErrorObjectAlreadyExists if the destination file exists
+	// return ErrObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
 	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		return errors.Join(storage.ErrObjectAlreadyExists, fmt.Errorf("object at location %s already exists", to.Raw))
@@ -283,4 +283,16 @@ func (s *S3ObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error)
 
 func (s *S3ObjectStore) IsListOrdered() bool {
 	return true
+}
+
+func (s *S3ObjectStore) SupportsWriter() bool {
+	return false
+}
+
+func (s *S3ObjectStore) Writer(to storage.Path, flag int) (io.Writer, func(), error) {
+	return nil, nil, storage.ErrOperationNotSupported
+}
+
+func (s *S3ObjectStore) DeleteFolder(location storage.Path) error {
+	return storage.ErrOperationNotSupported
 }

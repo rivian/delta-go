@@ -58,7 +58,7 @@ var (
 
 type DeltaTable struct {
 	// The state of the table as of the most recent loaded Delta log entry.
-	State DeltaTableState
+	State TableState
 	// The remote store of the state of the table as of the most recent loaded Delta log entry.
 	StateStore state.StateStore
 	// object store to access log and data files
@@ -71,6 +71,17 @@ type DeltaTable struct {
 	VersionTimestamp map[int64]time.Time
 }
 
+// OptimizeCheckpointConfiguration holds settings for optimizing checkpoint read and write operations
+type OptimizeCheckpointConfiguration struct {
+	// Use an intermediate on-disk storage location to reduce memory
+	OnDiskOptimization bool
+	WorkingStore       storage.ObjectStore
+	WorkingFolder      storage.Path
+	// If these are > 1, checkpoint read and write operations will use this many goroutines
+	ConcurrentCheckpointRead  int
+	ConcurrentCheckpointWrite int
+}
+
 // Create a new Delta Table struct without loading any data from backing storage.
 //
 // NOTE: This is for advanced users. If you don't know why you need to use this method, please
@@ -81,7 +92,7 @@ func NewDeltaTable(store storage.ObjectStore, lock lock.Locker, stateStore state
 	table.StateStore = stateStore
 	table.LockClient = lock
 	table.LastCheckPoint = nil
-	table.State = *NewDeltaTableState(-1)
+	table.State = *NewTableState(-1)
 	return table
 }
 
@@ -173,11 +184,11 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 	}
 
 	// Merge state from new commit version
-	newState, err := NewDeltaTableStateFromCommit(table, table.State.Version)
+	newState, err := NewTableStateFromCommit(table, table.State.Version)
 	if err != nil {
 		return err
 	}
-	table.State.merge(newState)
+	table.State.merge(newState, 150000, nil, false)
 
 	// If either version is too high, we return an error, but we still create the table first
 	if protocol.MinReaderVersion > maxReaderVersionSupported {
@@ -236,22 +247,30 @@ func (table *DeltaTable) ReadCommitVersion(version int64) ([]Action, error) {
 
 // LatestVersion gets the latest version of a table.
 func (t *DeltaTable) LatestVersion() (int64, error) {
-	if err := t.Load(); err != nil {
+	if err := t.Load(nil); err != nil {
 		return -1, fmt.Errorf("load table state: %w", err)
 	}
 
 	return t.State.Version, nil
 }
 
-// / Load the table state at the latest version
-func (table *DeltaTable) Load() error {
-	return table.LoadVersion(nil)
+// Load loads the table state using the given configuration
+func (table *DeltaTable) Load(config *OptimizeCheckpointConfiguration) error {
+	return table.LoadVersionWithConfiguration(nil, config)
 }
 
-// / Load the table state at the specified version
+// LoadVersion loads the table state at the specified version using default configuration options
 func (table *DeltaTable) LoadVersion(version *int64) error {
+	return table.LoadVersionWithConfiguration(version, nil)
+}
+
+// LoadVersionWithConfiguration loads the table state at the specified version using the given configuration
+func (table *DeltaTable) LoadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration) error {
 	table.LastCheckPoint = nil
-	table.State = *NewDeltaTableState(-1)
+	table.State = *NewTableState(-1)
+	if config != nil && config.OnDiskOptimization && config.WorkingStore != nil {
+		table.State.enableOnDiskOptimization(0)
+	}
 
 	var err error
 	var checkpointLoadError error
@@ -278,7 +297,7 @@ func (table *DeltaTable) LoadVersion(version *int64) error {
 
 		// Checkpoints are sorted ascending
 		checkpointIndex := len(checkpoints) - 1
-		err = table.restoreCheckpoint(&checkpoints[checkpointIndex])
+		err = table.restoreCheckpoint(&checkpoints[checkpointIndex], config)
 		if err == nil {
 			// We successfully loaded a checkpoint
 			checkpointLoadError = nil
@@ -305,7 +324,7 @@ func (table *DeltaTable) LoadVersion(version *int64) error {
 		}
 	}
 
-	err = table.updateIncremental(version)
+	err = table.updateIncremental(version, config)
 	if err != nil {
 		// If we happened to get both a checkpoint read error and an incremental load error, it may be helpful to return both
 		return errors.Join(err, checkpointLoadError)
@@ -408,6 +427,8 @@ func (table *DeltaTable) findLatestCheckpointsForVersion(version *int64) (checkp
 	return foundCheckpoints, true, nil
 }
 
+// GetCheckpointDataPaths returns the expected file path(s) for the given checkpoint Parquet files
+// If it is a multi-part checkpoint then there will be one path for each part
 func (table *DeltaTable) GetCheckpointDataPaths(checkpoint *CheckPoint) []storage.Path {
 	paths := make([]storage.Path, 0, 10)
 	prefix := fmt.Sprintf("%020d", checkpoint.Version)
@@ -422,9 +443,9 @@ func (table *DeltaTable) GetCheckpointDataPaths(checkpoint *CheckPoint) []storag
 	return paths
 }
 
-// / Update the table state from the given checkpoint
-func (table *DeltaTable) restoreCheckpoint(checkpoint *CheckPoint) error {
-	state, err := stateFromCheckpoint(table, checkpoint)
+// Update the table state from the given checkpoint
+func (table *DeltaTable) restoreCheckpoint(checkpoint *CheckPoint, config *OptimizeCheckpointConfiguration) error {
+	state, err := stateFromCheckpoint(table, checkpoint, config)
 	if err != nil {
 		return err
 	}
@@ -432,13 +453,13 @@ func (table *DeltaTable) restoreCheckpoint(checkpoint *CheckPoint) error {
 	return nil
 }
 
-// / Updates the DeltaTable to the latest version by incrementally applying newer versions.
-// / It assumes that the table is already updated to the current version `self.version`.
-// / This function does not look for checkpoints
-func (table *DeltaTable) updateIncremental(maxVersion *int64) error {
+// Updates the DeltaTable to the latest version by incrementally applying newer versions.
+// It assumes that the table is already updated to the current version `self.version`.
+// This function does not look for checkpoints
+func (table *DeltaTable) updateIncremental(maxVersion *int64, config *OptimizeCheckpointConfiguration) error {
 	for {
 		if maxVersion != nil && table.State.Version == *maxVersion {
-			return nil
+			break
 		}
 
 		nextCommitVersion, nextCommitActions, noMoreCommits, err := table.nextCommitDetails()
@@ -448,11 +469,12 @@ func (table *DeltaTable) updateIncremental(maxVersion *int64) error {
 		if noMoreCommits {
 			break
 		}
-		newState, err := NewDeltaTableStateFromActions(nextCommitActions, nextCommitVersion)
+		newState, err := NewTableStateFromActions(nextCommitActions, nextCommitVersion)
 		if err != nil {
 			return err
 		}
-		err = table.State.merge(newState)
+		// TODO configuration option for max rows per part? It is only used for on disk optimization.
+		err = table.State.merge(newState, 150000, config, false)
 		if err != nil {
 			return err
 		}
@@ -460,6 +482,13 @@ func (table *DeltaTable) updateIncremental(maxVersion *int64) error {
 
 	if table.State.Version == -1 {
 		return ErrInvalidVersion
+	}
+	if table.State.onDiskOptimization {
+		// We need to do one final "merge" to resolve any remaining adds/removes in our buffer
+		err := table.State.merge(nil, 150000, config, true)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -478,21 +507,21 @@ func (table *DeltaTable) nextCommitDetails() (int64, []Action, bool, error) {
 	return nextVersion, actions, noMoreCommits, err
 }
 
-// / Create a checkpoint for this table at the given version
-// / The existing table state will not be used or modified; a new table instance will be opened at the checkpoint version
-// / Returns whether the checkpoint was created and any error
-// / If the lock cannot be obtained, does not retry
+// CreateCheckpoint creates a checkpoint for this table at the given version
+// The existing table state will not be used or modified; a new table instance will be opened at the checkpoint version
+// Returns whether the checkpoint was created and any error
+// If the lock cannot be obtained, does not retry
 func (table *DeltaTable) CreateCheckpoint(checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version int64) (bool, error) {
 	return CreateCheckpoint(table.Store, checkpointLock, checkpointConfiguration, version)
 }
 
-// / Create a checkpoint for a table located at the store for the given version
-// / If expired log cleanup is enabled on this table, then after a successful checkpoint, run the cleanup to delete expired logs
-// / Returns whether the checkpoint was created and any error
-// / If the lock cannot be obtained, does not retry - if other processes are checkpointing there's no need to duplicate the effort
+// CreateCheckpoint creates a checkpoint for a table located at the store for the given version
+// If expired log cleanup is enabled on this table, then after a successful checkpoint, run the cleanup to delete expired logs
+// Returns whether the checkpoint was created and any error
+// If the lock cannot be obtained, does not retry - if other processes are checkpointing there's no need to duplicate the effort
 func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version int64) (checkpointed bool, err error) {
 	// The table doesn't need a commit lock or state store as we are not going to perform any commits
-	table, err := OpenTableWithVersion(store, nil, nil, version)
+	table, err := OpenTableWithVersionAndConfiguration(store, nil, nil, version, &checkpointConfiguration.ReadWriteConfiguration)
 	if err != nil {
 		// If the UnsafeIgnoreUnsupportedReaderWriterVersionErrors option is true, we can ignore unsupported version errors
 		isUnsupportedVersionError := errors.Is(err, ErrUnsupportedReaderVersion) || errors.Is(err, ErrUnsupportedWriterVersion)
@@ -519,7 +548,7 @@ func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, che
 	if err != nil {
 		return false, err
 	}
-	if table.State.EnableExpiredLogCleanup && !checkpointConfiguration.DisableCleanup {
+	if table.State.ExperimentalEnableExpiredLogCleanup && !checkpointConfiguration.DisableCleanup {
 		err = validateCheckpointAndCleanup(table, table.Store, version)
 		if err != nil {
 			return true, err
@@ -536,15 +565,15 @@ func validateCheckpointAndCleanup(table *DeltaTable, store storage.ObjectStore, 
 		return err
 	}
 	if len(checkpoints) == 0 || checkpoints[len(checkpoints)-1].Version != checkpointVersion {
-		return ErrorReadingCheckpoint
+		return ErrReadingCheckpoint
 	}
 	checkpoint := checkpoints[len(checkpoints)-1]
-	err = table.restoreCheckpoint(&checkpoint)
+	err = table.restoreCheckpoint(&checkpoint, nil)
 	if err != nil {
 		return err
 	}
 	if table.State.Version != checkpointVersion {
-		return ErrorReadingCheckpoint
+		return ErrReadingCheckpoint
 	}
 
 	// Now remove expired logs before the checkpoint
@@ -552,7 +581,7 @@ func validateCheckpointAndCleanup(table *DeltaTable, store storage.ObjectStore, 
 	return err
 }
 
-// / Read a commit log and return the actions inside it
+// ReadCommitLog reads a commit log and return the actions inside it
 func ReadCommitLog(store storage.ObjectStore, location storage.Path) ([]Action, error) {
 	commitData, err := store.Get(location)
 	if err != nil {
@@ -871,11 +900,16 @@ func NewDeltaTransactionOptions() *DeltaTransactionOptions {
 	return &DeltaTransactionOptions{MaxRetryCommitAttempts: defaultDeltaMaxRetryCommitAttempts}
 }
 
-// / Open the table at this specific version
-// / If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
+// OpenTableWithVersion loads the table at this specific version
+// If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
 func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64) (*DeltaTable, error) {
+	return OpenTableWithVersionAndConfiguration(store, lock, stateStore, version, nil)
+}
+
+// OpenTableWithVersionAndConfiguration loads the table at this specific version using the given configuration for optimization settings
+func OpenTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64, config *OptimizeCheckpointConfiguration) (*DeltaTable, error) {
 	table := NewDeltaTable(store, lock, stateStore)
-	err := table.LoadVersion(&version)
+	err := table.LoadVersionWithConfiguration(&version, config)
 	if err != nil {
 		return nil, err
 	}
@@ -891,11 +925,16 @@ func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStor
 	return table, err
 }
 
-// / Open the latest version of the table
-// / If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
+// OpenTable loads the latest version of the table
+// If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
 func OpenTable(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore) (*DeltaTable, error) {
+	return OpenTableWithConfiguration(store, lock, stateStore, nil)
+}
+
+// OpenTableWithConfiguration loads the latest version of the table, using the given configuration for optimization settings
+func OpenTableWithConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, config *OptimizeCheckpointConfiguration) (*DeltaTable, error) {
 	table := NewDeltaTable(store, lock, stateStore)
-	err := table.LoadVersion(nil)
+	err := table.LoadVersionWithConfiguration(nil, config)
 	if err != nil {
 		return nil, err
 	}

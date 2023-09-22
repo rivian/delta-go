@@ -14,6 +14,7 @@ package filestore
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -51,7 +52,7 @@ func (s *FileObjectStore) Put(location storage.Path, bytes []byte) error {
 }
 
 func (s *FileObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
-	// return ErrorObjectAlreadyExists if the destination file exists
+	// return ErrObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
 	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		return errors.Join(storage.ErrObjectAlreadyExists, err)
@@ -107,6 +108,15 @@ func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 func (s *FileObjectStore) Delete(location storage.Path) error {
 	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
 	err := os.Remove(filePath)
+	if err != nil {
+		return errors.Join(storage.ErrDeleteObject, err)
+	}
+	return nil
+}
+
+func (s *FileObjectStore) DeleteFolder(location storage.Path) error {
+	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	err := os.RemoveAll(filePath)
 	if err != nil {
 		return errors.Join(storage.ErrDeleteObject, err)
 	}
@@ -223,4 +233,19 @@ func (s *FileObjectStore) List(prefix storage.Path, previousResult *storage.List
 
 func (s *FileObjectStore) IsListOrdered() bool {
 	return true
+}
+
+func (s *FileObjectStore) SupportsWriter() bool {
+	return true
+}
+
+func (s *FileObjectStore) Writer(location storage.Path, flag int) (io.Writer, func(), error) {
+	writePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	err := os.MkdirAll(filepath.Dir(writePath), 0700)
+	if err != nil {
+		return nil, nil, errors.Join(storage.ErrWriter, err)
+	}
+
+	f, err := os.OpenFile(writePath, os.O_WRONLY|flag, 0700)
+	return f, func() { f.Close() }, err
 }

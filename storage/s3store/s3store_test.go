@@ -145,7 +145,7 @@ func TestGetErrorHandling(t *testing.T) {
 		t.Errorf("Calling Get did not return an appropriate error")
 	}
 
-	// Test client returning an AWS 404 error should cause an ErrorObjectDoesNotExist
+	// Test client returning an AWS 404 error should cause an ErrObjectDoesNotExist
 	response := new(http.Response)
 	response.StatusCode = http.StatusNotFound
 	smithyResponse := new(smithyhttp.Response)
@@ -343,7 +343,7 @@ func TestHeadErrorHandling(t *testing.T) {
 		t.Errorf("Head did not return an appropriate error")
 	}
 
-	// Test client returning an AWS 404 error should cause an ErrorObjectDoesNotExist
+	// Test client returning an AWS 404 error should cause an ErrObjectDoesNotExist
 	response := new(http.Response)
 	response.StatusCode = http.StatusNotFound
 	smithyResponse := new(smithyhttp.Response)

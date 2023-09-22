@@ -336,7 +336,7 @@ func TestActionFromLogEntry(t *testing.T) {
 		{name: "Fail on invalid JSON", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`"path":"s3a://bucket/table","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true}`)}},
 			want: nil, wantErr: ErrActionJSONFormat},
 		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: ErrActionUnknown},
-		{name: "Fail on CDC", args: args{unstructuredResult: map[string]json.RawMessage{"cdc": []byte(`{}`)}}, want: nil, wantErr: ErrorCDCNotSupported},
+		{name: "Fail on CDC", args: args{unstructuredResult: map[string]json.RawMessage{"cdc": []byte(`{}`)}}, want: nil, wantErr: ErrCDCNotSupported},
 		{name: "Fail on multiple entries", args: args{unstructuredResult: map[string]json.RawMessage{
 			"protocol":   []byte(`{"minReaderVersion":2,"minWriterVersion":7}`),
 			"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
