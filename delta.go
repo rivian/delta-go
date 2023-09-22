@@ -319,7 +319,6 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 			minVersion = latestVersion + 1
 		}
 	}
-
 	return latestVersion, nil
 }
 
@@ -889,7 +888,11 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 					//Every 100 attepmts, try looking up the latest table version from the delta table
 					//LatestVersion overwrites DeltaTable.State.Version which will be compared with the StateStore.Version in TryCommit()
-					transaction.DeltaTable.LatestVersion()
+					v, err := transaction.DeltaTable.LatestVersion()
+					if err != nil {
+						return err
+					}
+					transaction.DeltaTable.State.Version = v //explicitly set the version on the table
 				}
 			} else {
 				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
