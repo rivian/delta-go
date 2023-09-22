@@ -1246,6 +1246,49 @@ func TestLatestVersion(t *testing.T) {
 	}
 }
 
+func BenchmarkLatestVersion(b *testing.B) {
+	uri := storage.NewPath("s3://test-bucket/test-delta-table")
+
+	var (
+		dir       = b.TempDir()
+		path      = storage.NewPath(dir)
+		fileStore = filestore.FileObjectStore{BaseURI: path}
+		client    = new(s3utils.MockS3Client)
+	)
+
+	client.SetFileStore(fileStore)
+
+	baseURL, err := uri.ParseURL()
+	if err != nil {
+		b.Fatalf("Failed to parse URL: %v", err)
+	}
+
+	if strings.HasSuffix(baseURL.Path, "/") {
+		client.SetS3StorePath(baseURL.Path)
+	} else {
+		client.SetS3StorePath(baseURL.Path + "/")
+	}
+
+	s3Store, err := s3store.New(client, uri)
+	if err != nil {
+		b.Fatalf("Failed to create new S3 object store: %v", err)
+	}
+
+	var (
+		state = filestate.New(path, "_delta_log/_commit.state")
+		lock  = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
+		table = NewDeltaTable(s3Store, lock, state)
+	)
+
+	for version := 0; version < 100000; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		table.Store.Put(filePath, nil)
+	}
+
+	table.LatestVersion()
+}
+
 func TestLoadVersion(t *testing.T) {
 	// Use setupCheckpointTest() to copy testdata commits
 	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints/simple")

@@ -15,6 +15,7 @@ package delta
 import (
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -294,7 +295,7 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 			break
 		} else {
 			count++
-			maxVersion += int64(count)
+			maxVersion += int64(math.Pow(3, count))
 		}
 	}
 
