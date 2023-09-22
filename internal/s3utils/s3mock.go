@@ -64,6 +64,26 @@ func NewMockClient(t *testing.T, baseURI storage.Path) (*MockS3Client, error) {
 	return client, nil
 }
 
+// FileStore gets the file store.
+func (m *MockS3Client) FileStore() filestore.FileObjectStore {
+	return m.fileStore
+}
+
+// S3StorePath gets the S3 store path.
+func (m *MockS3Client) S3StorePath() string {
+	return m.s3StorePath
+}
+
+// SetFileStore sets the file store.
+func (m *MockS3Client) SetFileStore(store filestore.FileObjectStore) {
+	m.fileStore = store
+}
+
+// SetS3StorePath sets the S3 store path.
+func (m *MockS3Client) SetS3StorePath(path string) {
+	m.s3StorePath = path
+}
+
 // getFilePathFromS3Input generates the local file path from the S3 bucket and key
 func getFilePathFromS3Input(bucket string, key string) (storage.Path, error) {
 	filePath, err := url.JoinPath(bucket, key)
