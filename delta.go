@@ -262,7 +262,7 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 	)
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		for {
-			o, err := t.Store.List(storage.NewPath("_delta_log/"), objects)
+			o, err := t.Store.List(storage.NewPath("_delta_log"), objects)
 			if err != nil {
 				return -1, fmt.Errorf("list Delta log: %w", err)
 			}
@@ -888,10 +888,10 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 					//Every 100 attepmts, try looking up the latest table version from the delta table
 					//LatestVersion overwrites DeltaTable.State.Version which will be compared with the StateStore.Version in TryCommit()
-					v, err := transaction.DeltaTable.LatestVersion()
-					if err != nil {
-						return err
-					}
+					v, _ := transaction.DeltaTable.LatestVersion()
+					// if err != nil {
+					// 	return err
+					// }
 					transaction.DeltaTable.State.Version = v //explicitly set the version on the table
 				}
 			} else {
