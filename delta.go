@@ -112,9 +112,9 @@ func IsValidCommitUri(path storage.Path) bool {
 	return match
 }
 
-// IsValidCommitOrCheckpointUri returns true if a URI is a valid commit or checkpoint file name.
+// IsValidCommitOrCheckpointURI returns true if a URI is a valid commit or checkpoint file name.
 // Otherwise, it returns false.
-func IsValidCommitOrCheckpointUri(path storage.Path) bool {
+func IsValidCommitOrCheckpointURI(path storage.Path) bool {
 	match := commitFileRegex.MatchString(path.Base()) || commitOrCheckpointRegex.MatchString(path.Base())
 	return match
 }
