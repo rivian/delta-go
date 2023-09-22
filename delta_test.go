@@ -13,6 +13,7 @@
 package delta
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/internal/s3utils"
 	"github.com/rivian/delta-go/lock"
@@ -930,11 +934,15 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	b, err := writeStructsToParquetBytes(data)
+	buf := new(bytes.Buffer)
+	props := parquet.NewWriterProperties(
+		parquet.WithCompression(compress.Codecs.Snappy),
+	)
+	err = rfarrow.WriteGoStructsToParquet(data, buf, props)
 	if err != nil {
 		return p, err
 	}
-	i, err := file.Write(b)
+	i, err := file.Write(buf.Bytes())
 	println(i)
 	if err != nil {
 		return p, err
@@ -1240,7 +1248,7 @@ func TestLatestVersion(t *testing.T) {
 
 func TestLoadVersion(t *testing.T) {
 	// Use setupCheckpointTest() to copy testdata commits
-	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints", false)
+	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints/simple")
 
 	// Load version 2
 	table := NewDeltaTable(store, lock, stateStore)
@@ -1251,7 +1259,7 @@ func TestLoadVersion(t *testing.T) {
 	}
 	// Check contents
 	// Set up the expected state based on the commits we are reading
-	expectedState := NewDeltaTableState(version)
+	expectedState := NewTableState(version)
 	operationParams := make(map[string]interface{}, 4)
 	operationParams["isManaged"] = "false"
 	operationParams["description"] = nil
