@@ -886,8 +886,8 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 				// TODO: check if state is higher then current latest version of table by checking n-1
 				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
 					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
-					// Every 100 attempts, try syncing the table's state store and latest version.
-					transaction.syncStateStore()
+					// Every 100 attempts, sync the table's state store with its latest version.
+					transaction.refreshStateStore()
 				}
 			} else {
 				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
@@ -901,8 +901,8 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 	}
 }
 
-// syncStateStore syncs the table's state store and latest version.
-func (t *DeltaTransaction) syncStateStore() error {
+// syncStateStore syncs the table's state store with its latest version.
+func (t *DeltaTransaction) refreshStateStore() error {
 	locked, err := t.DeltaTable.LockClient.TryLock()
 	if err != nil {
 		return fmt.Errorf("acquire lock: %w", err)
