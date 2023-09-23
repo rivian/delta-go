@@ -917,7 +917,10 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
 					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 					// Every 100 attempts, sync the table's state store with its latest version.
-					transaction.DeltaTable.SyncStateStore()
+					err := transaction.DeltaTable.SyncStateStore()
+					if err != nil {
+						log.Debugf("delta-go: DeltaTable.SyncStateStore() failed with '%v'.", err)
+					}
 				}
 			} else {
 				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)

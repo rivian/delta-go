@@ -717,7 +717,7 @@ func TestCommitConcurrent(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{Block: true})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable(store, lock, state)
@@ -800,7 +800,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{Block: true})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable(store, lock, state)
