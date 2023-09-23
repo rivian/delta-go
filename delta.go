@@ -262,7 +262,7 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 	)
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		for {
-			o, err := t.Store.List(storage.NewPath("_delta_log/"), objects)
+			o, err := t.Store.List(storage.NewPath("_delta_log"), objects)
 			if err != nil {
 				return -1, fmt.Errorf("list Delta log: %w", err)
 			}
@@ -319,7 +319,6 @@ func (t *DeltaTable) LatestVersion() (int64, error) {
 			minVersion = latestVersion + 1
 		}
 	}
-
 	return latestVersion, nil
 }
 
@@ -335,6 +334,36 @@ func findValidCommitOrCheckpointURI(metadata []storage.ObjectMeta) (bool, int64)
 	}
 
 	return false, -1
+}
+
+// SyncStateStore syncs the table's state store with its latest version.
+func (t *DeltaTable) SyncStateStore() (err error) {
+	locked, err := t.LockClient.TryLock()
+	if err != nil {
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+	defer func() {
+		// Defer the unlock and overwrite any errors if the unlock fails.
+		if unlockErr := t.LockClient.Unlock(); unlockErr != nil {
+			err = fmt.Errorf("release lock: %w", unlockErr)
+		}
+	}()
+
+	if locked {
+		version, err := t.LatestVersion()
+		if err != nil {
+			return fmt.Errorf("get latest version: %w", err)
+		}
+
+		state := state.CommitState{
+			Version: version,
+		}
+		if err := t.StateStore.Put(state); err != nil {
+			return fmt.Errorf("put state: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // Load loads the table state using the given configuration
@@ -865,7 +894,7 @@ func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, app
 	return commit, nil
 }
 
-// TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
+// TryCommitLoop loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
 func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error {
 	attemptNumber := 0
 	for {
@@ -884,6 +913,15 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
 				attemptNumber += 1
 				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
+				// TODO: check if state is higher then current latest version of table by checking n-1
+				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
+					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+					// Every 100 attempts, sync the table's state store with its latest version.
+					err := transaction.DeltaTable.SyncStateStore()
+					if err != nil {
+						log.Debugf("delta-go: DeltaTable.SyncStateStore() failed with '%v'.", err)
+					}
+				}
 			} else {
 				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
 				return err
@@ -894,7 +932,6 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 			return err
 		}
 	}
-
 }
 
 // TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
@@ -969,6 +1006,7 @@ type PreparedCommit struct {
 }
 
 const defaultDeltaMaxRetryCommitAttempts uint32 = 10000000
+const defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
 
 // Options for customizing behavior of a `DeltaTransaction`
 type DeltaTransactionOptions struct {
@@ -976,11 +1014,17 @@ type DeltaTransactionOptions struct {
 	MaxRetryCommitAttempts uint32
 	// RetryWaitDuration sets the amount of times between retry's on the transaction
 	RetryWaitDuration time.Duration
+	// number of retry commit attempts before loading the latest version from the table rather
+	// than using the state store
+	RetryCommitAttemptsBeforeLoadingTable uint32
 }
 
 // NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS = 10000000
 func NewDeltaTransactionOptions() *DeltaTransactionOptions {
-	return &DeltaTransactionOptions{MaxRetryCommitAttempts: defaultDeltaMaxRetryCommitAttempts}
+	return &DeltaTransactionOptions{
+		MaxRetryCommitAttempts:                defaultDeltaMaxRetryCommitAttempts,
+		RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable,
+	}
 }
 
 // OpenTableWithVersion loads the table at this specific version

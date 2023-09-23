@@ -628,6 +628,71 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 
 }
 
+func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
+	table, _, tmpDir := setupTest(t)
+	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{
+		MaxRetryCommitAttempts:                5, //Should break on max attempts if the latest version logic fails
+		RetryWaitDuration:                     time.Second,
+		RetryCommitAttemptsBeforeLoadingTable: 2, //Should get the latest version after 2 attempts
+	})
+
+	for i := 1; i < 10; i++ {
+		commit, err := transaction.PrepareCommit(operation, appMetaData)
+		if err != nil {
+			t.Error(err)
+		}
+		//commit_001.json
+		err = transaction.TryCommit(&commit)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	// Write 0 to state
+	commitState, _ := table.StateStore.Get()
+	commitState.Version = 0
+	table.StateStore.Put(commitState)
+	table.State.Version = 0
+
+	//create the next commit, should be 010.json after finding that 000.json exists and loading the tabel state
+	newCommit, err := transaction.PrepareCommit(operation, appMetaData)
+	if err != nil {
+		t.Error(err)
+	}
+
+	//Should exceed attempt retry count
+	err = transaction.TryCommitLoop(&newCommit)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if table.State.Version != 10 {
+		t.Errorf("want table.State.Version=4, has %d", table.State.Version)
+	}
+
+	commitState, _ = table.StateStore.Get()
+	if commitState.Version != 10 {
+		t.Errorf("want table.State.Version=10, has %d", table.State.Version)
+	}
+
+	if !fileExists(filepath.Join(tmpDir, CommitUriFromVersion(10).Raw)) {
+		t.Errorf("File %s should exist", CommitUriFromVersion(10).Raw)
+	}
+
+	// Test SyncStateStore by putting the state store out of sync
+
+	commitState.Version = 2
+	table.StateStore.Put(commitState)
+	table.SyncStateStore()
+
+	commitState, _ = table.StateStore.Get()
+	if commitState.Version != 10 {
+		t.Errorf("want table.State.Version=10, has %d", table.State.Version)
+	}
+
+}
+
 func TestCommitConcurrent(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 	table, state, tmpDir := setupTest(t)
@@ -652,7 +717,7 @@ func TestCommitConcurrent(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{Block: true})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable(store, lock, state)
@@ -735,7 +800,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 
 			store := filestore.New(storage.NewPath(tmpDir))
 			state := filestate.New(storage.NewPath(tmpDir), "_delta_log/_commit.state")
-			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{})
+			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{Block: true})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewDeltaTable(store, lock, state)
