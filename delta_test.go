@@ -673,11 +673,22 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 
 	commitState, _ = table.StateStore.Get()
 	if commitState.Version != 10 {
-		t.Errorf("want table.State.Version=4, has %d", table.State.Version)
+		t.Errorf("want table.State.Version=10, has %d", table.State.Version)
 	}
 
 	if !fileExists(filepath.Join(tmpDir, CommitUriFromVersion(10).Raw)) {
 		t.Errorf("File %s should exist", CommitUriFromVersion(10).Raw)
+	}
+
+	// Test SyncStateStore by putting the state store out of sync
+
+	commitState.Version = 2
+	table.StateStore.Put(commitState)
+	table.SyncStateStore()
+
+	commitState, _ = table.StateStore.Get()
+	if commitState.Version != 10 {
+		t.Errorf("want table.State.Version=10, has %d", table.State.Version)
 	}
 
 }

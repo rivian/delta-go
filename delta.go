@@ -336,6 +336,36 @@ func findValidCommitOrCheckpointURI(metadata []storage.ObjectMeta) (bool, int64)
 	return false, -1
 }
 
+// SyncStateStore syncs the table's state store with its latest version.
+func (t *DeltaTable) SyncStateStore() (err error) {
+	locked, err := t.LockClient.TryLock()
+	if err != nil {
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+	defer func() {
+		// Defer the unlock and overwrite any errors if the unlock fails.
+		if unlockErr := t.LockClient.Unlock(); unlockErr != nil {
+			err = fmt.Errorf("release lock: %w", unlockErr)
+		}
+	}()
+
+	if locked {
+		version, err := t.LatestVersion()
+		if err != nil {
+			return fmt.Errorf("get latest version: %w", err)
+		}
+
+		state := state.CommitState{
+			Version: version,
+		}
+		if err := t.StateStore.Put(state); err != nil {
+			return fmt.Errorf("put state: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Load loads the table state using the given configuration
 func (table *DeltaTable) Load(config *OptimizeCheckpointConfiguration) error {
 	return table.LoadVersionWithConfiguration(nil, config)
@@ -887,7 +917,7 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
 					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 					// Every 100 attempts, sync the table's state store with its latest version.
-					transaction.refreshStateStore()
+					transaction.DeltaTable.SyncStateStore()
 				}
 			} else {
 				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
@@ -899,36 +929,6 @@ func (transaction *DeltaTransaction) TryCommitLoop(commit *PreparedCommit) error
 			return err
 		}
 	}
-}
-
-// syncStateStore syncs the table's state store with its latest version.
-func (t *DeltaTransaction) refreshStateStore() error {
-	locked, err := t.DeltaTable.LockClient.TryLock()
-	if err != nil {
-		return fmt.Errorf("acquire lock: %w", err)
-	}
-	defer func() {
-		// Defer the unlock and overwrite any errors if the unlock fails.
-		if unlockErr := t.DeltaTable.LockClient.Unlock(); unlockErr != nil {
-			err = fmt.Errorf("release lock: %w", unlockErr)
-		}
-	}()
-
-	if locked {
-		version, err := t.DeltaTable.LatestVersion()
-		if err != nil {
-			return fmt.Errorf("get latest version: %w", err)
-		}
-
-		state := state.CommitState{
-			Version: version,
-		}
-		if err := t.DeltaTable.StateStore.Put(state); err != nil {
-			return fmt.Errorf("put state: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
