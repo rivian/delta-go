@@ -98,13 +98,13 @@ func NewDeltaTable(store storage.ObjectStore, lock lock.Locker, stateStore state
 	return table
 }
 
-func NewDeltaTableWithLogStore(tablePath storage.Path, store storage.ObjectStore, logStore logstore.LogStore, lock lock.Locker, overwrite bool) *DeltaTable {
+func NewDeltaTableWithLogStore(store storage.ObjectStore, lock lock.Locker, logStore logstore.LogStore) *DeltaTable {
 	t := new(DeltaTable)
-	t.Store = store
-	t.LastCheckPoint = nil
 	t.State = *NewTableState(-1)
-	t.LogStore = logStore
+	t.Store = store
 	t.LockClient = lock
+	t.LastCheckPoint = nil
+	t.LogStore = logStore
 
 	return t
 }
