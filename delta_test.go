@@ -1477,7 +1477,7 @@ func setUpSingleDriverLogStoreTest(t *testing.T) (logStoreTableName string, tabl
 		t.Errorf("Failed to create lock: %v", err)
 	}
 
-	table = NewDeltaTableWithLogStore(path, store, logStore, lock, false)
+	table = NewDeltaTableWithLogStore(store, lock, logStore)
 
 	schema := SchemaTypeStruct{
 		Fields: []SchemaField{
@@ -1950,8 +1950,8 @@ func setUpMultiDriverLogStoreTest(t *testing.T) (logStoreTableName string, first
 	firstLock := nillock.New()
 	secondLock := nillock.New()
 
-	firstTable = NewDeltaTableWithLogStore(path, store, logStore, firstLock, false)
-	secondTable = NewDeltaTableWithLogStore(path, store, logStore, secondLock, false)
+	firstTable = NewDeltaTableWithLogStore(store, firstLock, logStore)
+	secondTable = NewDeltaTableWithLogStore(store, secondLock, logStore)
 
 	actions = []Action{Add{
 		Path:             "part-00000-b08cb562-b392-441d-a090-494a47da752b-c000.snappy.parquet",
