@@ -1029,7 +1029,7 @@ func (t *DeltaTransaction) complete(entry *logstore.CommitEntry) error {
 	}
 
 	if err := t.DeltaTable.LogStore.Put(entry, true); err != nil {
-		return fmt.Errorf("complete commit entry: %v", err)
+		return fmt.Errorf("put completed commit entry: %v", err)
 	}
 
 	return nil
