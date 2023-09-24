@@ -12,7 +12,10 @@
 // limitations under the License.
 package logstore
 
-import "github.com/rivian/delta-go/storage"
+import (
+	"github.com/rivian/delta-go/internal/dynamodbutils"
+	"github.com/rivian/delta-go/storage"
+)
 
 type LogStore interface {
 	// Puts an entry into a log store in an exclusive way
@@ -22,5 +25,11 @@ type LogStore interface {
 	Get(tablePath storage.Path, fileName storage.Path) (*CommitEntry, error)
 
 	// Gets the latest entry corresponding to the Delta log file for given `tablePath`
-	GetLatest(tablePath storage.Path) (*CommitEntry, error)
+	Latest(tablePath storage.Path) (*CommitEntry, error)
+
+	// Gets the log store client
+	Client() dynamodbutils.Client
+
+	// Gets the number of seconds until a log store entry expires
+	ExpirationDelaySeconds() uint64
 }

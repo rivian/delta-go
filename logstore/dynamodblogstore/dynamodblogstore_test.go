@@ -10,7 +10,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package logstore
+package dynamodblogstore
 
 import (
 	"testing"
@@ -20,120 +20,117 @@ import (
 	"github.com/rivian/delta-go/storage"
 )
 
+func TestPut(t *testing.T) {
+	o := Options{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
+	ls, err := New(o)
+	if err != nil {
+		t.Error("Failed to create DynamoDB log store")
+	}
+
+	ce, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	if err != nil {
+		t.Error("Failed to create commit entry")
+	}
+	if err := ls.Put(ce, true); err != nil {
+		t.Error("Failed to put commit entry")
+	}
+
+	ce, err = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), true, uint64(0))
+	if err != nil {
+		t.Error("Failed to create commit entry")
+	}
+	if err := ls.Put(ce, true); err != nil {
+		t.Error("Failed to overwrite commit entry")
+	}
+
+	items, ok := ls.client.(*dynamodbutils.MockClient).TablesToItems().Get("log_store")
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+	if len(items) != 1 {
+		t.Error("Incorrect number of items in table")
+	}
+
+	ce, err = ls.Latest(storage.NewPath("usr/local/"))
+	if err != nil {
+		t.Error("Failed to get latest commit entry")
+	}
+	if ce.IsComplete() != true {
+		t.Error("Commit entry should be complete")
+	}
+}
+
 func TestGet(t *testing.T) {
-	lso := DynamoDBLogStoreOptions{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
-	ls, err := NewDynamoDBLogStore(lso)
+	o := Options{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
+	ls, err := New(o)
 	if err != nil {
-		t.Error("failed to create DynamoDB log store")
+		t.Error("Failed to create new DynamoDB log store")
 	}
 
-	ece, err := logstore.NewCommitEntry(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	ce, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create commit entry")
+		t.Error("Failed to create commit entry")
 	}
-	err = ls.Put(ece, false)
-	if err != nil {
-		t.Error("failed to put commit entry")
+	if err := ls.Put(ce, false); err != nil {
+		t.Error("Failed to put commit entry")
 	}
 
-	ece, err = logstore.NewCommitEntry(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	ce, err = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create commit entry")
+		t.Error("Failed to create commit entry")
 	}
-	err = ls.Put(ece, false)
-	if err == nil {
-		t.Error("commit entry already exists")
-	}
-
-	ece, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("01.json"))
-	if err != nil || ece == nil {
-		t.Error("failed to get commit entry")
+	if err := ls.Put(ce, false); err == nil {
+		t.Error("Commit entry already exists")
 	}
 
-	ece, err = ls.Get(storage.NewPath("usr/local/A"), storage.NewPath("01.json"))
-	if err == nil || ece != nil {
-		t.Error("no commit entry should be returned")
+	ce, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("01.json"))
+	if err != nil || ce == nil {
+		t.Error("Failed to get commit entry")
+	}
+
+	ce, err = ls.Get(storage.NewPath("usr/local/A"), storage.NewPath("01.json"))
+	if err == nil || ce != nil {
+		t.Error("No commit entry should be returned")
 	}
 
 	_, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("02.json"))
-	if err == nil || ece != nil {
-		t.Error("no commit entry should be returned")
+	if err == nil || ce != nil {
+		t.Error("No commit entry should be returned")
 	}
 }
 
-func TestGetLatest(t *testing.T) {
-	lso := DynamoDBLogStoreOptions{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
-	ls, err := NewDynamoDBLogStore(lso)
+func TestLatest(t *testing.T) {
+	o := Options{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
+	ls, err := New(o)
 	if err != nil {
-		t.Error("failed to create DynamoDB log store")
+		t.Error("Failed to create DynamoDB log store")
 	}
 
-	eceFirst, err := logstore.NewCommitEntry(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	firstEntry, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create commit entry")
+		t.Error("Failed to create commit entry")
 	}
-	err = ls.Put(eceFirst, false)
-	if err != nil {
-		t.Error("failed to put commit entry")
+	if err := ls.Put(firstEntry, false); err != nil {
+		t.Error("Failed to put commit entry")
 	}
 
-	eceSecond, err := logstore.NewCommitEntry(storage.NewPath("usr/local/"), storage.NewPath("02.json"), storage.NewPath("02.tmp"), false, uint64(0))
+	secondEntry, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("02.json"), storage.NewPath("02.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("failed to create commit entry")
+		t.Error("Failed to create commit entry")
 	}
-	err = ls.Put(eceSecond, false)
-	if err != nil {
-		t.Error("failed to put commit entry")
+	if err := ls.Put(secondEntry, false); err != nil {
+		t.Error("Failed to put commit entry")
 	}
 
-	eceLatest, err := ls.GetLatest(storage.NewPath("usr/local/"))
-	if err != nil || eceLatest == nil {
-		t.Error("failed to get latest commit entry")
+	latest, err := ls.Latest(storage.NewPath("usr/local/"))
+	if err != nil || latest == nil {
+		t.Error("Failed to get latest commit entry")
 	}
-	if eceSecond.FileName.Raw != eceLatest.FileName.Raw || eceSecond.TempPath.Raw != eceLatest.TempPath.Raw {
-		t.Error("got incorrect latest commit entry")
-	}
-
-	_, err = ls.GetLatest(storage.NewPath("usr/local/A"))
-	if err == nil {
-		t.Error("no commit entry should be returned")
-	}
-}
-
-func TestPutOverwrite(t *testing.T) {
-	lso := DynamoDBLogStoreOptions{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
-	ls, err := NewDynamoDBLogStore(lso)
-	if err != nil {
-		t.Error("failed to create DynamoDB log store")
+	if secondEntry.FileName().Raw != latest.FileName().Raw || secondEntry.TempPath().Raw != latest.TempPath().Raw {
+		t.Error("Got incorrect latest commit entry")
 	}
 
-	ece, err := logstore.NewCommitEntry(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
-	if err != nil {
-		t.Error("failed to create commit entry")
-	}
-	err = ls.Put(ece, true)
-	if err != nil {
-		t.Error("failed to put commit entry")
-	}
-
-	ece, err = logstore.NewCommitEntry(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), true, uint64(0))
-	if err != nil {
-		t.Error("failed to create commit entry")
-	}
-	err = ls.Put(ece, true)
-	if err != nil {
-		t.Error("failed to overwrite commit entry")
-	}
-
-	if len(ls.client.(*dynamodbutils.MockDynamoDBClient).GetTablesToItems()["log_store"]) != 1 {
-		t.Error("incorrect number of items in table")
-	}
-
-	ece, err = ls.GetLatest(storage.NewPath("usr/local/"))
-	if err != nil {
-		t.Error("failed to get latest commit entry")
-	}
-	if ece.Complete != true {
-		t.Error("commit entry should be complete")
+	if _, err = ls.Latest(storage.NewPath("usr/local/A")); err == nil {
+		t.Error("No commit entry should be returned")
 	}
 }

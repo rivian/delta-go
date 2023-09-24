@@ -28,7 +28,7 @@ import (
 )
 
 // Test helper: setupTest does common setup for our tests, creating a mock S3 client and an S3ObjectStore
-func setupTest(t *testing.T) (baseURI storage.Path, mockClient *s3utils.MockS3Client, s3Store *S3ObjectStore) {
+func setupTest(t *testing.T) (baseURI storage.Path, mockClient *s3utils.MockClient, s3Store *S3ObjectStore) {
 	t.Helper()
 	baseURI = storage.NewPath("s3://test-bucket/test-delta-table")
 	mockClient, err := s3utils.NewMockClient(t, baseURI)
@@ -43,7 +43,7 @@ func setupTest(t *testing.T) (baseURI storage.Path, mockClient *s3utils.MockS3Cl
 }
 
 // Test helper: verify the file exists and has the expected contents
-func verifyFileContents(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3utils.MockS3Client, data []byte, errorMessage string) {
+func verifyFileContents(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3utils.MockClient, data []byte, errorMessage string) {
 	t.Helper()
 	results, err := mockClient.GetFile(baseURI, path)
 	if err != nil {
@@ -55,7 +55,7 @@ func verifyFileContents(t *testing.T, baseURI storage.Path, path storage.Path, m
 }
 
 // Test helper: verify the file does not exist
-func verifyFileDoesNotExist(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3utils.MockS3Client, errorMessage string) {
+func verifyFileDoesNotExist(t *testing.T, baseURI storage.Path, path storage.Path, mockClient *s3utils.MockClient, errorMessage string) {
 	t.Helper()
 	fileExists, err := mockClient.FileExists(baseURI, path)
 	if fileExists {

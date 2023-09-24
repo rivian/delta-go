@@ -32,7 +32,7 @@ import (
 // type filePutter func(key string, data io.ReadSeeker, creds *credentials.Credentials) error
 type S3ObjectStore struct {
 	// Source object key
-	Client  s3utils.S3Client
+	Client  s3utils.Client
 	BaseURI storage.Path
 	baseURL *url.URL
 	bucket  string
@@ -44,7 +44,7 @@ type S3ObjectStore struct {
 // Compile time check that S3ObjectStore implements storage.ObjectStore
 var _ storage.ObjectStore = (*S3ObjectStore)(nil)
 
-func New(client s3utils.S3Client, baseURI storage.Path) (*S3ObjectStore, error) {
+func New(client s3utils.Client, baseURI storage.Path) (*S3ObjectStore, error) {
 	store := new(S3ObjectStore)
 	store.Client = client
 	store.BaseURI = baseURI

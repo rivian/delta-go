@@ -16,62 +16,82 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/go-cmp/cmp"
+	cmap "github.com/orcaman/concurrent-map/v2"
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
 
-var (
-	ErrorConditionExpressionNotSatisfied error = errors.New("condition expression not satisfied")
-	ErrorTableDoesNotExist               error = errors.New("table does not exist")
-	ErrorCannotFindItems                 error = errors.New("cannot find items")
-)
-
-// Stores the partition and sort key for a DynamoDB table (a primary key is composed of a partition and sort key)
-type DynamoDBPrimaryKey struct {
+// PrimaryKey stores the partition and sort key for a DynamoDB table (a primary key is composed of a partition and sort key).
+type PrimaryKey struct {
 	partitionKey string
 	sortKey      string
 }
 
-// Stores the data structures used to mock DynamoDB
-type MockDynamoDBClient struct {
-	DynamoDBClient
-	tablesToPrimaryKeys map[string]DynamoDBPrimaryKey
-	tablesToItems       map[string][]map[string]types.AttributeValue
+// MockClient stores the data structures used to mock DynamoDB.
+type MockClient struct {
+	Client
+	tablesToKeys  cmap.ConcurrentMap[string, PrimaryKey]
+	tablesToItems cmap.ConcurrentMap[string, []map[string]types.AttributeValue]
+	mu            sync.Mutex
 }
 
 // Compile time check that MockDynamoDBClient implements DynamoDBClient
-var _ DynamoDBClient = (*MockDynamoDBClient)(nil)
+var _ Client = (*MockClient)(nil)
 
-// Creates a new MockDynamoDBClient instance
-func NewMockClient() *MockDynamoDBClient {
-	m := new(MockDynamoDBClient)
-	m.tablesToPrimaryKeys = make(map[string]DynamoDBPrimaryKey)
-	m.tablesToItems = make(map[string][]map[string]types.AttributeValue)
+// NewMockClient creates a new MockDynamoDBClient instance.
+func NewMockClient() *MockClient {
+	m := new(MockClient)
+	m.tablesToKeys = cmap.New[PrimaryKey]()
+	m.tablesToItems = cmap.New[[]map[string]types.AttributeValue]()
+
 	return m
 }
 
-// Gets the map of DynamoDB tables to primary keys
-func (m *MockDynamoDBClient) GetTablesToPrimaryKeys() map[string]DynamoDBPrimaryKey {
-	return m.tablesToPrimaryKeys
+// TablesToKeys gets the map of DynamoDB tables to primary keys.
+func (m *MockClient) TablesToKeys() cmap.ConcurrentMap[string, PrimaryKey] {
+	return m.tablesToKeys
 }
 
-// Gets the map of DynamoDB tables to DynamoDB items
-func (m *MockDynamoDBClient) GetTablesToItems() map[string][]map[string]types.AttributeValue {
+// TablesToItems gets the map of DynamoDB tables to DynamoDB items.
+func (m *MockClient) TablesToItems() cmap.ConcurrentMap[string, []map[string]types.AttributeValue] {
 	return m.tablesToItems
 }
 
-// Gets an item from a mock DynamoDB table
-func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	_, ok := m.tablesToItems[*input.TableName]
+// GetItem gets a shallow clone of an item in a mock DynamoDB table.
+func (m *MockClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	items, ok := m.tablesToItems.Get(*input.TableName)
 	if !ok {
-		return &dynamodb.GetItemOutput{}, ErrorTableDoesNotExist
+		return &dynamodb.GetItemOutput{}, errors.New("table does not exist")
 	}
 
-	for _, item := range m.tablesToItems[*input.TableName] {
-		if IsMapSubset[string, types.AttributeValue](item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
+	for _, item := range items {
+		if m.isMatch(item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
+			copiedItem := maps.Clone(item)
+
+			return &dynamodb.GetItemOutput{Item: copiedItem}, nil
+		}
+	}
+
+	return &dynamodb.GetItemOutput{}, nil
+}
+
+// getNonClonedItem gets a non-cloned item from a mock DynamoDB table.
+func (m *MockClient) getNonClonedItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+	items, ok := m.tablesToItems.Get(*input.TableName)
+	if !ok {
+		return &dynamodb.GetItemOutput{}, errors.New("table does not exist")
+	}
+
+	for _, item := range items {
+		if m.isMatch(item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
 			return &dynamodb.GetItemOutput{Item: item}, nil
 		}
 	}
@@ -79,15 +99,17 @@ func (m *MockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemI
 	return &dynamodb.GetItemOutput{}, nil
 }
 
-// Puts an item into a mock DynamoDB table
-func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	_, ok := m.tablesToPrimaryKeys[*input.TableName]
-	if !ok {
-		return &dynamodb.PutItemOutput{}, ErrorTableDoesNotExist
+// PutItem puts an item into a mock DynamoDB table.
+func (m *MockClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.tablesToKeys.Get(*input.TableName); !ok {
+		return &dynamodb.PutItemOutput{}, errors.New("table does not exist")
 	}
-	_, ok = m.tablesToItems[*input.TableName]
+	items, ok := m.tablesToItems.Get(*input.TableName)
 	if !ok {
-		return &dynamodb.PutItemOutput{}, ErrorTableDoesNotExist
+		return &dynamodb.PutItemOutput{}, errors.New("table does not exist")
 	}
 
 	matched := false
@@ -95,122 +117,148 @@ func (m *MockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemI
 		matched, _ = regexp.MatchString(`attribute_not_exists\(([A-z]+)\)`, *input.ConditionExpression)
 	}
 	if matched {
-		pattern := regexp.MustCompile(`attribute_not_exists\(([A-z]+)\)`)
-		subStrs := pattern.FindStringSubmatch(*input.ConditionExpression)
-		gio, _ := m.GetItem(context.TODO(), &dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{subStrs[1]: input.Item[subStrs[1]]}})
-		if gio.Item != nil {
-			return &dynamodb.PutItemOutput{}, ErrorConditionExpressionNotSatisfied
+		var (
+			pattern = regexp.MustCompile(`attribute_not_exists\(([A-z]+)\)`)
+			subStrs = pattern.FindStringSubmatch(*input.ConditionExpression)
+		)
+		if gio, _ := m.getNonClonedItem(&dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{subStrs[1]: input.Item[subStrs[1]]}}); gio.Item != nil {
+			return &dynamodb.PutItemOutput{}, errors.New("condition expression not satisfied")
 		}
 	}
 
-	gio, _ := m.GetItem(context.TODO(), &dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{m.tablesToPrimaryKeys[*input.TableName].partitionKey: input.Item[m.tablesToPrimaryKeys[*input.TableName].partitionKey], m.tablesToPrimaryKeys[*input.TableName].sortKey: input.Item[m.tablesToPrimaryKeys[*input.TableName].sortKey]}})
-	if gio.Item != nil {
-		posInSlice := slices.IndexFunc(m.tablesToItems[*input.TableName], func(i map[string]types.AttributeValue) bool {
-			return cmp.Equal(i, gio.Item, cmp.AllowUnexported(types.AttributeValueMemberS{}))
+	key, ok := m.tablesToKeys.Get(*input.TableName)
+	if !ok {
+		return &dynamodb.PutItemOutput{}, errors.New("table does not exist")
+	}
+	if gio, _ := m.getNonClonedItem(&dynamodb.GetItemInput{TableName: input.TableName, Key: map[string]types.AttributeValue{key.partitionKey: input.Item[key.partitionKey], key.sortKey: input.Item[key.sortKey]}}); gio.Item != nil {
+		items, ok := m.tablesToItems.Get(*input.TableName)
+		if !ok {
+			return &dynamodb.PutItemOutput{}, errors.New("table does not exist")
+		}
+
+		pos := slices.IndexFunc(items, func(i map[string]types.AttributeValue) bool {
+			return cmp.Equal(i, gio.Item, cmp.AllowUnexported(types.AttributeValueMemberS{}), cmp.AllowUnexported(types.AttributeValueMemberN{}))
 		})
-		m.tablesToItems[*input.TableName] = slices.Replace[[]map[string]types.AttributeValue](m.tablesToItems[*input.TableName], posInSlice, posInSlice+1, input.Item)
+		m.tablesToItems.Set(*input.TableName, slices.Replace[[]map[string]types.AttributeValue](items, pos, pos+1, input.Item))
+
 		return &dynamodb.PutItemOutput{}, nil
 	}
 
-	m.tablesToItems[*input.TableName] = append(m.tablesToItems[*input.TableName], input.Item)
+	m.tablesToItems.Set(*input.TableName, append(items, input.Item))
+
 	return &dynamodb.PutItemOutput{}, nil
 }
 
-// Updates an item in a mock DynamoDB table
-func (m *MockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+// UpdateItem does nothing since it is not required to be implemented.
+func (m *MockClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	return &dynamodb.UpdateItemOutput{}, nil
 }
 
-// Deletes an item from a mock DynamoDB table
-func (m *MockDynamoDBClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
-	_, ok := m.tablesToItems[*input.TableName]
+// DeleteItem deletes an item from a mock DynamoDB table.
+func (m *MockClient) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	items, ok := m.tablesToItems.Get(*input.TableName)
 	if !ok {
-		return &dynamodb.DeleteItemOutput{}, ErrorTableDoesNotExist
+		return &dynamodb.DeleteItemOutput{}, errors.New("table does not exist")
 	}
 
 	var itemToDelete map[string]types.AttributeValue
-	for _, item := range m.tablesToItems[*input.TableName] {
-		if IsMapSubset[string, types.AttributeValue](item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
+	for _, item := range items {
+		if m.isMatch(item, input.Key, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
 			itemToDelete = item
+			break
 		}
 	}
 
-	posInSlice := slices.IndexFunc(m.tablesToItems[*input.TableName], func(v map[string]types.AttributeValue) bool {
+	pos := slices.IndexFunc(items, func(v map[string]types.AttributeValue) bool {
 		return cmp.Equal(v, itemToDelete, cmp.AllowUnexported(types.AttributeValueMemberS{}))
 	})
-	m.tablesToItems[*input.TableName] = slices.Delete(m.tablesToItems[*input.TableName], posInSlice, posInSlice+1)
+	m.tablesToItems.Set(*input.TableName, slices.Delete(items, pos, pos+1))
+
 	return &dynamodb.DeleteItemOutput{}, nil
 }
 
-// Creates a mock DynamoDB table
-func (m *MockDynamoDBClient) CreateTable(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
-	m.tablesToPrimaryKeys[*input.TableName] = DynamoDBPrimaryKey{}
+// CreateTable creates a mock DynamoDB table.
+func (m *MockClient) CreateTable(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	posInSlice := slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
+	m.tablesToKeys.Set(*input.TableName, PrimaryKey{})
+
+	pos := slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
 		return kse.KeyType == types.KeyTypeHash
 	})
-	primaryKey, ok := m.tablesToPrimaryKeys[*input.TableName]
-	if ok && posInSlice != -1 {
-		primaryKey.partitionKey = *input.KeySchema[posInSlice].AttributeName
-		m.tablesToPrimaryKeys[*input.TableName] = primaryKey
+	key, ok := m.tablesToKeys.Get(*input.TableName)
+	if ok && pos != -1 {
+		key.partitionKey = *input.KeySchema[pos].AttributeName
+		m.tablesToKeys.Set(*input.TableName, key)
 	}
 
-	posInSlice = slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
+	pos = slices.IndexFunc(input.KeySchema, func(kse types.KeySchemaElement) bool {
 		return kse.KeyType == types.KeyTypeRange
 	})
-	primaryKey, ok = m.tablesToPrimaryKeys[*input.TableName]
-	if ok && posInSlice != -1 {
-		primaryKey.sortKey = *input.KeySchema[posInSlice].AttributeName
-		m.tablesToPrimaryKeys[*input.TableName] = primaryKey
+	key, ok = m.tablesToKeys.Get(*input.TableName)
+	if ok && pos != -1 {
+		key.sortKey = *input.KeySchema[pos].AttributeName
+		m.tablesToKeys.Set(*input.TableName, key)
 	}
 
-	m.tablesToItems[*input.TableName] = []map[string]types.AttributeValue{}
+	m.tablesToItems.Set(*input.TableName, []map[string]types.AttributeValue{})
+
 	return &dynamodb.CreateTableOutput{}, nil
 }
 
-// Describes a mock DynamoDB table
-func (m *MockDynamoDBClient) DescribeTable(_ context.Context, input *dynamodb.DescribeTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
-	_, ok := m.tablesToItems[*input.TableName]
-	if ok {
+// DescribeTable describes a mock DynamoDB table.
+func (m *MockClient) DescribeTable(_ context.Context, input *dynamodb.DescribeTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.tablesToItems.Get(*input.TableName); ok {
 		return &dynamodb.DescribeTableOutput{Table: &types.TableDescription{TableStatus: "ACTIVE"}}, nil
 	}
 
-	return &dynamodb.DescribeTableOutput{}, ErrorTableDoesNotExist
+	return &dynamodb.DescribeTableOutput{}, errors.New("table does not exist")
 }
 
-// Queries a mock DynamoDB table
-func (m *MockDynamoDBClient) Query(_ context.Context, input *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-	_, ok := m.tablesToItems[*input.TableName]
+// Query queries a mock DynamoDB table.
+func (m *MockClient) Query(_ context.Context, input *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	items, ok := m.tablesToItems.Get(*input.TableName)
 	if !ok {
-		return &dynamodb.QueryOutput{}, ErrorTableDoesNotExist
+		return &dynamodb.QueryOutput{}, errors.New("table does not exist")
 	}
 
 	pattern := regexp.MustCompile("([A-z]+) = (:[A-z]+)")
-	subStrs := pattern.FindStringSubmatch(*input.KeyConditionExpression)
+	submatches := pattern.FindStringSubmatch(*input.KeyConditionExpression)
 
-	items := []map[string]types.AttributeValue{}
-	for _, item := range m.tablesToItems[*input.TableName] {
-		if IsMapSubset[string, types.AttributeValue](item, map[string]types.AttributeValue{subStrs[1]: input.ExpressionAttributeValues[subStrs[2]]}, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
-			items = append(items, item)
+	matchingItems := []map[string]types.AttributeValue{}
+	for _, item := range items {
+		if m.isMatch(item, map[string]types.AttributeValue{submatches[1]: input.ExpressionAttributeValues[submatches[2]]}, cmp.AllowUnexported(types.AttributeValueMemberS{})) {
+			matchingItems = append(matchingItems, item)
 		}
 	}
 
-	if len(items) != 0 {
-		slices.Reverse[[]map[string]types.AttributeValue](items)
-		return &dynamodb.QueryOutput{Items: items}, nil
+	if len(matchingItems) != 0 {
+		slices.Reverse[[]map[string]types.AttributeValue](matchingItems)
+
+		return &dynamodb.QueryOutput{Items: matchingItems}, nil
 	}
 
-	return &dynamodb.QueryOutput{}, ErrorCannotFindItems
+	return &dynamodb.QueryOutput{}, errors.New("cannot find items")
 }
 
-// Checks if a map is a subset of another map
-func IsMapSubset[K, V comparable](m map[K]V, sub map[K]V, opts ...cmp.Option) bool {
-	if len(sub) > len(m) {
+// isMatch checks if an item possesses a certain primary key.
+func (m *MockClient) isMatch(item map[string]types.AttributeValue, key map[string]types.AttributeValue, opts ...cmp.Option) bool {
+	if len(key) > len(item) {
 		return false
 	}
 
-	for k, vsub := range sub {
-		if vm, found := m[k]; !found || !cmp.Equal(vm, vsub, opts...) {
+	for i, key := range key {
+		if attributeName, found := item[i]; !found || !cmp.Equal(attributeName, key, opts...) {
 			return false
 		}
 	}

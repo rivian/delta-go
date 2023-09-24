@@ -30,12 +30,16 @@ import (
 
 	"github.com/apache/arrow/go/v13/parquet"
 	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
+	"github.com/rivian/delta-go/internal/dynamodbutils"
 	"github.com/rivian/delta-go/internal/s3utils"
 	"github.com/rivian/delta-go/lock"
+	"github.com/rivian/delta-go/lock/dynamolock"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/lock/nillock"
+	"github.com/rivian/delta-go/logstore/dynamodblogstore"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/state/localstate"
 
@@ -1317,15 +1321,15 @@ func BenchmarkLatestVersion(b *testing.B) {
 	var (
 		dir       = b.TempDir()
 		path      = storage.NewPath(dir)
-		fileStore = filestore.FileObjectStore{BaseURI: path}
-		client    = new(s3utils.MockS3Client)
+		fileStore = &filestore.FileObjectStore{BaseURI: path}
+		client    = new(s3utils.MockClient)
 	)
 
 	client.SetFileStore(fileStore)
 
 	baseURL, err := uri.ParseURL()
 	if err != nil {
-		b.Fatalf("Failed to parse URL: %v", err)
+		b.Fatalf("Failed to parse URL from %s: %v", uri, err)
 	}
 
 	if strings.HasSuffix(baseURL.Path, "/") {
@@ -1442,5 +1446,1089 @@ func TestLoadVersion(t *testing.T) {
 	}
 	if table.State.Version != 12 {
 		t.Errorf("expected version %d, found %d", 12, table.State.Version)
+	}
+}
+
+// Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
+func setUpSingleDriverLogStoreTest(t *testing.T) (logStoreTableName string, table *DeltaTable, transaction *DeltaTransaction) {
+	t.Helper()
+
+	logStoreTableName = "version_log_store"
+	logStore, err := dynamodblogstore.New(dynamodblogstore.Options{Client: dynamodbutils.NewMockClient(), TableName: logStoreTableName})
+	if err != nil {
+		t.Errorf("Failed to create log store: %v", err)
+	}
+
+	path := storage.NewPath("s3://test-bucket/test-delta-table/")
+	client, err := s3utils.NewMockClient(t, path)
+	if err != nil {
+		t.Errorf("Failed to create client: %v", err)
+	}
+	store, err := s3store.New(client, path)
+	if err != nil {
+		t.Errorf("Failed to create store: %v", err)
+	}
+
+	lock, err := dynamolock.New(dynamodbutils.NewMockClient(), "version_lock_store", "",
+		dynamolock.Options{TTL: 1 * time.Second, HeartBeat: 100 * time.Millisecond})
+	if err != nil {
+		t.Errorf("Failed to create lock: %v", err)
+	}
+
+	table = NewDeltaTableWithLogStore(path, store, logStore, lock, false)
+
+	schema := SchemaTypeStruct{
+		Fields: []SchemaField{
+			{Name: "foo", Type: String, Nullable: false, Metadata: make(map[string]any)},
+			{Name: "bar", Type: String, Nullable: false, Metadata: make(map[string]any)},
+		}}
+
+	config := make(map[string]string)
+	metadata := NewDeltaTableMetaData(
+		"test",
+		"This is a test table.",
+		new(Format).Default(),
+		schema, []string{"date"},
+		config)
+	protocol := new(Protocol).Default()
+
+	if err := table.Create(*metadata, protocol, make(map[string]any), []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
+	actions := []Action{Add{
+		Path:             "part-00000-b08cb562-b392-441d-a090-494a47da752b-c000.snappy.parquet",
+		Size:             807,
+		ModificationTime: time.Now().UnixMilli(),
+	},
+		Add{
+			Path:             "part-00001-f9c7792d-57bc-4c56-8b9b-5cd7899ee9a2-c000.snappy.parquet",
+			Size:             807,
+			ModificationTime: time.Now().UnixMilli(),
+		}}
+
+	operation := Write{Mode: Append}
+	appMetaData := make(map[string]any)
+	appMetaData["isBlindAppend"] = true
+
+	transaction = table.CreateTransaction(NewDeltaTransactionOptions())
+	transaction.AddActions(actions)
+	transaction.SetOperation(operation)
+	transaction.SetAppMetadata(appMetaData)
+
+	return
+}
+
+func TestCommitLogStore_Sequential(t *testing.T) {
+	logStoreTableName, table, transaction := setUpSingleDriverLogStoreTest(t)
+
+	transactions := 101
+	for i := 1; i < transactions; i++ {
+		version, err := transaction.CommitLogStore()
+		if err != nil {
+			t.Errorf("Failed to commit with log store: %v", err)
+		}
+		t.Logf("Committed version %d", version)
+	}
+
+	items, ok := table.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+
+	if len(items) != transactions {
+		t.Errorf("len(items) = %v, want %v", len(items), transactions)
+	}
+
+	for entry := 0; entry < len(items); entry++ {
+		parsed, version := CommitVersionFromUri(
+			storage.NewPath(items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
+		if !parsed {
+			t.Errorf("Failed to parse version from %s", items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
+		}
+
+		if version != int64(entry) {
+			t.Errorf("version = %v, want %v", version, int64(entry))
+		}
+	}
+
+	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	if err != nil {
+		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+	}
+	prefix := url.Host + url.Path + "_delta_log/"
+	objects, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
+	if err != nil {
+		t.Errorf("Failed to list all Delta log objects: %v", err)
+	}
+
+	if len(objects.Objects) != transactions+2 {
+		t.Errorf("len(objects.Objects) = %v, want %v", len(objects.Objects), transactions+2)
+	}
+
+	if objects.Objects[0].Location.Raw != prefix+".tmp/" {
+		t.Errorf("objects.Objects[0].Location.Raw = %v, want %v", objects.Objects[0].Location.Raw, prefix+".tmp/")
+	}
+
+	if objects.Objects[len(objects.Objects)-1].Location.Raw != prefix {
+		t.Errorf("objects.Objects[len(objects.Objects)-1].Location.Raw = %v, want %v", objects.Objects[len(objects.Objects)-1].Location.Raw,
+			prefix)
+	}
+
+	logs := objects.Objects[1 : len(objects.Objects)-1]
+
+	for log := 0; log < len(logs); log++ {
+		parsed, version := CommitVersionFromUri(logs[log].Location)
+		if !parsed {
+			t.Errorf("Failed to parse version from %s", logs[log].Location.Raw)
+		}
+
+		if version != int64(log) {
+			t.Errorf("version = %v, want %v", version, int64(log))
+		}
+
+		bytes, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().Get(logs[log].Location)
+		if err != nil {
+			t.Errorf("Failed to get bytes: %v", err)
+		}
+
+		actions, err := ActionsFromLogEntries(bytes)
+		if err != nil {
+			t.Errorf("Failed to get actions from bytes: %v", err)
+		}
+
+		if log == 0 {
+			t.Log("Verifying the exact contents of the first log is not possible")
+			continue
+		}
+
+		if len(actions) != len(transaction.Actions) {
+			t.Errorf("len(actions) = %v, want %v", len(actions), len(transaction.Actions))
+		}
+
+		for action := 0; action < len(transaction.Actions)-1; action++ {
+			parsed, ok := actions[action].(*Add)
+			if !ok {
+				t.Error("Failed to get parsed add action")
+			}
+
+			expected, ok := transaction.Actions[action].(Add)
+			if !ok {
+				t.Error("Failed to get expected add action")
+			}
+
+			if parsed.Path != expected.Path {
+				t.Errorf("parsed.Path = %v, want %v", parsed.Path, expected.Path)
+			}
+
+			if !reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) {
+				t.Errorf("reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) = %v, want %v",
+					reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues), false)
+			}
+
+			if parsed.Size != expected.Size {
+				t.Errorf("parsed.Size = %v, want %v", parsed.Size, expected.Size)
+			}
+
+			if parsed.ModificationTime != expected.ModificationTime {
+				t.Errorf("parsed.ModificationTime = %v, want %v", parsed.ModificationTime, expected.ModificationTime)
+			}
+
+			if parsed.DataChange != expected.DataChange {
+				t.Errorf("parsed.DataChange = %v, want %v", parsed.DataChange, expected.DataChange)
+			}
+
+			if !reflect.DeepEqual(parsed.Tags, expected.Tags) {
+				t.Errorf("reflect.DeepEqual(parsed.Tags, expected.Tags) = %v, want %v", reflect.DeepEqual(parsed.Tags, expected.Tags), false)
+			}
+
+			if parsed.Stats != expected.Stats {
+				t.Errorf("parsed.Stats = %v, want %v", parsed.Stats, expected.Stats)
+			}
+		}
+	}
+}
+
+func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
+	logStoreTableName, table, transaction := setUpSingleDriverLogStoreTest(t)
+
+	var (
+		wg            sync.WaitGroup
+		maxGoroutines = 5
+		guard         = make(chan struct{}, maxGoroutines)
+		transactions  = 101
+	)
+	for entry := 1; entry < transactions; entry++ {
+		guard <- struct{}{}
+		wg.Add(1)
+
+		go func() {
+			version, err := transaction.CommitLogStore()
+			if err != nil {
+				t.Errorf("Failed to commit with log store: %v", err)
+			}
+			t.Logf("Committed version %d", version)
+
+			<-guard
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	items, ok := table.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+
+	if len(items) != transactions {
+		t.Errorf("len(items) = %v, want %v", len(items), transactions)
+	}
+
+	for entry := 0; entry < len(items); entry++ {
+		parsed, version := CommitVersionFromUri(
+			storage.NewPath(items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
+		if !parsed {
+			t.Errorf("Failed to parse version from %s", items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
+		}
+
+		if version != int64(entry) {
+			t.Errorf("version = %v, want %v", version, int64(entry))
+		}
+	}
+
+	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	if err != nil {
+		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+	}
+	prefix := url.Host + url.Path + "_delta_log/"
+	objects, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
+	if err != nil {
+		t.Errorf("Failed to list all Delta log objects: %v", err)
+	}
+
+	if objects.Objects[0].Location.Raw != prefix+".tmp/" {
+		t.Errorf("objects.Objects[0].Location.Raw = %v, want %v", objects.Objects[0].Location.Raw, prefix+".tmp/")
+	}
+
+	if objects.Objects[len(objects.Objects)-1].Location.Raw != prefix {
+		t.Errorf("objects.Objects[len(objects.Objects)-1].Location.Raw = %v, want %v", objects.Objects[len(objects.Objects)-1].Location.Raw,
+			prefix)
+	}
+
+	logs := objects.Objects[len(objects.Objects)-transactions-1 : len(objects.Objects)-1]
+
+	for log := 0; log < len(logs); log++ {
+		parsed, version := CommitVersionFromUri(logs[log].Location)
+		if !parsed {
+			t.Errorf("Failed to parse version from %s", logs[log].Location.Raw)
+		}
+
+		if version != int64(log) {
+			t.Errorf("version = %v, want %v", version, int64(log))
+		}
+
+		bytes, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().Get(logs[log].Location)
+		if err != nil {
+			t.Errorf("Failed to get bytes: %v", err)
+		}
+
+		actions, err := ActionsFromLogEntries(bytes)
+		if err != nil {
+			t.Errorf("Failed to get actions from bytes: %v", err)
+		}
+
+		if log == 0 {
+			t.Log("Verifying the exact contents of the first log is not possible")
+			continue
+		}
+
+		if len(actions) != len(transaction.Actions) {
+			t.Errorf("len(actions) = %v, want %v", len(actions), len(transaction.Actions))
+		}
+
+		for action := 0; action < len(transaction.Actions)-1; action++ {
+			parsed, ok := actions[action].(*Add)
+			if !ok {
+				t.Error("Failed to get parsed add action")
+			}
+
+			expected, ok := transaction.Actions[action].(Add)
+			if !ok {
+				t.Error("Failed to get expected add action")
+			}
+
+			if parsed.Path != expected.Path {
+				t.Errorf("parsed.Path = %v, want %v", parsed.Path, expected.Path)
+			}
+
+			if !reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) {
+				t.Errorf("reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) = %v, want %v",
+					reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues), false)
+			}
+
+			if parsed.Size != expected.Size {
+				t.Errorf("parsed.Size = %v, want %v", parsed.Size, expected.Size)
+			}
+
+			if parsed.ModificationTime != expected.ModificationTime {
+				t.Errorf("parsed.ModificationTime = %v, want %v", parsed.ModificationTime, expected.ModificationTime)
+			}
+
+			if parsed.DataChange != expected.DataChange {
+				t.Errorf("parsed.DataChange = %v, want %v", parsed.DataChange, expected.DataChange)
+			}
+
+			if !reflect.DeepEqual(parsed.Tags, expected.Tags) {
+				t.Errorf("reflect.DeepEqual(parsed.Tags, expected.Tags) = %v, want %v", reflect.DeepEqual(parsed.Tags, expected.Tags), false)
+			}
+
+			if parsed.Stats != expected.Stats {
+				t.Errorf("parsed.Stats = %v, want %v", parsed.Stats, expected.Stats)
+			}
+		}
+	}
+}
+
+func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
+	logStoreTableName, table, transaction := setUpSingleDriverLogStoreTest(t)
+
+	var (
+		wg           sync.WaitGroup
+		transactions = 101
+	)
+	for i := 1; i < transactions; i++ {
+		wg.Add(1)
+
+		go func() {
+			version, err := transaction.CommitLogStore()
+			if err != nil {
+				t.Errorf("Failed to commit with log store: %v", err)
+			}
+			t.Logf("Committed version %d", version)
+
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	items, ok := table.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+
+	if len(items) != transactions {
+		t.Errorf("len(items) = %v, want %v", len(items), transactions)
+	}
+
+	for entry := 0; entry < len(items); entry++ {
+		parsed, version := CommitVersionFromUri(
+			storage.NewPath(items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
+		if !parsed {
+			t.Errorf("Failed to parse version from %s", items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
+		}
+
+		if version != int64(entry) {
+			t.Errorf("version = %v, want %v", version, int64(entry))
+		}
+	}
+
+	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	if err != nil {
+		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+	}
+	prefix := url.Host + url.Path + "_delta_log/"
+	objects, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
+	if err != nil {
+		t.Errorf("Failed to list all Delta log objects: %v", err)
+	}
+
+	if objects.Objects[0].Location.Raw != prefix+".tmp/" {
+		t.Errorf("objects.Objects[0].Location.Raw = %v, want %v", objects.Objects[0].Location.Raw, prefix+".tmp/")
+	}
+
+	if objects.Objects[len(objects.Objects)-1].Location.Raw != prefix {
+		t.Errorf("objects.Objects[len(objects.Objects)-1].Location.Raw = %v, want %v", objects.Objects[len(objects.Objects)-1].Location.Raw,
+			prefix)
+	}
+
+	logs := objects.Objects[len(objects.Objects)-transactions-1 : len(objects.Objects)-1]
+
+	for log := 0; log < len(logs); log++ {
+		parsed, version := CommitVersionFromUri(logs[log].Location)
+		if !parsed {
+			t.Errorf("Failed to parse version from %s", logs[log].Location.Raw)
+		}
+
+		if version != int64(log) {
+			t.Errorf("version = %v, want %v", version, int64(log))
+		}
+
+		bytes, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().Get(logs[log].Location)
+		if err != nil {
+			t.Errorf("Failed to get bytes: %v", err)
+		}
+
+		actions, err := ActionsFromLogEntries(bytes)
+		if err != nil {
+			t.Errorf("Failed to get actions from bytes: %v", err)
+		}
+
+		if log == 0 {
+			t.Log("Verifying the exact contents of the first log is not possible")
+			continue
+		}
+
+		if len(actions) != len(transaction.Actions) {
+			t.Errorf("len(actions) = %v, want %v", len(actions), len(transaction.Actions))
+		}
+
+		for action := 0; action < len(transaction.Actions)-1; action++ {
+			parsed, ok := actions[action].(*Add)
+			if !ok {
+				t.Error("Failed to get parsed add action")
+			}
+
+			expected, ok := transaction.Actions[action].(Add)
+			if !ok {
+				t.Error("Failed to get expected add action")
+			}
+
+			if parsed.Path != expected.Path {
+				t.Errorf("parsed.Path = %v, want %v", parsed.Path, expected.Path)
+			}
+
+			if !reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) {
+				t.Errorf("reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) = %v, want %v",
+					reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues), false)
+			}
+
+			if parsed.Size != expected.Size {
+				t.Errorf("parsed.Size = %v, want %v", parsed.Size, expected.Size)
+			}
+
+			if parsed.ModificationTime != expected.ModificationTime {
+				t.Errorf("parsed.ModificationTime = %v, want %v", parsed.ModificationTime, expected.ModificationTime)
+			}
+
+			if parsed.DataChange != expected.DataChange {
+				t.Errorf("parsed.DataChange = %v, want %v", parsed.DataChange, expected.DataChange)
+			}
+
+			if !reflect.DeepEqual(parsed.Tags, expected.Tags) {
+				t.Errorf("reflect.DeepEqual(parsed.Tags, expected.Tags) = %v, want %v", reflect.DeepEqual(parsed.Tags, expected.Tags), false)
+			}
+
+			if parsed.Stats != expected.Stats {
+				t.Errorf("parsed.Stats = %v, want %v", parsed.Stats, expected.Stats)
+			}
+		}
+	}
+}
+
+// Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
+func setUpMultiDriverLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *DeltaTable, secondTable *DeltaTable, actions []Action, operation Write, appMetadata map[string]any) {
+	t.Helper()
+
+	logStoreTableName = "version_log_store"
+	logStore, err := dynamodblogstore.New(dynamodblogstore.Options{Client: dynamodbutils.NewMockClient(), TableName: logStoreTableName})
+	if err != nil {
+		t.Errorf("Failed to create log store: %v", err)
+	}
+
+	path := storage.NewPath("s3://test-bucket/test-delta-table/")
+	client, err := s3utils.NewMockClient(t, path)
+	if err != nil {
+		t.Errorf("Failed to create client: %v", err)
+	}
+	store, err := s3store.New(client, path)
+	if err != nil {
+		t.Errorf("Failed to create store: %v", err)
+	}
+
+	firstLock := nillock.New()
+	secondLock := nillock.New()
+
+	firstTable = NewDeltaTableWithLogStore(path, store, logStore, firstLock, false)
+	secondTable = NewDeltaTableWithLogStore(path, store, logStore, secondLock, false)
+
+	actions = []Action{Add{
+		Path:             "part-00000-b08cb562-b392-441d-a090-494a47da752b-c000.snappy.parquet",
+		Size:             807,
+		ModificationTime: time.Now().UnixMilli(),
+	},
+		Add{
+			Path:             "part-00001-f9c7792d-57bc-4c56-8b9b-5cd7899ee9a2-c000.snappy.parquet",
+			Size:             807,
+			ModificationTime: time.Now().UnixMilli(),
+		}}
+
+	operation = Write{Mode: Append, PartitionBy: []string{"date"}}
+	appMetadata = make(map[string]any)
+	appMetadata["isBlindAppend"] = true
+
+	return
+}
+
+func TestCommitLogStore_DifferentClients(t *testing.T) {
+	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiDriverLogStoreTest(t)
+
+	var (
+		wg                sync.WaitGroup
+		transactions      = 500
+		firstTransaction  *DeltaTransaction
+		secondTransaction *DeltaTransaction
+	)
+	for i := 1; i < transactions/2+1; i++ {
+		wg.Add(1)
+
+		go func() {
+			firstTransaction = firstTable.CreateTransaction(NewDeltaTransactionOptions())
+			firstTransaction.AddActions(actions)
+			firstTransaction.SetOperation(operation)
+			firstTransaction.SetAppMetadata(appMetadata)
+
+			version, err := firstTransaction.CommitLogStore()
+			if err != nil {
+				t.Errorf("Failed to commit first transaction with log store: %v", err)
+			}
+			t.Logf("Committed version %d", version)
+
+			secondTransaction = secondTable.CreateTransaction(NewDeltaTransactionOptions())
+			secondTransaction.AddActions(actions)
+			secondTransaction.SetOperation(operation)
+			secondTransaction.SetAppMetadata(appMetadata)
+
+			version, err = secondTransaction.CommitLogStore()
+			if err != nil {
+				t.Errorf("Failed to commit second transaction with log store: %v", err)
+			}
+			t.Logf("Committed version %d", version)
+
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	firstItems, ok := firstTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	if !ok {
+		t.Error("Failed to get first table's items")
+	}
+
+	if len(firstItems) != transactions {
+		t.Errorf("len(firstItems) = %v, want %v", len(firstItems), transactions)
+	}
+
+	for entry := 0; entry < len(firstItems); entry++ {
+		parsed, version := CommitVersionFromUri(
+			storage.NewPath(firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
+		if !parsed {
+			t.Errorf("Failed to parse version from %s", storage.NewPath(firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value).Raw)
+		}
+
+		if version != int64(entry) {
+			t.Errorf("First table: version = %v, want %v", version, int64(entry))
+		}
+	}
+
+	url, err := firstTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	if err != nil {
+		t.Errorf("First table: failed to parse URL from %s: %v", firstTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+	}
+	prefix := url.Host + url.Path + "_delta_log/"
+	firstObjects, err := firstTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
+	if err != nil {
+		t.Errorf("Failed to list all Delta log objects for first table: %v", err)
+	}
+
+	if firstObjects.Objects[0].Location.Raw != prefix+".tmp/" {
+		t.Errorf("firstObjects.Objects[0].Location.Raw = %v, want %v", firstObjects.Objects[0].Location.Raw, prefix+".tmp/")
+	}
+
+	if firstObjects.Objects[len(firstObjects.Objects)-1].Location.Raw != prefix {
+		t.Errorf("firstObjects.Objects[len(firstObjects.Objects)-1].Location.Raw = %v, want %v",
+			firstObjects.Objects[len(firstObjects.Objects)-1].Location.Raw, prefix)
+	}
+
+	logs := firstObjects.Objects[len(firstObjects.Objects)-transactions-1 : len(firstObjects.Objects)-1]
+
+	for log := 0; log < len(logs); log++ {
+		parsed, version := CommitVersionFromUri(logs[log].Location)
+		if !parsed {
+			t.Errorf("First table: failed to parse version from %s", logs[log].Location.Raw)
+		}
+
+		if version != int64(log) {
+			t.Errorf("First table: version = %v, want %v", version, int64(log))
+		}
+
+		bytes, err := firstTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().Get(logs[log].Location)
+		if err != nil {
+			t.Errorf("Failed to get bytes for first table: %v", err)
+		}
+
+		actions, err := ActionsFromLogEntries(bytes)
+		if err != nil {
+			t.Errorf("Failed to get actions from bytes for first table: %v", err)
+		}
+
+		if log == 0 {
+			t.Log("Verifying the exact contents of the first table's first log is not possible")
+			continue
+		}
+
+		if len(actions) != len(firstTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(firstTransaction.Actions))
+		}
+
+		for action := 0; action < len(firstTransaction.Actions)-1; action++ {
+			parsed, ok := actions[action].(*Add)
+			if !ok {
+				t.Error("Failed to get parsed add action")
+			}
+
+			expected, ok := firstTransaction.Actions[action].(Add)
+			if !ok {
+				t.Error("Failed to get expected add action")
+			}
+
+			if parsed.Path != expected.Path {
+				t.Errorf("First table: parsed.Path = %v, want %v", parsed.Path, expected.Path)
+			}
+
+			if !reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) {
+				t.Errorf("First table: reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) = %v, want %v",
+					reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues), false)
+			}
+
+			if parsed.Size != expected.Size {
+				t.Errorf("First table: parsed.Size = %v, want %v", parsed.Size, expected.Size)
+			}
+
+			if parsed.ModificationTime != expected.ModificationTime {
+				t.Errorf("First table: parsed.ModificationTime = %v, want %v", parsed.ModificationTime, expected.ModificationTime)
+			}
+
+			if parsed.DataChange != expected.DataChange {
+				t.Errorf("First table: parsed.DataChange = %v, want %v", parsed.DataChange, expected.DataChange)
+			}
+
+			if !reflect.DeepEqual(parsed.Tags, expected.Tags) {
+				t.Errorf("First table: reflect.DeepEqual(parsed.Tags, expected.Tags) = %v, want %v",
+					reflect.DeepEqual(parsed.Tags, expected.Tags), false)
+			}
+
+			if parsed.Stats != expected.Stats {
+				t.Errorf("First table: parsed.Stats = %v, want %v", parsed.Stats, expected.Stats)
+			}
+		}
+	}
+
+	secondItems, ok := secondTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	if !ok {
+		t.Error("Failed to get second table's items")
+	}
+
+	if len(secondItems) != transactions {
+		t.Errorf("len(secondItems) = %v, want %v", len(secondItems), transactions)
+	}
+
+	if len(secondItems) != len(firstItems) {
+		t.Errorf("len(secondItems) = %v, want %v", len(secondItems), len(firstItems))
+	}
+
+	for entry := 0; entry < len(secondItems); entry++ {
+		parsed, version := CommitVersionFromUri(
+			storage.NewPath(secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
+		if !parsed {
+			t.Errorf("Second table: failed to parse version from %s", secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
+		}
+
+		if version != int64(entry) {
+			t.Errorf("Second table: version = %v, want %v", version, int64(entry))
+		}
+	}
+
+	url, err = secondTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	if err != nil {
+		t.Errorf("Second table: failed to parse URL from %s: %v", secondTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+	}
+	prefix = url.Host + url.Path + "_delta_log/"
+	secondObjects, err := secondTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
+	if err != nil {
+		t.Errorf("Failed to list all Delta log objects for second table: %v", err)
+	}
+
+	if len(secondObjects.Objects) != len(firstObjects.Objects) {
+		t.Errorf("len(secondObjects.Objects) = %v, want %v", len(secondObjects.Objects), len(firstObjects.Objects))
+	}
+
+	if secondObjects.Objects[0].Location.Raw != prefix+".tmp/" {
+		t.Errorf("secondObjects.Objects[0].Location.Raw = %v, want %v", secondObjects.Objects[0].Location.Raw, prefix+".tmp/")
+	}
+
+	if secondObjects.Objects[len(secondObjects.Objects)-1].Location.Raw != prefix {
+		t.Errorf("secondObjects.Objects[len(secondObjects.Objects)-1].Location.Raw = %v, want %v",
+			secondObjects.Objects[len(secondObjects.Objects)-1].Location.Raw, prefix)
+	}
+
+	logs = secondObjects.Objects[len(secondObjects.Objects)-transactions-1 : len(secondObjects.Objects)-1]
+
+	for log := 0; log < len(logs); log++ {
+		parsed, version := CommitVersionFromUri(logs[log].Location)
+		if !parsed {
+			t.Errorf("Second table: failed to parse version from %s", logs[log].Location.Raw)
+		}
+
+		if version != int64(log) {
+			t.Errorf("Second table: version = %v, want %v", version, int64(log))
+		}
+
+		bytes, err := secondTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().Get(logs[log].Location)
+		if err != nil {
+			t.Errorf("Failed to get bytes for second table: %v", err)
+		}
+
+		actions, err := ActionsFromLogEntries(bytes)
+		if err != nil {
+			t.Errorf("Failed to get actions from bytes for second table: %v", err)
+		}
+
+		if log == 0 {
+			t.Log("Verifying the exact contents of the second table's first log is not possible")
+			continue
+		}
+
+		if len(actions) != len(secondTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(secondTransaction.Actions))
+		}
+
+		for action := 0; action < len(secondTransaction.Actions)-1; action++ {
+			parsed, ok := actions[action].(*Add)
+			if !ok {
+				t.Error("Failed to get parsed add action")
+			}
+
+			expected, ok := secondTransaction.Actions[action].(Add)
+			if !ok {
+				t.Error("Failed to get expected add action")
+			}
+
+			if parsed.Path != expected.Path {
+				t.Errorf("Second table: parsed.Path = %v, want %v", parsed.Path, expected.Path)
+			}
+
+			if !reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) {
+				t.Errorf("Second table: reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) = %v, want %v",
+					reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues), false)
+			}
+
+			if parsed.Size != expected.Size {
+				t.Errorf("Second table: parsed.Size = %v, want %v", parsed.Size, expected.Size)
+			}
+
+			if parsed.ModificationTime != expected.ModificationTime {
+				t.Errorf("Second table: parsed.ModificationTime = %v, want %v", parsed.ModificationTime, expected.ModificationTime)
+			}
+
+			if parsed.DataChange != expected.DataChange {
+				t.Errorf("Second table: parsed.DataChange = %v, want %v", parsed.DataChange, expected.DataChange)
+			}
+
+			if !reflect.DeepEqual(parsed.Tags, expected.Tags) {
+				t.Errorf("Second table: reflect.DeepEqual(parsed.Tags, expected.Tags) = %v, want %v",
+					reflect.DeepEqual(parsed.Tags, expected.Tags), false)
+			}
+
+			if parsed.Stats != expected.Stats {
+				t.Errorf("Second table: parsed.Stats = %v, want %v", parsed.Stats, expected.Stats)
+			}
+		}
+	}
+}
+
+func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
+	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiDriverLogStoreTest(t)
+
+	versions := 1000
+	for version := 1; version < versions; version++ {
+		filePath := CommitUriFromVersion(int64(version))
+
+		err := firstTable.Store.Put(filePath, nil)
+		if err != nil {
+			t.Errorf("Failed to put log: %v", err)
+		}
+	}
+
+	var (
+		wg                sync.WaitGroup
+		transactions      = 500
+		firstTransaction  *DeltaTransaction
+		secondTransaction *DeltaTransaction
+	)
+	for i := 1; i < transactions/2+1; i++ {
+		wg.Add(1)
+
+		go func() {
+			firstTransaction = firstTable.CreateTransaction(NewDeltaTransactionOptions())
+			firstTransaction.AddActions(actions)
+			firstTransaction.SetOperation(operation)
+			firstTransaction.SetAppMetadata(appMetadata)
+
+			version, err := firstTransaction.CommitLogStore()
+			if err != nil {
+				t.Errorf("Failed to commit first transaction with log store: %v", err)
+			}
+			t.Logf("Committed version %d", version)
+
+			secondTransaction = secondTable.CreateTransaction(NewDeltaTransactionOptions())
+			secondTransaction.AddActions(actions)
+			secondTransaction.SetOperation(operation)
+			secondTransaction.SetAppMetadata(appMetadata)
+
+			version, err = secondTransaction.CommitLogStore()
+			if err != nil {
+				t.Errorf("Failed to commit second transaction with log store: %v", err)
+			}
+			t.Logf("Committed version %d", version)
+
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	firstItems, ok := firstTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	if !ok {
+		t.Error("Failed to get first table's items")
+	}
+
+	if len(firstItems) != transactions+1 {
+		t.Errorf("len(firstItems) = %v, want %v", len(firstItems), transactions+1)
+	}
+
+	for entry := 0; entry < len(firstItems); entry++ {
+		parsed, version := CommitVersionFromUri(
+			storage.NewPath(firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
+		if !parsed {
+			t.Errorf("First table: failed to parse version from %s", firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
+		}
+
+		if version != int64(entry+versions-1) {
+			t.Errorf("First table: version = %v, want %v", version, int64(entry+versions-1))
+		}
+	}
+
+	url, err := firstTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	if err != nil {
+		t.Errorf("First table: failed to parse URL from %s: %v", firstTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+	}
+	prefix := url.Host + url.Path + "_delta_log/"
+	firstObjects, err := firstTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
+	if err != nil {
+		t.Errorf("Failed to list all Delta log objects for first table: %v", err)
+	}
+
+	if firstObjects.Objects[0].Location.Raw != prefix+".tmp/" {
+		t.Errorf("firstObjects.Objects[0].Location.Raw = %v, want %v", firstObjects.Objects[0].Location.Raw, prefix+".tmp/")
+	}
+
+	if firstObjects.Objects[len(firstObjects.Objects)-1].Location.Raw != prefix {
+		t.Errorf("firstObjects.Objects[len(firstObjects.Objects)-1].Location.Raw = %v, want %v",
+			firstObjects.Objects[len(firstObjects.Objects)-1].Location.Raw, prefix)
+	}
+
+	logs := firstObjects.Objects[len(firstObjects.Objects)-transactions-1 : len(firstObjects.Objects)-1]
+
+	for log := 0; log < len(logs); log++ {
+		parsed, version := CommitVersionFromUri(logs[log].Location)
+		if !parsed {
+			t.Errorf("First table: failed to parse version from %s", logs[log].Location.Raw)
+		}
+
+		if version != int64(log+versions) {
+			t.Errorf("First table: version = %v, want %v", version, int64(log+versions))
+		}
+
+		bytes, err := firstTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().Get(logs[log].Location)
+		if err != nil {
+			t.Errorf("Failed to get bytes for first table: %v", err)
+		}
+
+		actions, err := ActionsFromLogEntries(bytes)
+		if err != nil {
+			t.Errorf("Failed to get actions from bytes for first table: %v", err)
+		}
+
+		if log == 0 {
+			t.Log("Verifying the exact contents of the first table's first log is not possible")
+			continue
+		}
+
+		if len(actions) != len(firstTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(firstTransaction.Actions))
+		}
+
+		for action := 0; action < len(firstTransaction.Actions)-1; action++ {
+			parsed, ok := actions[action].(*Add)
+			if !ok {
+				t.Error("First table: failed to get parsed add action")
+			}
+
+			expected, ok := firstTransaction.Actions[action].(Add)
+			if !ok {
+				t.Error("First table: failed to get expected add action")
+			}
+
+			if parsed.Path != expected.Path {
+				t.Errorf("First table: parsed.Path = %v, want %v", parsed.Path, expected.Path)
+			}
+
+			if !reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) {
+				t.Errorf("First table: reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) = %v, want %v",
+					reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues), false)
+			}
+
+			if parsed.Size != expected.Size {
+				t.Errorf("First table: parsed.Size = %v, want %v", parsed.Size, expected.Size)
+			}
+
+			if parsed.ModificationTime != expected.ModificationTime {
+				t.Errorf("First table: parsed.ModificationTime = %v, want %v", parsed.ModificationTime, expected.ModificationTime)
+			}
+
+			if parsed.DataChange != expected.DataChange {
+				t.Errorf("First table: parsed.DataChange = %v, want %v", parsed.DataChange, expected.DataChange)
+			}
+
+			if !reflect.DeepEqual(parsed.Tags, expected.Tags) {
+				t.Errorf("First table: reflect.DeepEqual(parsed.Tags, expected.Tags) = %v, want %v",
+					reflect.DeepEqual(parsed.Tags, expected.Tags), false)
+			}
+
+			if parsed.Stats != expected.Stats {
+				t.Errorf("First table: parsed.Stats = %v, want %v", parsed.Stats, expected.Stats)
+			}
+		}
+	}
+
+	secondItems, ok := secondTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	if !ok {
+		t.Error("Failed to get second table's items")
+	}
+
+	if len(secondItems) != transactions+1 {
+		t.Errorf("len(secondItems) = %v, want %v", len(secondItems), transactions+1)
+	}
+
+	if len(secondItems) != len(firstItems) {
+		t.Errorf("len(secondItems) = %v, want %v", len(secondItems), len(firstItems))
+	}
+
+	for entry := 0; entry < len(secondItems); entry++ {
+		parsed, version := CommitVersionFromUri(
+			storage.NewPath(secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
+		if !parsed {
+			t.Errorf("Second table: failed to parse version from %s", secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
+		}
+
+		if version != int64(entry+versions-1) {
+			t.Errorf("Second table: version = %v, want %v", version, int64(entry+versions-1))
+		}
+	}
+
+	url, err = secondTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	if err != nil {
+		t.Errorf("Second table: failed to parse URL from %s: %v", secondTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+	}
+	prefix = url.Host + url.Path + "_delta_log/"
+	secondObjects, err := secondTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
+	if err != nil {
+		t.Errorf("Failed to list all Delta log objects for second table: %v", err)
+	}
+
+	if len(secondObjects.Objects) != len(firstObjects.Objects) {
+		t.Errorf("len(secondObjects.Objects) = %v, want %v", len(secondObjects.Objects), len(firstObjects.Objects))
+	}
+
+	if secondObjects.Objects[0].Location.Raw != prefix+".tmp/" {
+		t.Errorf("secondObjects.Objects[0].Location.Raw = %v, want %v", secondObjects.Objects[0].Location.Raw, prefix+".tmp/")
+	}
+
+	if secondObjects.Objects[len(secondObjects.Objects)-1].Location.Raw != prefix {
+		t.Errorf("secondObjects.Objects[len(secondObjects.Objects)-1].Location.Raw = %v, want %v",
+			secondObjects.Objects[len(secondObjects.Objects)-1].Location.Raw, prefix)
+	}
+
+	logs = secondObjects.Objects[len(secondObjects.Objects)-transactions-1 : len(secondObjects.Objects)-1]
+
+	for log := 0; log < len(logs); log++ {
+		parsed, version := CommitVersionFromUri(logs[log].Location)
+		if !parsed {
+			t.Errorf("Second table: failed to parse version from %s", logs[log].Location.Raw)
+		}
+
+		if version != int64(log+versions) {
+			t.Errorf("Second table: version = %v, want %v", version, int64(log+versions))
+		}
+
+		bytes, err := secondTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().Get(logs[log].Location)
+		if err != nil {
+			t.Errorf("Failed to get bytes for second table: %v", err)
+		}
+
+		actions, err := ActionsFromLogEntries(bytes)
+		if err != nil {
+			t.Errorf("Failed to get actions from bytes for second table: %v", err)
+		}
+
+		if log == 0 {
+			t.Log("Verifying the exact contents of the second table's first log is not possible")
+			continue
+		}
+
+		if len(actions) != len(secondTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(secondTransaction.Actions))
+		}
+
+		for action := 0; action < len(secondTransaction.Actions)-1; action++ {
+			parsed, ok := actions[action].(*Add)
+			if !ok {
+				t.Error("Second table: failed to get parsed add action")
+			}
+
+			expected, ok := secondTransaction.Actions[action].(Add)
+			if !ok {
+				t.Error("Second table: failed to get expected add action")
+			}
+
+			if parsed.Path != expected.Path {
+				t.Errorf("Second table: parsed.Path = %v, want %v", parsed.Path, expected.Path)
+			}
+
+			if !reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) {
+				t.Errorf("Second table: reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues) = %v, want %v",
+					reflect.DeepEqual(parsed.PartitionValues, expected.PartitionValues), false)
+			}
+
+			if parsed.Size != expected.Size {
+				t.Errorf("Second table: parsed.Size = %v, want %v", parsed.Size, expected.Size)
+			}
+
+			if parsed.ModificationTime != expected.ModificationTime {
+				t.Errorf("Second table: parsed.ModificationTime = %v, want %v", parsed.ModificationTime, expected.ModificationTime)
+			}
+
+			if parsed.DataChange != expected.DataChange {
+				t.Errorf("Second table: parsed.DataChange = %v, want %v", parsed.DataChange, expected.DataChange)
+			}
+
+			if !reflect.DeepEqual(parsed.Tags, expected.Tags) {
+				t.Errorf("Second table: reflect.DeepEqual(parsed.Tags, expected.Tags) = %v, want %v",
+					reflect.DeepEqual(parsed.Tags, expected.Tags), false)
+			}
+
+			if parsed.Stats != expected.Stats {
+				t.Errorf("Second table: parsed.Stats = %v, want %v", parsed.Stats, expected.Stats)
+			}
+		}
 	}
 }

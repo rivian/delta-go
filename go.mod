@@ -68,6 +68,7 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.16.7 // indirect
+	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/pierrec/lz4/v4 v4.1.18 // indirect
 	golang.org/x/sys v0.12.0 // indirect
 )

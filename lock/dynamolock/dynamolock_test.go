@@ -112,7 +112,11 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.GetTablesToItems()["delta_lock_table"]) != 0 {
+	items, ok := client.TablesToItems().Get("delta_lock_table")
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+	if len(items) != 0 {
 		t.Error("Lock should be deleted on release")
 	}
 
@@ -140,7 +144,11 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Error("Lock should be expired")
 	}
 
-	if len(client.GetTablesToItems()["delta_lock_table"]) != 1 {
+	items, ok = client.TablesToItems().Get("delta_lock_table")
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+	if len(items) != 1 {
 		t.Error("Lock should not be deleted on release")
 	}
 }

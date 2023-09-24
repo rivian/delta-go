@@ -20,10 +20,12 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/lock"
+	"github.com/rivian/delta-go/logstore"
 	"github.com/rivian/delta-go/state"
 	"github.com/rivian/delta-go/storage"
 	log "github.com/sirupsen/logrus"
@@ -37,11 +39,8 @@ const maxReaderVersionSupported = 1
 const maxWriterVersionSupported = 1
 
 var (
-	ErrDeltaTable                  error = errors.New("failed to apply transaction log")
-	ErrRetrieveLockBytes           error = errors.New("failed to retrieve bytes from lock")
-	ErrLockDataEmpty               error = errors.New("lock data is empty")
 	ErrExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
-	ErrNotATable                   error = errors.New("not a Delta table")
+	ErrNotATable                   error = errors.New("not a table")
 	ErrInvalidVersion              error = errors.New("invalid version")
 	ErrUnableToLoadVersion         error = errors.New("unable to load specified version")
 	ErrLockFailed                  error = errors.New("lock failed unexpectedly without an error")
@@ -66,10 +65,23 @@ type DeltaTable struct {
 	Store storage.ObjectStore
 	// Locking client to ensure optimistic locked commits from distributed workers
 	LockClient lock.Locker
-	// // file metadata for latest checkpoint
+	// file metadata for latest checkpoint
 	LastCheckPoint *CheckPoint
 	// table versions associated with timestamps
 	VersionTimestamp map[int64]time.Time
+	// Log store to create multi-cluster support for object stores that do not provide a "put-if-absent" API
+	LogStore *DeltaTableLogStore
+	// Delta table path
+	Path storage.Path
+}
+
+type DeltaTableLogStore struct {
+	// Key value store which holds the version history
+	logStore logstore.LogStore
+	// Lock which prevents multiple writers from trying to commit the same version
+	lock lock.Locker
+	// True if the object store provides a "put-if-absent" API
+	overwrite bool
 }
 
 // OptimizeCheckpointConfiguration holds settings for optimizing checkpoint read and write operations
@@ -95,6 +107,22 @@ func NewDeltaTable(store storage.ObjectStore, lock lock.Locker, stateStore state
 	table.LastCheckPoint = nil
 	table.State = *NewTableState(-1)
 	return table
+}
+
+func NewDeltaTableWithLogStore(tablePath storage.Path, store storage.ObjectStore, logStore logstore.LogStore, lock lock.Locker, overwrite bool) *DeltaTable {
+	t := new(DeltaTable)
+	t.Path = storage.NewPath(strings.TrimSuffix(tablePath.Raw, "/"))
+	t.Store = store
+	t.LastCheckPoint = nil
+	t.State = *NewTableState(-1)
+
+	ls := new(DeltaTableLogStore)
+	ls.logStore = logStore
+	ls.lock = lock
+	ls.overwrite = overwrite
+	t.LogStore = ls
+
+	return t
 }
 
 // Creates a new DeltaTransaction for the DeltaTable.
@@ -173,25 +201,37 @@ func (table *DeltaTable) Create(metadata DeltaTableMetaData, protocol Protocol, 
 		actions = append(actions, add)
 	}
 
-	transaction := table.CreateTransaction(nil)
+	var version int64
+	var err error
+
+	transaction := table.CreateTransaction(NewDeltaTransactionOptions())
 	transaction.AddActions(actions)
 
-	preparedCommit, err := transaction.PrepareCommit(nil, nil)
-	if err != nil {
-		return err
-	}
-	//Set StateStore Version=-1 synced with the table State Version
-	zeroState := state.CommitState{
-		Version: table.State.Version,
-	}
-	transaction.DeltaTable.StateStore.Put(zeroState)
-	err = transaction.TryCommit(&preparedCommit)
-	if err != nil {
-		return err
+	if table.LogStore != nil {
+		version, err = transaction.CommitLogStore()
+		if err != nil {
+			return err
+		}
+	} else {
+		preparedCommit, err := transaction.PrepareCommit(nil, nil)
+		if err != nil {
+			return err
+		}
+		//Set StateStore Version=-1 synced with the table State Version
+		zeroState := state.CommitState{
+			Version: table.State.Version,
+		}
+		transaction.DeltaTable.StateStore.Put(zeroState)
+		err = transaction.TryCommit(&preparedCommit)
+		if err != nil {
+			return err
+		}
+
+		version = table.State.Version
 	}
 
 	// Merge state from new commit version
-	newState, err := NewTableStateFromCommit(table, table.State.Version)
+	newState, err := NewTableStateFromCommit(table, version)
 	if err != nil {
 		return err
 	}
@@ -790,9 +830,325 @@ func (dtmd *DeltaTableMetaData) GetPartitionColDataTypes() map[string]SchemaData
 // / Please not that in case of non-retryable error the temporary commit file such as
 // / `_delta_log/_commit_<uuid>.json` will orphaned in storage.
 type DeltaTransaction struct {
-	DeltaTable *DeltaTable
-	Actions    []Action
-	Options    *DeltaTransactionOptions
+	DeltaTable  *DeltaTable
+	Actions     []Action
+	Operation   DeltaOperation
+	AppMetadata map[string]any
+	Options     *DeltaTransactionOptions
+}
+
+// Read gets actions from a file.
+//
+// With many concurrent readers/writers, there's a chance that concurrent recovery
+// operations occur on the same file, i.e. the same temp file T(N) is copied into the
+// target N.json file more than once. Though data loss will *NOT* occur, readers of N.json
+// may receive an error from S3 as the ETag of N.json was changed. This is safe to
+// retry, so we do so here.
+func (transaction *DeltaTransaction) Read(path storage.Path) ([]Action, error) {
+	attempt := 0
+	for {
+		if attempt >= int(transaction.Options.MaxRetryReadAttempts) {
+			return nil, fmt.Errorf("failed to get actions after %d attempts", transaction.Options.MaxRetryReadAttempts)
+		}
+
+		entry, err := transaction.DeltaTable.Store.Get(path)
+		if err != nil {
+			attempt++
+			log.Debugf("delta-go: Failed to get log entry. Incrementing attempt number to %d and retrying. %v", attempt, err)
+			continue
+		}
+
+		actions, err := ActionsFromLogEntries(entry)
+		if err != nil {
+			attempt++
+			log.Debugf("delta-go: Failed to get actions from log entry. Incrementing attempt number to %d and retrying. %v",
+				attempt, err)
+			continue
+		}
+
+		return actions, nil
+	}
+}
+
+// CommitLogStore writes actions to a file with or without overwrite as indicated.
+// An error is thrown if the file already exists and overwriting is disabled.
+//
+// If overwriting is enabled, then write normally without any interaction with a log store.
+// Otherwise, to commit for Delta version N:
+// - Step 0: Fail if N.json already exists in the file system.
+// - Step 1: Ensure that N-1.json exists. If not, perform a recovery.
+// - Step 2: PREPARE the commit.
+//   - Write the actions into temp file T(N).
+//   - Write uncompleted entry E(N, T(N)) with mutual exclusion to the log store.
+//
+// - Step 3: COMMIT the commit to the Delta log.
+//   - Copy T(N) into N.json.
+//
+// - Step 4: ACKNOWLEDGE the commit.
+//   - Overwrite and complete entry E in the log store.
+func (transaction *DeltaTransaction) CommitLogStore() (int64, error) {
+	attempt := 0
+	for {
+		if attempt >= int(transaction.Options.MaxRetryWriteAttempts) {
+			return -1, fmt.Errorf("failed to commit with log store after %d attempts", transaction.Options.MaxRetryWriteAttempts)
+		}
+
+		version, err := transaction.tryCommitLogStore()
+		if err != nil {
+			attempt++
+			log.Debugf("delta-go: Incrementing log store commit attempt number to %d and retrying: %v", attempt, err)
+			continue
+		}
+
+		return version, nil
+	}
+}
+
+func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
+	var currURI storage.Path
+	prevURI, err := t.DeltaTable.LogStore.logStore.Latest(t.DeltaTable.Path)
+
+	if prevURI != nil {
+		found := false
+		for _, action := range t.Actions {
+			switch action.(type) {
+			case CommitInfo:
+				found = true
+			}
+		}
+
+		if !found {
+			commitInfo := make(CommitInfo)
+			commitInfo["timestamp"] = time.Now().UnixMilli()
+			commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", deltaClientVersion)
+
+			if t.Operation != nil {
+				maps.Copy(commitInfo, t.Operation.GetCommitInfo())
+			}
+			if t.AppMetadata != nil {
+				maps.Copy(commitInfo, t.AppMetadata)
+			}
+
+			t.AddAction(commitInfo)
+		}
+
+		parsed, prevVersion := CommitVersionFromUri(prevURI.FileName())
+		if !parsed {
+			return -1, fmt.Errorf("failed to parse previous version from %s", prevURI.FileName().Raw)
+		}
+
+		currURI = CommitUriFromVersion(prevVersion + 1)
+	} else {
+		if version, err := t.DeltaTable.LatestVersion(); err != nil {
+			currURI = CommitUriFromVersion(0)
+		} else {
+			uri := CommitUriFromVersion(version).Raw
+			fileName := storage.NewPath(strings.Split(uri, "_delta_log/")[1])
+			seconds := t.DeltaTable.LogStore.logStore.ExpirationDelaySeconds()
+
+			entry, err := logstore.New(t.DeltaTable.Path, fileName,
+				storage.NewPath("") /* tempPath */, true /* isComplete */, uint64(time.Now().Unix())+seconds)
+			if err != nil {
+				return -1, fmt.Errorf("create first commit entry: %v", err)
+			}
+
+			if err := t.DeltaTable.LogStore.logStore.Put(entry, t.DeltaTable.LogStore.overwrite); err != nil {
+				return -1, fmt.Errorf("put first commit entry: %v", err)
+			}
+
+			currURI = CommitUriFromVersion(version + 1)
+		}
+	}
+
+	// Prevent concurrent writers from either
+	// a) concurrently overwriting N.json if overwriting is enabled
+	// b) both checking if N-1.json exists and performing a recovery where they both
+	// copy T(N-1) into N-1.json
+	//
+	// Note that the mutual exclusion on writing into N.json with overwriting disabled from
+	// different machines is provided by the log store, not by this lock.
+	//
+	// Also note that this lock is for N.json, while the lock used during a recovery is for
+	// N-1.json. Thus, there is no deadlock.
+	lock, err := t.DeltaTable.LogStore.lock.NewLock(t.DeltaTable.Path.Join(currURI).Raw)
+	if err != nil {
+		return -1, fmt.Errorf("create lock: %v", err)
+	}
+	if _, err = lock.TryLock(); err != nil {
+		return -1, fmt.Errorf("acquire lock: %v", err)
+	}
+	defer func() {
+		// Defer the unlock and overwrite any errors if the unlock fails.
+		if unlockErr := lock.Unlock(); unlockErr != nil {
+			err = unlockErr
+		}
+	}()
+
+	fileName := storage.NewPath(strings.Split(currURI.Raw, "_delta_log/")[1])
+
+	parsed, currVersion := CommitVersionFromUri(currURI)
+	if !parsed {
+		return -1, fmt.Errorf("failed to parse previous version from %s", currURI.Raw)
+	}
+
+	if t.DeltaTable.LogStore.overwrite {
+		t.writeActions(currURI, t.Actions)
+
+		return currVersion, nil
+	} else {
+		// Step 0: Fail if N.json already exists in the file system and overwriting is disabled.
+		if _, err = t.DeltaTable.Store.Head(currURI); err == nil {
+			return -1, errors.New("current version already exists")
+		}
+	}
+
+	// Step 1: Ensure that N-1.json exists.
+	if currVersion > 0 {
+		prevFileName := storage.NewPath(strings.Split(CommitUriFromVersion(currVersion-1).Raw, "_delta_log/")[1])
+
+		if prevEntry, err := t.DeltaTable.LogStore.logStore.Get(t.DeltaTable.Path, prevFileName); err != nil {
+			return -1, fmt.Errorf("get previous commit: %v", err)
+		} else if !prevEntry.IsComplete() {
+			if err := t.fixDeltaLog(prevEntry); err != nil {
+				return -1, fmt.Errorf("fix Delta log: %v", err)
+			}
+		}
+	} else {
+		if entry, err := t.DeltaTable.LogStore.logStore.Get(t.DeltaTable.Path, fileName); err == nil {
+			if _, err := t.DeltaTable.Store.Head(currURI); entry.IsComplete() && err != nil {
+				return -1, fmt.Errorf("old entries for table %s still in log store", t.DeltaTable.Path)
+			}
+		}
+	}
+
+	// Step 2: PREPARE the commit.
+	tempPath, err := t.createTempPath(fileName)
+	if err != nil {
+		return -1, fmt.Errorf("create temp path: %v", err)
+	}
+	relativeTempPath := storage.NewPath("_delta_log").Join(tempPath)
+
+	entry, err := logstore.New(t.DeltaTable.Path, fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
+	if err != nil {
+		return -1, fmt.Errorf("create commit entry: %v", err)
+	}
+
+	if err := t.writeActions(relativeTempPath, t.Actions); err != nil {
+		return -1, fmt.Errorf("write actions: %v", err)
+	}
+
+	// Step 2.2: Create uncompleted commit entry E(N, T(N)).
+	if err := t.DeltaTable.LogStore.logStore.Put(entry, t.DeltaTable.LogStore.overwrite); err != nil {
+		return -1, fmt.Errorf("put uncompleted commit entry: %v", err)
+	}
+
+	// Step 3: COMMIT the commit to the Delta log.
+	//         Copy T(N) -> N.json with overwriting disabled.
+	if err := t.copyTempFile(relativeTempPath, currURI); err != nil {
+		return -1, fmt.Errorf("copy temp file to N.json: %v", err)
+	}
+
+	// Step 4: ACKNOWLEDGE the commit.
+	if err := t.complete(entry); err != nil {
+		return -1, fmt.Errorf("acknowledge commit: %v", err)
+	}
+
+	return currVersion, nil
+}
+
+func (t *DeltaTransaction) complete(entry *logstore.CommitEntry) error {
+	seconds := t.DeltaTable.LogStore.logStore.ExpirationDelaySeconds()
+	entry, err := entry.Complete(seconds)
+	if err != nil {
+		return fmt.Errorf("complete commit entry: %v", err)
+	}
+
+	if err := t.DeltaTable.LogStore.logStore.Put(entry, true); err != nil {
+		return fmt.Errorf("complete commit entry: %v", err)
+	}
+
+	return nil
+}
+
+func (t *DeltaTransaction) copyTempFile(src storage.Path, dst storage.Path) error {
+	return t.DeltaTable.Store.RenameIfNotExists(src, dst)
+}
+
+func (t *DeltaTransaction) createTempPath(path storage.Path) (storage.Path, error) {
+	return storage.NewPath(fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid.New().String())), nil
+}
+
+func (t *DeltaTransaction) fixDeltaLog(entry *logstore.CommitEntry) (err error) {
+	if entry.IsComplete() {
+		return nil
+	}
+
+	filePath, err := entry.AbsoluteFilePath()
+	if err != nil {
+		return fmt.Errorf("get absolute file path: %v", err)
+	}
+
+	lock, err := t.DeltaTable.LogStore.lock.NewLock(filePath.Raw)
+	if err != nil {
+		return fmt.Errorf("create lock: %v", err)
+	}
+	if _, err = lock.TryLock(); err != nil {
+		return fmt.Errorf("acquire lock: %v", err)
+	}
+	defer func() {
+		// Defer the unlock and overwrite any errors if the unlock fails.
+		if unlockErr := lock.Unlock(); err != nil {
+			err = unlockErr
+		}
+	}()
+
+	attempt, copied := 0, false
+	for {
+		if attempt >= int(t.Options.MaxRetryDeltaLogFixAttempts) {
+			return fmt.Errorf("failed to fix Delta log after %d attempts", t.Options.MaxRetryDeltaLogFixAttempts)
+		}
+
+		log.Infof("delta-go: Trying to fix %s.", entry.FileName().Raw)
+
+		if _, err = t.DeltaTable.Store.Head(filePath); !copied && err != nil {
+			tempPath, err := entry.AbsoluteTempPath()
+			if err != nil {
+				attempt++
+				log.Debugf("delta-go: Failed to get absolute temp path. Incrementing attempt number to %d and retrying. %v",
+					attempt, err)
+				continue
+			}
+
+			if err := t.copyTempFile(tempPath, filePath); err != nil {
+				attempt++
+				log.Debugf("delta-go: File %s already copied. Incrementing attempt number to %d and retrying. %v",
+					entry.FileName().Raw, attempt, err)
+				copied = true
+				continue
+			}
+
+			copied = true
+		}
+
+		if err := t.complete(entry); err != nil {
+			attempt++
+			log.Debugf("delta-go: Failed to complete commit entry. Incrementing attempt number to %d and retrying. %v", attempt, err)
+			continue
+		}
+
+		log.Infof("delta-go: Fixed file %s.", entry.FileName().Raw)
+		return nil
+	}
+}
+
+func (transaction *DeltaTransaction) writeActions(path storage.Path, actions []Action) error {
+	// Serialize all actions that are part of this log entry.
+	entry, err := LogEntryFromActions(actions)
+	if err != nil {
+		return errors.New("failed to serialize actions")
+	}
+
+	return transaction.DeltaTable.Store.Put(path, entry)
 }
 
 // / Creates a new delta transaction.
@@ -813,6 +1169,16 @@ func (transaction *DeltaTransaction) AddAction(action Action) {
 // / Add an arbitrary number of actions to the actions associated with this transaction
 func (transaction *DeltaTransaction) AddActions(actions []Action) {
 	transaction.Actions = append(transaction.Actions, actions...)
+}
+
+// Set the Delta operation for this transaction
+func (transaction *DeltaTransaction) SetOperation(operation DeltaOperation) {
+	transaction.Operation = operation
+}
+
+// Set the app metadata for this transaction
+func (transaction *DeltaTransaction) SetAppMetadata(appMetadata map[string]any) {
+	transaction.AppMetadata = appMetadata
 }
 
 // Commits the given actions to the delta log.
@@ -1005,8 +1371,12 @@ type PreparedCommit struct {
 	URI storage.Path
 }
 
-const defaultDeltaMaxRetryCommitAttempts uint32 = 10000000
-const defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
+const (
+	defaultDeltaMaxRetryCommitAttempts           uint32 = 10000000
+	defaultDeltaMaxWriteCommitAttempts           uint32 = 10000000
+	defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
+	defaultMaxRetryDeltaLogFixAttempts           uint16 = 3
+)
 
 // Options for customizing behavior of a `DeltaTransaction`
 type DeltaTransactionOptions struct {
@@ -1014,17 +1384,20 @@ type DeltaTransactionOptions struct {
 	MaxRetryCommitAttempts uint32
 	// RetryWaitDuration sets the amount of times between retry's on the transaction
 	RetryWaitDuration time.Duration
+	// Number of retry attempts allowed when reading actions from a log entry
+	MaxRetryReadAttempts uint32
+	// Number of retry attempts allowed when writing actions to a log entry
+	MaxRetryWriteAttempts uint32
 	// number of retry commit attempts before loading the latest version from the table rather
 	// than using the state store
 	RetryCommitAttemptsBeforeLoadingTable uint32
+	// Number of retry attempts allowed when fixing the Delta log
+	MaxRetryDeltaLogFixAttempts uint16
 }
 
-// NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DEFAULT_DELTA_MAX_RETRY_COMMIT_ATTEMPTS = 10000000
+// NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DefaultDeltaMaxRetryCommitAttempts = 10000000, the default MaxRetryWriteCommitAttempts to DefaultDeltaMaxWriteCommitAttempts, and the default MaxRetryFixDeltaLogAttempts to DefaultMaxFixDeltaLogAttempts
 func NewDeltaTransactionOptions() *DeltaTransactionOptions {
-	return &DeltaTransactionOptions{
-		MaxRetryCommitAttempts:                defaultDeltaMaxRetryCommitAttempts,
-		RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable,
-	}
+	return &DeltaTransactionOptions{MaxRetryCommitAttempts: defaultDeltaMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultDeltaMaxWriteCommitAttempts, MaxRetryDeltaLogFixAttempts: defaultMaxRetryDeltaLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
 }
 
 // OpenTableWithVersion loads the table at this specific version

@@ -41,7 +41,7 @@ type DynamoLock struct {
 	lockClient   *dynamolock.Client
 	lockedItem   *dynamolock.Lock
 	key          string
-	dynamoClient dynamodbutils.DynamoDBClient
+	dynamoClient dynamodbutils.Client
 	opts         Options
 }
 
@@ -78,7 +78,7 @@ func (opts *Options) setOptionsDefaults() {
 }
 
 // Creates a new DynamoLock instance
-func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts Options) (*DynamoLock, error) {
+func New(client dynamodbutils.Client, tableName string, key string, opts Options) (*DynamoLock, error) {
 	opts.setOptionsDefaults()
 
 	lc, err := dynamolock.New(client,
@@ -103,7 +103,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 		},
 		TableName: aws.String(tableName),
 	}
-	dynamodbutils.TryEnsureDynamoDBTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
+	dynamodbutils.CreateTableIfNotExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
 
 	l := new(DynamoLock)
 	l.tableName = tableName
@@ -111,15 +111,25 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 	l.lockClient = lc
 	l.opts = opts
 	l.dynamoClient = client
+
 	return l, nil
 }
 
 // Creates a new DynamoLock instance using an existing DynamoLock instance
 func (l *DynamoLock) NewLock(key string) (lock.Locker, error) {
+	lc, err := dynamolock.New(l.dynamoClient,
+		l.tableName,
+		dynamolock.WithLeaseDuration(l.opts.TTL),
+		dynamolock.WithHeartbeatPeriod(l.opts.HeartBeat),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	nl := new(DynamoLock)
 	nl.tableName = l.tableName
-	nl.lockClient = l.lockClient
 	nl.key = key
+	nl.lockClient = lc
 	nl.dynamoClient = l.dynamoClient
 	nl.opts = l.opts
 

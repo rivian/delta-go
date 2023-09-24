@@ -25,8 +25,8 @@ var (
 // The data can be used to provide information about the application using the lock including
 // the prior lock client version.
 type Locker interface {
-	// Creates a new lock using an existing lock object
-	NewLock(string) (Locker, error)
+	// Creates a new lock using an existing lock instance
+	NewLock(key string) (Locker, error)
 
 	// Releases the lock
 	// Otherwise returns ErrorUnableToUnlock.
