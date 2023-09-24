@@ -48,7 +48,8 @@ var _ Client = (*MockClient)(nil)
 func NewMockClient(t *testing.T, baseURI storage.Path) (*MockClient, error) {
 	tmpDir := t.TempDir()
 	tmpPath := storage.NewPath(tmpDir)
-	fileStore := filestore.FileObjectStore{BaseURI: tmpPath}
+	var fileStore filestore.FileObjectStore
+	fileStore.SetBaseURI(tmpPath)
 	client := new(MockClient)
 	client.fileStore = &fileStore
 	// The mock client needs information about the S3 store's path to avoid edge cases during List

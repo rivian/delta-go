@@ -49,7 +49,8 @@ import (
 )
 
 func TestDeltaTransactionPrepareCommit(t *testing.T) {
-	store := filestore.FileObjectStore{BaseURI: storage.Path{Raw: "tmp/"}}
+	var store filestore.FileObjectStore
+	store.SetBaseURI(storage.NewPath("tmp/"))
 	l := filelock.New(storage.NewPath(""), "tmp/_delta_log/_commit.lock", filelock.Options{})
 	deltaTable := DeltaTable{Store: &store, LockClient: l}
 	options := DeltaTransactionOptions{MaxRetryCommitAttempts: 3}
@@ -74,7 +75,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 		t.Errorf("extension should be .tmp, has %s", commit.URI.Ext())
 	}
 
-	commitFullPath := filepath.Join(store.BaseURI.Base(), commit.URI.Raw)
+	commitFullPath := filepath.Join(store.BaseURI().Base(), commit.URI.Raw)
 	exists := fileExists(commitFullPath)
 	if !exists {
 		t.Error("commit file does not exist")
@@ -1321,10 +1322,11 @@ func BenchmarkLatestVersion(b *testing.B) {
 	var (
 		dir       = b.TempDir()
 		path      = storage.NewPath(dir)
-		fileStore = &filestore.FileObjectStore{BaseURI: path}
+		fileStore *filestore.FileObjectStore
 		client    = new(s3utils.MockClient)
 	)
 
+	fileStore.SetBaseURI(path)
 	client.SetFileStore(fileStore)
 
 	baseURL, err := uri.ParseURL()
@@ -1531,7 +1533,7 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 		t.Logf("Committed version %d", version)
 	}
 
-	items, ok := table.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	items, ok := table.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
 	if !ok {
 		t.Error("Failed to get table items")
 	}
@@ -1552,9 +1554,9 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 		}
 	}
 
-	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI().ParseURL()
 	if err != nil {
-		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI().Raw, err)
 	}
 	prefix := url.Host + url.Path + "_delta_log/"
 	objects, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
@@ -1675,7 +1677,7 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	items, ok := table.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	items, ok := table.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
 	if !ok {
 		t.Error("Failed to get table items")
 	}
@@ -1696,9 +1698,9 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 		}
 	}
 
-	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI().ParseURL()
 	if err != nil {
-		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI().Raw, err)
 	}
 	prefix := url.Host + url.Path + "_delta_log/"
 	objects, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
@@ -1811,7 +1813,7 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	items, ok := table.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	items, ok := table.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
 	if !ok {
 		t.Error("Failed to get table items")
 	}
@@ -1832,9 +1834,9 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 		}
 	}
 
-	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	url, err := table.Store.(*s3store.S3ObjectStore).BaseURI().ParseURL()
 	if err != nil {
-		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+		t.Errorf("Failed to parse URL from %s: %v", table.Store.(*s3store.S3ObjectStore).BaseURI().Raw, err)
 	}
 	prefix := url.Host + url.Path + "_delta_log/"
 	objects, err := table.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
@@ -2009,7 +2011,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 	}
 	wg.Wait()
 
-	firstItems, ok := firstTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	firstItems, ok := firstTable.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
 	if !ok {
 		t.Error("Failed to get first table's items")
 	}
@@ -2030,9 +2032,9 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 		}
 	}
 
-	url, err := firstTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	url, err := firstTable.Store.(*s3store.S3ObjectStore).BaseURI().ParseURL()
 	if err != nil {
-		t.Errorf("First table: failed to parse URL from %s: %v", firstTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+		t.Errorf("First table: failed to parse URL from %s: %v", firstTable.Store.(*s3store.S3ObjectStore).BaseURI().Raw, err)
 	}
 	prefix := url.Host + url.Path + "_delta_log/"
 	firstObjects, err := firstTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
@@ -2123,7 +2125,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 		}
 	}
 
-	secondItems, ok := secondTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	secondItems, ok := secondTable.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
 	if !ok {
 		t.Error("Failed to get second table's items")
 	}
@@ -2148,9 +2150,9 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 		}
 	}
 
-	url, err = secondTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	url, err = secondTable.Store.(*s3store.S3ObjectStore).BaseURI().ParseURL()
 	if err != nil {
-		t.Errorf("Second table: failed to parse URL from %s: %v", secondTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+		t.Errorf("Second table: failed to parse URL from %s: %v", secondTable.Store.(*s3store.S3ObjectStore).BaseURI().Raw, err)
 	}
 	prefix = url.Host + url.Path + "_delta_log/"
 	secondObjects, err := secondTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
@@ -2296,7 +2298,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	}
 	wg.Wait()
 
-	firstItems, ok := firstTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	firstItems, ok := firstTable.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
 	if !ok {
 		t.Error("Failed to get first table's items")
 	}
@@ -2317,9 +2319,9 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 		}
 	}
 
-	url, err := firstTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	url, err := firstTable.Store.(*s3store.S3ObjectStore).BaseURI().ParseURL()
 	if err != nil {
-		t.Errorf("First table: failed to parse URL from %s: %v", firstTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+		t.Errorf("First table: failed to parse URL from %s: %v", firstTable.Store.(*s3store.S3ObjectStore).BaseURI().Raw, err)
 	}
 	prefix := url.Host + url.Path + "_delta_log/"
 	firstObjects, err := firstTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))
@@ -2410,7 +2412,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 		}
 	}
 
-	secondItems, ok := secondTable.LogStore.logStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
+	secondItems, ok := secondTable.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
 	if !ok {
 		t.Error("Failed to get second table's items")
 	}
@@ -2435,9 +2437,9 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 		}
 	}
 
-	url, err = secondTable.Store.(*s3store.S3ObjectStore).BaseURI.ParseURL()
+	url, err = secondTable.Store.(*s3store.S3ObjectStore).BaseURI().ParseURL()
 	if err != nil {
-		t.Errorf("Second table: failed to parse URL from %s: %v", secondTable.Store.(*s3store.S3ObjectStore).BaseURI.Raw, err)
+		t.Errorf("Second table: failed to parse URL from %s: %v", secondTable.Store.(*s3store.S3ObjectStore).BaseURI().Raw, err)
 	}
 	prefix = url.Host + url.Path + "_delta_log/"
 	secondObjects, err := secondTable.Store.(*s3store.S3ObjectStore).Client.(*s3utils.MockClient).FileStore().ListAll(storage.NewPath(prefix))

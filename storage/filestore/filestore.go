@@ -26,7 +26,7 @@ import (
 
 // FileObjectStore provides local file storage
 type FileObjectStore struct {
-	BaseURI storage.Path
+	baseURI storage.Path
 }
 
 // Compile time check that FileObjectStore implements storage.ObjectStore
@@ -34,12 +34,12 @@ var _ storage.ObjectStore = (*FileObjectStore)(nil)
 
 func New(baseURI storage.Path) *FileObjectStore {
 	fs := new(FileObjectStore)
-	fs.BaseURI = baseURI
+	fs.baseURI = baseURI
 	return fs
 }
 
 func (s *FileObjectStore) Put(location storage.Path, bytes []byte) error {
-	writePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	writePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.MkdirAll(filepath.Dir(writePath), 0700)
 	if err != nil {
 		return errors.Join(storage.ErrPutObject, err)
@@ -62,7 +62,7 @@ func (s *FileObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) 
 }
 
 func (s *FileObjectStore) Get(location storage.Path) ([]byte, error) {
-	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	data, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
 		return nil, errors.Join(storage.ErrObjectDoesNotExist, err)
@@ -74,7 +74,7 @@ func (s *FileObjectStore) Get(location storage.Path) ([]byte, error) {
 }
 
 func (s *FileObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) {
-	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	var meta storage.ObjectMeta
 	info, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
@@ -96,8 +96,8 @@ func (s *FileObjectStore) Head(location storage.Path) (storage.ObjectMeta, error
 
 func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 	// rename source to destination
-	f := s.BaseURI.Join(from)
-	t := s.BaseURI.Join(to)
+	f := s.baseURI.Join(from)
+	t := s.baseURI.Join(to)
 	err := os.Rename(f.Raw, t.Raw)
 	if err != nil {
 		return errors.Join(storage.ErrObjectDoesNotExist, err)
@@ -106,7 +106,7 @@ func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 }
 
 func (s *FileObjectStore) Delete(location storage.Path) error {
-	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.Remove(filePath)
 	if err != nil {
 		return errors.Join(storage.ErrDeleteObject, err)
@@ -115,7 +115,7 @@ func (s *FileObjectStore) Delete(location storage.Path) error {
 }
 
 func (s *FileObjectStore) DeleteFolder(location storage.Path) error {
-	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.RemoveAll(filePath)
 	if err != nil {
 		return errors.Join(storage.ErrDeleteObject, err)
@@ -189,7 +189,7 @@ func (s *FileObjectStore) ListAll(prefix storage.Path) (storage.ListResult, erro
 	var listResult storage.ListResult
 	dir, filePrefix := filepath.Split(prefix.Raw)
 
-	fullDir := filepath.Join(s.BaseURI.Raw, dir)
+	fullDir := filepath.Join(s.baseURI.Raw, dir)
 
 	// If filePrefix was "", make sure fullDir includes a trailing separator.
 	// Otherwise we will return results in the parent directory that start with the same
@@ -200,7 +200,7 @@ func (s *FileObjectStore) ListAll(prefix storage.Path) (storage.ListResult, erro
 
 	// baseURI will be trimmed from the beginning of the results returned.
 	// It must have a trailing separator.
-	baseURI := s.BaseURI.Raw
+	baseURI := s.baseURI.Raw
 	if !os.IsPathSeparator(baseURI[len(baseURI)-1]) {
 		baseURI += string(filepath.Separator)
 	}
@@ -212,7 +212,7 @@ func (s *FileObjectStore) ListAll(prefix storage.Path) (storage.ListResult, erro
 
 	// If the prefix passed in was a directory, add the root directory explicitly
 	if dir != "" && filePrefix == "" {
-		info, err := os.Stat(filepath.Join(s.BaseURI.Raw, dir))
+		info, err := os.Stat(filepath.Join(s.baseURI.Raw, dir))
 		// If we get an error the directory doesn't exist, that's okay
 		if err != nil && !os.IsNotExist(err) {
 			return listResult, errors.Join(storage.ErrListObjects, err)
@@ -240,7 +240,7 @@ func (s *FileObjectStore) SupportsWriter() bool {
 }
 
 func (s *FileObjectStore) Writer(location storage.Path, flag int) (io.Writer, func(), error) {
-	writePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+	writePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.MkdirAll(filepath.Dir(writePath), 0700)
 	if err != nil {
 		return nil, nil, errors.Join(storage.ErrWriter, err)
@@ -248,4 +248,19 @@ func (s *FileObjectStore) Writer(location storage.Path, flag int) (io.Writer, fu
 
 	f, err := os.OpenFile(writePath, os.O_WRONLY|flag, 0700)
 	return f, func() { f.Close() }, err
+}
+
+// BaseURI gets the base URI.
+func (s *FileObjectStore) BaseURI() storage.Path {
+	return s.baseURI
+}
+
+// SetBaseURI gets the base URI.
+func (s *FileObjectStore) SetBaseURI(baseURI storage.Path) {
+	s.baseURI = baseURI
+}
+
+// SupportsAtomicPutIfAbsent returns false because local file storage does not provide a "put-if-absent" API.
+func (s *FileObjectStore) SupportsAtomicPutIfAbsent() bool {
+	return false
 }

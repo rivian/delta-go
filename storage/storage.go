@@ -244,6 +244,13 @@ type ObjectStore interface {
 	// If error is nil, then the returned function should be called with a defer to close resources
 	// Writer may not be supported for all store types
 	Writer(to Path, flag int) (io.Writer, func(), error)
+
+	// BaseURI gets a store's base URI.
+	BaseURI() Path
+
+	// SupportsAtomicPutIfAbsent returns true if a store provides a "put-if-absent" API.
+	// Otherwise, it returns false.
+	SupportsAtomicPutIfAbsent() bool
 }
 
 // / Wrapper around List that will perform paging if required

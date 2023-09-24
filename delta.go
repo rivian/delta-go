@@ -69,19 +69,8 @@ type DeltaTable struct {
 	LastCheckPoint *CheckPoint
 	// table versions associated with timestamps
 	VersionTimestamp map[int64]time.Time
-	// Log store to create multi-cluster support for object stores that do not provide a "put-if-absent" API
-	LogStore *DeltaTableLogStore
-	// Delta table path
-	Path storage.Path
-}
-
-type DeltaTableLogStore struct {
-	// Key value store which holds the version history
-	logStore logstore.LogStore
-	// Lock which prevents multiple writers from trying to commit the same version
-	lock lock.Locker
-	// True if the object store provides a "put-if-absent" API
-	overwrite bool
+	// Log store which holds the version history
+	LogStore logstore.LogStore
 }
 
 // OptimizeCheckpointConfiguration holds settings for optimizing checkpoint read and write operations
@@ -111,16 +100,11 @@ func NewDeltaTable(store storage.ObjectStore, lock lock.Locker, stateStore state
 
 func NewDeltaTableWithLogStore(tablePath storage.Path, store storage.ObjectStore, logStore logstore.LogStore, lock lock.Locker, overwrite bool) *DeltaTable {
 	t := new(DeltaTable)
-	t.Path = storage.NewPath(strings.TrimSuffix(tablePath.Raw, "/"))
 	t.Store = store
 	t.LastCheckPoint = nil
 	t.State = *NewTableState(-1)
-
-	ls := new(DeltaTableLogStore)
-	ls.logStore = logStore
-	ls.lock = lock
-	ls.overwrite = overwrite
-	t.LogStore = ls
+	t.LogStore = logStore
+	t.LockClient = lock
 
 	return t
 }
@@ -906,32 +890,9 @@ func (transaction *DeltaTransaction) CommitLogStore() (int64, error) {
 
 func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 	var currURI storage.Path
-	prevURI, err := t.DeltaTable.LogStore.logStore.Latest(t.DeltaTable.Path)
+	prevURI, err := t.DeltaTable.LogStore.Latest(t.DeltaTable.Store.BaseURI())
 
 	if prevURI != nil {
-		found := false
-		for _, action := range t.Actions {
-			switch action.(type) {
-			case CommitInfo:
-				found = true
-			}
-		}
-
-		if !found {
-			commitInfo := make(CommitInfo)
-			commitInfo["timestamp"] = time.Now().UnixMilli()
-			commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", deltaClientVersion)
-
-			if t.Operation != nil {
-				maps.Copy(commitInfo, t.Operation.GetCommitInfo())
-			}
-			if t.AppMetadata != nil {
-				maps.Copy(commitInfo, t.AppMetadata)
-			}
-
-			t.AddAction(commitInfo)
-		}
-
 		parsed, prevVersion := CommitVersionFromUri(prevURI.FileName())
 		if !parsed {
 			return -1, fmt.Errorf("failed to parse previous version from %s", prevURI.FileName().Raw)
@@ -944,21 +905,25 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 		} else {
 			uri := CommitUriFromVersion(version).Raw
 			fileName := storage.NewPath(strings.Split(uri, "_delta_log/")[1])
-			seconds := t.DeltaTable.LogStore.logStore.ExpirationDelaySeconds()
+			seconds := t.DeltaTable.LogStore.ExpirationDelaySeconds()
 
-			entry, err := logstore.New(t.DeltaTable.Path, fileName,
+			entry, err := logstore.New(t.DeltaTable.Store.BaseURI(), fileName,
 				storage.NewPath("") /* tempPath */, true /* isComplete */, uint64(time.Now().Unix())+seconds)
 			if err != nil {
 				return -1, fmt.Errorf("create first commit entry: %v", err)
 			}
 
-			if err := t.DeltaTable.LogStore.logStore.Put(entry, t.DeltaTable.LogStore.overwrite); err != nil {
+			if err := t.DeltaTable.LogStore.Put(entry, t.DeltaTable.Store.SupportsAtomicPutIfAbsent()); err != nil {
 				return -1, fmt.Errorf("put first commit entry: %v", err)
 			}
+			log.Debugf("delta-go: Put completed commit entry for table path %s and file name %s in the empty log store.",
+			t.DeltaTable.Store.BaseURI(), fileName)
 
 			currURI = CommitUriFromVersion(version + 1)
 		}
 	}
+
+	t.AddCommitInfo()
 
 	// Prevent concurrent writers from either
 	// a) concurrently overwriting N.json if overwriting is enabled
@@ -970,7 +935,7 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 	//
 	// Also note that this lock is for N.json, while the lock used during a recovery is for
 	// N-1.json. Thus, there is no deadlock.
-	lock, err := t.DeltaTable.LogStore.lock.NewLock(t.DeltaTable.Path.Join(currURI).Raw)
+	lock, err := t.DeltaTable.LockClient.NewLock(t.DeltaTable.Store.BaseURI().Join(currURI).Raw)
 	if err != nil {
 		return -1, fmt.Errorf("create lock: %v", err)
 	}
@@ -991,7 +956,7 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 		return -1, fmt.Errorf("failed to parse previous version from %s", currURI.Raw)
 	}
 
-	if t.DeltaTable.LogStore.overwrite {
+	if t.DeltaTable.Store.SupportsAtomicPutIfAbsent() {
 		t.writeActions(currURI, t.Actions)
 
 		return currVersion, nil
@@ -1006,7 +971,7 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 	if currVersion > 0 {
 		prevFileName := storage.NewPath(strings.Split(CommitUriFromVersion(currVersion-1).Raw, "_delta_log/")[1])
 
-		if prevEntry, err := t.DeltaTable.LogStore.logStore.Get(t.DeltaTable.Path, prevFileName); err != nil {
+		if prevEntry, err := t.DeltaTable.LogStore.Get(t.DeltaTable.Store.BaseURI(), prevFileName); err != nil {
 			return -1, fmt.Errorf("get previous commit: %v", err)
 		} else if !prevEntry.IsComplete() {
 			if err := t.fixDeltaLog(prevEntry); err != nil {
@@ -1014,9 +979,9 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 			}
 		}
 	} else {
-		if entry, err := t.DeltaTable.LogStore.logStore.Get(t.DeltaTable.Path, fileName); err == nil {
+		if entry, err := t.DeltaTable.LogStore.Get(t.DeltaTable.Store.BaseURI(), fileName); err == nil {
 			if _, err := t.DeltaTable.Store.Head(currURI); entry.IsComplete() && err != nil {
-				return -1, fmt.Errorf("old entries for table %s still in log store", t.DeltaTable.Path)
+				return -1, fmt.Errorf("old entries for table %s still in log store", t.DeltaTable.Store.BaseURI())
 			}
 		}
 	}
@@ -1028,7 +993,7 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 	}
 	relativeTempPath := storage.NewPath("_delta_log").Join(tempPath)
 
-	entry, err := logstore.New(t.DeltaTable.Path, fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
+	entry, err := logstore.New(t.DeltaTable.Store.BaseURI(), fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
 	if err != nil {
 		return -1, fmt.Errorf("create commit entry: %v", err)
 	}
@@ -1038,7 +1003,7 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 	}
 
 	// Step 2.2: Create uncompleted commit entry E(N, T(N)).
-	if err := t.DeltaTable.LogStore.logStore.Put(entry, t.DeltaTable.LogStore.overwrite); err != nil {
+	if err := t.DeltaTable.LogStore.Put(entry, t.DeltaTable.Store.SupportsAtomicPutIfAbsent()); err != nil {
 		return -1, fmt.Errorf("put uncompleted commit entry: %v", err)
 	}
 
@@ -1057,13 +1022,13 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 }
 
 func (t *DeltaTransaction) complete(entry *logstore.CommitEntry) error {
-	seconds := t.DeltaTable.LogStore.logStore.ExpirationDelaySeconds()
+	seconds := t.DeltaTable.LogStore.ExpirationDelaySeconds()
 	entry, err := entry.Complete(seconds)
 	if err != nil {
 		return fmt.Errorf("complete commit entry: %v", err)
 	}
 
-	if err := t.DeltaTable.LogStore.logStore.Put(entry, true); err != nil {
+	if err := t.DeltaTable.LogStore.Put(entry, true); err != nil {
 		return fmt.Errorf("complete commit entry: %v", err)
 	}
 
@@ -1088,7 +1053,7 @@ func (t *DeltaTransaction) fixDeltaLog(entry *logstore.CommitEntry) (err error) 
 		return fmt.Errorf("get absolute file path: %v", err)
 	}
 
-	lock, err := t.DeltaTable.LogStore.lock.NewLock(filePath.Raw)
+	lock, err := t.DeltaTable.LockClient.NewLock(filePath.Raw)
 	if err != nil {
 		return fmt.Errorf("create lock: %v", err)
 	}
@@ -1171,12 +1136,38 @@ func (transaction *DeltaTransaction) AddActions(actions []Action) {
 	transaction.Actions = append(transaction.Actions, actions...)
 }
 
-// Set the Delta operation for this transaction
+// AddCommitInfo adds a `commitInfo` action to a transaction's actions if not already present.
+func (t *DeltaTransaction) AddCommitInfo() {
+	found := false
+	for _, action := range t.Actions {
+		switch action.(type) {
+		case CommitInfo:
+			found = true
+		}
+	}
+
+	if !found {
+		commitInfo := make(CommitInfo)
+		commitInfo["timestamp"] = time.Now().UnixMilli()
+		commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", deltaClientVersion)
+
+		if t.Operation != nil {
+			maps.Copy(commitInfo, t.Operation.GetCommitInfo())
+		}
+		if t.AppMetadata != nil {
+			maps.Copy(commitInfo, t.AppMetadata)
+		}
+
+		t.AddAction(commitInfo)
+	}
+}
+
+// SetOperation sets the Delta operation for this transaction.
 func (transaction *DeltaTransaction) SetOperation(operation DeltaOperation) {
 	transaction.Operation = operation
 }
 
-// Set the app metadata for this transaction
+// SetAppMetadata sets the app metadata for this transaction.
 func (transaction *DeltaTransaction) SetAppMetadata(appMetadata map[string]any) {
 	transaction.AppMetadata = appMetadata
 }
@@ -1217,26 +1208,7 @@ func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadat
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `DeltaTable.try_commit_transaction`.
 func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, appMetadata map[string]any) (PreparedCommit, error) {
-	anyCommitInfo := false
-	for _, action := range transaction.Actions {
-		switch action.(type) {
-		case CommitInfo:
-			anyCommitInfo = true
-		}
-	}
-	//if not any commit, add new commit info
-	if !anyCommitInfo {
-		commitInfo := make(CommitInfo)
-		commitInfo["timestamp"] = time.Now().UnixMilli()
-		commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", deltaClientVersion)
-		if operation != nil {
-			maps.Copy(commitInfo, operation.GetCommitInfo())
-		}
-		if appMetadata != nil {
-			maps.Copy(commitInfo, appMetadata)
-		}
-		transaction.AddAction(commitInfo)
-	}
+	transaction.AddCommitInfo()
 
 	// Serialize all actions that are part of this log entry.
 	logEntry, err := LogEntryFromActions(transaction.Actions)

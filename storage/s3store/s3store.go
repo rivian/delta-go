@@ -33,7 +33,7 @@ import (
 type S3ObjectStore struct {
 	// Source object key
 	Client  s3utils.Client
-	BaseURI storage.Path
+	baseURI storage.Path
 	baseURL *url.URL
 	bucket  string
 	path    string
@@ -47,7 +47,7 @@ var _ storage.ObjectStore = (*S3ObjectStore)(nil)
 func New(client s3utils.Client, baseURI storage.Path) (*S3ObjectStore, error) {
 	store := new(S3ObjectStore)
 	store.Client = client
-	store.BaseURI = baseURI
+	store.baseURI = baseURI
 
 	var err error
 	store.baseURL, err = baseURI.ParseURL()
@@ -295,4 +295,14 @@ func (s *S3ObjectStore) Writer(to storage.Path, flag int) (io.Writer, func(), er
 
 func (s *S3ObjectStore) DeleteFolder(location storage.Path) error {
 	return storage.ErrOperationNotSupported
+}
+
+// BaseURI gets the base URI.
+func (s *S3ObjectStore) BaseURI() storage.Path {
+	return s.baseURI
+}
+
+// SupportsAtomicPutIfAbsent returns false because S3 does not provide a "put-if-absent" API.
+func (s *S3ObjectStore) SupportsAtomicPutIfAbsent() bool {
+	return false
 }

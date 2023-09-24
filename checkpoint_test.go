@@ -978,15 +978,15 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			}
 			now := time.Now()
 			// With cleanup enabled, 25 and 15 minutes ago should be deleted, 5 should not
-			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1105,27 +1105,27 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 	// 3: 13 min ago
 	// 4: 12 min ago
 	// 5: 6 min ago
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(0).Raw), now.Add(-20*time.Minute), now.Add(-20*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(0).Raw), now.Add(-20*time.Minute), now.Add(-20*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(2).Raw), now.Add(-10*time.Minute), now.Add(-10*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(2).Raw), now.Add(-10*time.Minute), now.Add(-10*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(3).Raw), now.Add(-13*time.Minute), now.Add(-13*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(3).Raw), now.Add(-13*time.Minute), now.Add(-13*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(3).Raw), now.Add(-12*time.Minute), now.Add(-12*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(3).Raw), now.Add(-12*time.Minute), now.Add(-12*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI.Raw, CommitUriFromVersion(3).Raw), now.Add(-6*time.Minute), now.Add(-6*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(3).Raw), now.Add(-6*time.Minute), now.Add(-6*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1194,7 +1194,7 @@ func TestCheckpointLocked(t *testing.T) {
 		t.Fatal("unable to obtain lock")
 	}
 
-	localLock := filelock.New(store.BaseURI, "_delta_log/_checkpoint.lock", filelock.Options{})
+	localLock := filelock.New(store.BaseURI(), "_delta_log/_checkpoint.lock", filelock.Options{})
 
 	checkpointed, err := CreateCheckpoint(store, localLock, NewCheckpointConfiguration(), 5)
 	if !errors.Is(err, lock.ErrLockNotObtained) {
@@ -1220,7 +1220,7 @@ func TestCheckpointLocked(t *testing.T) {
 
 func TestCheckpointUnlockFailure(t *testing.T) {
 	store, _, _, _ := setupCheckpointTest(t, "testdata/checkpoints/simple")
-	brokenLock := testBrokenUnlockLocker{*filelock.New(store.BaseURI, "_delta_log/_commit.lock", filelock.Options{TTL: 60 * time.Second})}
+	brokenLock := testBrokenUnlockLocker{*filelock.New(store.BaseURI(), "_delta_log/_commit.lock", filelock.Options{TTL: 60 * time.Second})}
 
 	checkpointed, err := CreateCheckpoint(store, &brokenLock, NewCheckpointConfiguration(), 5)
 	if !errors.Is(err, lock.ErrUnableToUnlock) {
