@@ -917,7 +917,7 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 				return -1, fmt.Errorf("put first commit entry: %v", err)
 			}
 			log.Debugf("delta-go: Put completed commit entry for table path %s and file name %s in the empty log store.",
-			t.DeltaTable.Store.BaseURI(), fileName)
+				t.DeltaTable.Store.BaseURI(), fileName)
 
 			currURI = CommitUriFromVersion(version + 1)
 		}
