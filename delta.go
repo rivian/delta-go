@@ -923,7 +923,7 @@ func (t *DeltaTransaction) tryCommitLogStore() (version int64, err error) {
 		}
 	}
 
-	t.AddCommitInfo()
+	t.AddCommitInfoIfNotPresent()
 
 	// Prevent concurrent writers from either
 	// a) concurrently overwriting N.json if overwriting is enabled
@@ -1137,7 +1137,7 @@ func (transaction *DeltaTransaction) AddActions(actions []Action) {
 }
 
 // AddCommitInfo adds a `commitInfo` action to a transaction's actions if not already present.
-func (t *DeltaTransaction) AddCommitInfo() {
+func (t *DeltaTransaction) AddCommitInfoIfNotPresent() {
 	found := false
 	for _, action := range t.Actions {
 		switch action.(type) {
@@ -1208,7 +1208,7 @@ func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadat
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `DeltaTable.try_commit_transaction`.
 func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, appMetadata map[string]any) (PreparedCommit, error) {
-	transaction.AddCommitInfo()
+	transaction.AddCommitInfoIfNotPresent()
 
 	// Serialize all actions that are part of this log entry.
 	logEntry, err := LogEntryFromActions(transaction.Actions)
