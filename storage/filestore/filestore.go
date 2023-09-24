@@ -255,7 +255,7 @@ func (s *FileObjectStore) BaseURI() storage.Path {
 	return s.baseURI
 }
 
-// SetBaseURI gets the base URI.
+// SetBaseURI sets the base URI.
 func (s *FileObjectStore) SetBaseURI(baseURI storage.Path) {
 	s.baseURI = baseURI
 }

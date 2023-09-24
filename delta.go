@@ -69,7 +69,7 @@ type DeltaTable struct {
 	LastCheckPoint *CheckPoint
 	// table versions associated with timestamps
 	VersionTimestamp map[int64]time.Time
-	// Log store which holds the version history
+	// Log store which provides multi-cluster write support
 	LogStore logstore.LogStore
 }
 
@@ -1367,7 +1367,7 @@ type DeltaTransactionOptions struct {
 	MaxRetryDeltaLogFixAttempts uint16
 }
 
-// NewDeltaTransactionOptions Sets the default MaxRetryCommitAttempts to DefaultDeltaMaxRetryCommitAttempts = 10000000, the default MaxRetryWriteCommitAttempts to DefaultDeltaMaxWriteCommitAttempts, and the default MaxRetryFixDeltaLogAttempts to DefaultMaxFixDeltaLogAttempts
+// NewDeltaTransactionOptions sets the default transaction options.
 func NewDeltaTransactionOptions() *DeltaTransactionOptions {
 	return &DeltaTransactionOptions{MaxRetryCommitAttempts: defaultDeltaMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultDeltaMaxWriteCommitAttempts, MaxRetryDeltaLogFixAttempts: defaultMaxRetryDeltaLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
 }
