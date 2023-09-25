@@ -145,7 +145,7 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 	case *Remove:
 		// TODO - do we need to decode as in delta-rs?
 		tableState.Tombstones[action.Path] = *action
-	case *Metdata:
+	case *Metadata:
 		if action.Configuration != nil {
 			// Parse the configuration options that we make use of
 			option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]

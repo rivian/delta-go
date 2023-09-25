@@ -769,9 +769,9 @@ func NewTableMetadata(name string, description string, format Format, schema Sch
 }
 
 // TableMetadata.ToMetadata() converts a TableMetadata to Metadata
-func (dtmd *TableMetadata) ToMetadata() Metdata {
+func (dtmd *TableMetadata) ToMetadata() Metadata {
 	createdTime := dtmd.CreatedTime.UnixMilli()
-	metadata := Metdata{
+	metadata := Metadata{
 		Id:               dtmd.Id,
 		IdAsString:       dtmd.Id.String(),
 		Name:             &dtmd.Name,

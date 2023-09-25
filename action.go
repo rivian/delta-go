@@ -126,7 +126,7 @@ func (format *Format) Default() Format {
 
 // / Action that describes the metadata of the table.
 // / This is a top-level action in Delta log entries.
-type Metdata struct {
+type Metadata struct {
 	/// Unique identifier for this table
 	Id uuid.UUID `json:"id" parquet:"-"`
 	/// Parquet library cannot import to UUID
@@ -149,7 +149,7 @@ type Metdata struct {
 
 // Metadata.ToTableMetadata() converts a Metadata to TableMetadata
 // Internally, it converts the schema from a string.
-func (md *Metdata) ToTableMetadata() (TableMetadata, error) {
+func (md *Metadata) ToTableMetadata() (TableMetadata, error) {
 	var err error
 	schema, err := md.GetSchema()
 
@@ -231,12 +231,12 @@ func logEntryFromAction(action Action) ([]byte, error) {
 	switch action.(type) {
 	//TODO: Add errors for missing or null values that are not allowed by the Delta protocol
 	//https://github.com/delta-io/delta/blob/master/PROTOCOL.md#actions
-	case Remove, CommitInfo, Metdata, Protocol, Txn:
+	case Remove, CommitInfo, Metadata, Protocol, Txn:
 		// wrap the action data in a camelCase of the action type
 		key := strcase.ToLowerCamel(reflect.TypeOf(action).Name())
 		m[key] = action
 		log, err = json.Marshal(m)
-	case *Remove, *CommitInfo, *Metdata, *Protocol, *Txn:
+	case *Remove, *CommitInfo, *Metadata, *Protocol, *Txn:
 		key := strcase.ToLowerCamel(reflect.ValueOf(action).Elem().Type().Name())
 		m[key] = action
 		log, err = json.Marshal(m)
@@ -300,7 +300,7 @@ func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, 
 	} else if marshalledAction, actionFound = unstructuredResult[string(ProtocolActionKey)]; actionFound {
 		action = new(Protocol)
 	} else if marshalledAction, actionFound = unstructuredResult[string(MetaDataActionKey)]; actionFound {
-		action = new(Metdata)
+		action = new(Metadata)
 	} else if marshalledAction, actionFound = unstructuredResult[string(FormatActionKey)]; actionFound {
 		action = new(Format)
 	} else if marshalledAction, actionFound = unstructuredResult[string(TransactionActionKey)]; actionFound {
@@ -343,7 +343,7 @@ func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 
 // Returns the table schema from the embedded schema string contained within the metadata
 // action.
-func (m *Metdata) GetSchema() (Schema, error) {
+func (m *Metadata) GetSchema() (Schema, error) {
 	var schema Schema
 	err := json.Unmarshal([]byte(m.SchemaString), &schema)
 	return schema, err

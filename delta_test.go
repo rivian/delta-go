@@ -119,7 +119,7 @@ func TestDeltaTableReadCommitVersion(t *testing.T) {
 	if !ok {
 		t.Error("Expected Protocol for second action")
 	}
-	_, ok = actions[2].(*Metdata)
+	_, ok = actions[2].(*Metadata)
 	if !ok {
 		t.Error("Expected MetaData for third action")
 	}
@@ -182,7 +182,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	if !ok {
 		t.Error("Expected Protocol for second action")
 	}
-	_, ok = actions[2].(*Metdata)
+	_, ok = actions[2].(*Metadata)
 	if !ok {
 		t.Error("Expected MetaData for third action")
 	}
