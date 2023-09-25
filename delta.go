@@ -809,7 +809,7 @@ func (dtmd *TableMetadata) GetPartitionColDataTypes() map[string]SchemaDataType 
 // / Please not that in case of non-retryable error the temporary commit file such as
 // / `_delta_log/_commit_<uuid>.json` will orphaned in storage.
 type Transaction struct {
-	Table  *Table
+	Table       *Table
 	Actions     []Action
 	Operation   Operation
 	AppMetadata map[string]any
@@ -1167,7 +1167,7 @@ func (transaction *Transaction) SetAppMetadata(appMetadata map[string]any) {
 	transaction.AppMetadata = appMetadata
 }
 
-// Commits the given actions to the Delta log.
+// Commit commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
 func (transaction *Transaction) Commit(operation Operation, appMetadata map[string]any) (int64, error) {
 	// TODO: stubbing `operation` parameter (which will be necessary for writing the CommitInfo action),
@@ -1358,10 +1358,10 @@ type PreparedCommit struct {
 }
 
 const (
-	defaultMaxRetryCommitAttempts           uint32 = 10000000
-	defaultMaxWriteCommitAttempts           uint32 = 10000000
+	defaultMaxRetryCommitAttempts                uint32 = 10000000
+	defaultMaxWriteCommitAttempts                uint32 = 10000000
 	defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
-	defaultMaxRetryLogFixAttempts           uint16 = 3
+	defaultMaxRetryLogFixAttempts                uint16 = 3
 )
 
 // Options for customizing behavior of a `Transaction`
