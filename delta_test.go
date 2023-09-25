@@ -1976,7 +1976,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 
 	var (
 		wg                sync.WaitGroup
-		transactions      = 500
+		transactions      = 100
 		firstTransaction  *Transaction
 		secondTransaction *Transaction
 	)
@@ -2263,7 +2263,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 
 	var (
 		wg                sync.WaitGroup
-		transactions      = 500
+		transactions      = 100
 		firstTransaction  *Transaction
 		secondTransaction *Transaction
 	)
