@@ -116,7 +116,10 @@ func main() {
 			appMetaData := make(map[string]any)
 			appMetaData["test"] = 123
 
-			_, err = transaction.Commit(operation, appMetaData)
+			transaction.SetOperation(operation)
+			transaction.SetAppMetadata(appMetaData)
+
+			_, err = transaction.Commit()
 			if err != nil {
 				log.Error(err)
 			}

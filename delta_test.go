@@ -66,7 +66,10 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	operation := Write{Mode: Overwrite}
 	appMetaData := make(map[string]any)
 	appMetaData["test"] = 123
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction.SetOperation(operation)
+	transaction.SetAppMetadata(appMetaData)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error("should be locked")
 	}
@@ -93,8 +96,9 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 func TestDeltaTableReadCommitVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction, operation, appMetaData := setupTransaction(t, table, nil)
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, nil)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,8 +160,9 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 		t.Error(err)
 	}
 
-	transaction, operation, appMetaData := setupTransaction(t, table, nil)
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, nil)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,8 +214,9 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table, _, _ := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction, operation, appMetaData := setupTransaction(t, table, nil)
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, nil)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -232,7 +238,7 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	}
 
 	//prpare a new commit and try on the next version
-	commit, _ = transaction.PrepareCommit(operation, appMetaData)
+	commit, _ = transaction.PrepareCommit()
 	err = transaction.TryCommit(&commit)
 	if err != nil {
 		t.Error(err)
@@ -240,7 +246,6 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	if transaction.Table.State.Version != 3 {
 		t.Errorf("want version = 2,has version = %d", transaction.Table.State.Version)
 	}
-
 }
 
 func TestTryCommitWithExistingLock(t *testing.T) {
@@ -261,8 +266,9 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 
 	table := NewTable(store, lockClient, state)
 
-	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
-	version, err := transaction.Commit(operation, appMetaData)
+	transaction := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
+
+	version, err := transaction.Commit()
 	if !errors.Is(err, ErrExceededCommitRetryAttempts) {
 		t.Error(err)
 	}
@@ -279,7 +285,7 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 	//try_commit after w0.Unlock()
 	w0lockClient.Unlock()
 	time.Sleep(time.Second)
-	version, err = transaction.Commit(operation, appMetaData)
+	version, err = transaction.Commit()
 	if version != 1 {
 		t.Errorf("version stored in table.State.Version was synced to remote state to 1")
 	}
@@ -315,8 +321,8 @@ func TestCommitUnlockFailure(t *testing.T) {
 
 	table := NewTable(store, &lockClient, state)
 
-	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
-	_, err := transaction.Commit(operation, appMetaData)
+	transaction := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
+	_, err := transaction.Commit()
 	if !errors.Is(err, lock.ErrUnableToUnlock) {
 		t.Error(err)
 	}
@@ -332,8 +338,9 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	table := NewTable(store, lock, storeState)
 
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction, operation, appMetaData := setupTransaction(t, table, nil)
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, nil)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -345,7 +352,7 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 		t.Errorf("want version %d, has version = %d", 1, transaction.Table.State.Version)
 	}
 
-	commit, _ = transaction.PrepareCommit(operation, appMetaData)
+	commit, _ = transaction.PrepareCommit()
 	err = transaction.TryCommit(&commit)
 	if err != nil {
 		t.Error(err)
@@ -431,8 +438,9 @@ func TestDeltaTableExists(t *testing.T) {
 	}
 
 	// Create another version file
-	transaction, operation, appMetaData := setupTransaction(t, table, nil)
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, nil)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -520,8 +528,9 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 		t.Error(err)
 	}
 	// Create another version file
-	transaction, operation, appMetaData := setupTransaction(t, table, nil)
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, nil)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -562,8 +571,9 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 func TestDeltaTableTryCommitLoop(t *testing.T) {
 	table, _, _ := setupTest(t)
 
-	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{})
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, &TransactionOptions{})
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -573,7 +583,7 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 		t.Error(err)
 	}
 
-	newCommit, err := transaction.PrepareCommit(operation, appMetaData)
+	newCommit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -587,8 +597,9 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
-	commit, err := transaction.PrepareCommit(operation, appMetaData)
+	transaction := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -607,7 +618,7 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	os.WriteFile(fakeCommit3, []byte("temp commit data"), 0700)
 
 	//create the next commit, should be 004.json after trying 003.json
-	newCommit, err := transaction.PrepareCommit(operation, appMetaData)
+	newCommit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -636,14 +647,14 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{
+	transaction := setupTransaction(t, table, &TransactionOptions{
 		MaxRetryCommitAttempts:                5, //Should break on max attempts if the latest version logic fails
 		RetryWaitDuration:                     time.Second,
 		RetryCommitAttemptsBeforeLoadingTable: 2, //Should get the latest version after 2 attempts
 	})
 
 	for i := 1; i < 10; i++ {
-		commit, err := transaction.PrepareCommit(operation, appMetaData)
+		commit, err := transaction.PrepareCommit()
 		if err != nil {
 			t.Error(err)
 		}
@@ -661,7 +672,7 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table.State.Version = 0
 
 	//create the next commit, should be 010.json after finding that 000.json exists and loading the tabel state
-	newCommit, err := transaction.PrepareCommit(operation, appMetaData)
+	newCommit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -726,8 +737,8 @@ func TestCommitConcurrent(t *testing.T) {
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
 			table := NewTable(store, lock, state)
-			transaction, operation, appMetaData := setupTransaction(t, table, NewTransactionOptions())
-			_, err := transaction.Commit(operation, appMetaData)
+			transaction := setupTransaction(t, table, NewTransactionOptions())
+			_, err := transaction.Commit()
 			if err != nil {
 				errs <- err
 			} else {
@@ -835,7 +846,10 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 			appMetaData := make(map[string]any)
 			appMetaData["test"] = 123
 
-			_, err = transaction.Commit(operation, appMetaData)
+			transaction.SetOperation(operation)
+			transaction.SetAppMetadata(appMetaData)
+
+			_, err = transaction.Commit()
 			if err != nil {
 				errs <- err
 			} else {
@@ -1042,7 +1056,7 @@ func setupTest(t *testing.T) (table *Table, state *filestate.FileStateStore, tmp
 }
 
 // / Helper function to set up a basic transaction
-func setupTransaction(t *testing.T, table *Table, options *TransactionOptions) (transaction *Transaction, operation Operation, appMetaData map[string]any) {
+func setupTransaction(t *testing.T, table *Table, options *TransactionOptions) (transaction *Transaction) {
 	t.Helper()
 
 	transaction = table.CreateTransaction(options)
@@ -1052,9 +1066,13 @@ func setupTransaction(t *testing.T, table *Table, options *TransactionOptions) (
 		ModificationTime: time.Now().UnixMilli(),
 	}
 	transaction.AddAction(add)
-	operation = Write{Mode: Overwrite}
-	appMetaData = make(map[string]any)
+	operation := Write{Mode: Overwrite}
+	appMetaData := make(map[string]any)
 	appMetaData["test"] = 123
+
+	transaction.SetOperation(operation)
+	transaction.SetAppMetadata(appMetaData)
+
 	return
 }
 
@@ -1215,8 +1233,9 @@ func TestLatestVersion(t *testing.T) {
 		t.Errorf("After adding first commit: LatestVersion() = %v, want %v", version, 0)
 	}
 
-	transaction, operation, appMetadata := setupTransaction(t, table, nil)
-	commit, err := transaction.PrepareCommit(operation, appMetadata)
+	transaction := setupTransaction(t, table, nil)
+
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Errorf("Failed to prepare commit: %v", err)
 	}

@@ -197,7 +197,7 @@ func (table *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo
 			return err
 		}
 	} else {
-		preparedCommit, err := transaction.PrepareCommit(nil, nil)
+		preparedCommit, err := transaction.PrepareCommit()
 		if err != nil {
 			return err
 		}
@@ -1169,27 +1169,8 @@ func (transaction *Transaction) SetAppMetadata(appMetadata map[string]any) {
 
 // Commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
-func (transaction *Transaction) Commit(operation Operation, appMetadata map[string]any) (int64, error) {
-	// TODO: stubbing `operation` parameter (which will be necessary for writing the CommitInfo action),
-	// but leaving it unused for now. `CommitInfo` is a fairly dynamic data structure so we should work
-	// out the data structure approach separately.
-
-	// TODO: calculate isolation level to use when checking for conflicts.
-	// Leaving conflict checking unimplemented for now to get the "single writer" implementation off the ground.
-	// Leaving some commented code in place as a guidepost for the future.
-
-	// let no_data_changed = actions.iter().all(|a| match a {
-	//     Action::add(x) => !x.dataChange,
-	//     Action::remove(x) => !x.dataChange,
-	//     _ => false,
-	// });
-	// let isolation_level = if no_data_changed {
-	//     IsolationLevel::SnapshotIsolation
-	// } else {
-	//     IsolationLevel::Serializable
-	// };
-
-	PreparedCommit, err := transaction.PrepareCommit(operation, appMetadata)
+func (transaction *Transaction) Commit() (int64, error) {
+	PreparedCommit, err := transaction.PrepareCommit()
 	if err != nil {
 		log.Debugf("delta-go: PrepareCommit attempt failed. %v", err)
 		return transaction.Table.State.Version, err
@@ -1202,27 +1183,8 @@ func (transaction *Transaction) Commit(operation Operation, appMetadata map[stri
 // / Low-level transaction API. Creates a temporary commit file. Once created,
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `Table.try_commit_transaction`.
-func (transaction *Transaction) PrepareCommit(operation Operation, appMetadata map[string]any) (PreparedCommit, error) {
-	anyCommitInfo := false
-	for _, action := range transaction.Actions {
-		switch action.(type) {
-		case CommitInfo:
-			anyCommitInfo = true
-		}
-	}
-	//if not any commit, add new commit info
-	if !anyCommitInfo {
-		commitInfo := make(CommitInfo)
-		commitInfo["timestamp"] = time.Now().UnixMilli()
-		commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", clientVersion)
-		if operation != nil {
-			maps.Copy(commitInfo, operation.GetCommitInfo())
-		}
-		if appMetadata != nil {
-			maps.Copy(commitInfo, appMetadata)
-		}
-		transaction.AddAction(commitInfo)
-	}
+func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
+	transaction.AddCommitInfoIfNotPresent()
 
 	// Serialize all actions that are part of this log entry.
 	logEntry, err := LogEntryFromActions(transaction.Actions)
