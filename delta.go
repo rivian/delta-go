@@ -1170,10 +1170,6 @@ func (transaction *Transaction) SetAppMetadata(appMetadata map[string]any) {
 // Commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
 func (transaction *Transaction) Commit() (int64, error) {
-	// TODO: stubbing `operation` parameter (which will be necessary for writing the CommitInfo action),
-	// but leaving it unused for now. `CommitInfo` is a fairly dynamic data structure so we should work
-	// out the data structure approach separately.
-
 	// TODO: calculate isolation level to use when checking for conflicts.
 	// Leaving conflict checking unimplemented for now to get the "single writer" implementation off the ground.
 	// Leaving some commented code in place as a guidepost for the future.
