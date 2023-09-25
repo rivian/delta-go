@@ -49,7 +49,7 @@ type CheckpointEntry struct {
 	Txn      *Txn      `parquet:"name=txn"`
 	Add      *Add      `parquet:"name=add"`
 	Remove   *Remove   `parquet:"name=remove"`
-	MetaData *MetaData `parquet:"name=metaData"`
+	MetaData *Metdata  `parquet:"name=metaData"`
 	Protocol *Protocol `parquet:"name=protocol"`
 	Cdc      *Cdc      `parquet:"-"` // CDC not implemented yet
 }
@@ -418,7 +418,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 
 	candidatesForDeletion := make([]deletionCandidate, 0, 200)
 
-	logIterator := storage.NewListIterator(BaseCommitUri(), store)
+	logIterator := storage.NewListIterator(BaseCommitURI(), store)
 
 	// First collect all the logs/checkpoints that might be eligible for deletion
 	for {
@@ -426,7 +426,7 @@ func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time
 		if errors.Is(err, storage.ErrObjectDoesNotExist) {
 			break
 		}
-		isValid, version := CommitOrCheckpointVersionFromUri(meta.Location)
+		isValid, version := CommitOrCheckpointVersionFromURI(meta.Location)
 		// Spark and Rust clients also use the file's last updated timestamp rather than opening the commit and using internal state
 		if isValid && version < beforeVersion && meta.LastModified.Before(maxTimestamp) {
 			candidatesForDeletion = append(candidatesForDeletion, deletionCandidate{Version: version, Meta: *meta})

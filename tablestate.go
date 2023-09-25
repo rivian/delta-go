@@ -41,7 +41,7 @@ type TableState struct {
 	// current table version represented by this table state
 	Version int64
 	// A remove action should remain in the state of the table as a tombstone until it has expired.
-	// A tombstone expires when the creation timestamp of the delta file exceeds the expiration
+	// A tombstone expires when the creation timestamp of the Delta file exceeds the expiration
 	// This is empty if on-disk optimization is enabled
 	Tombstones map[string]Remove
 	// Active files for table state
@@ -53,7 +53,7 @@ type TableState struct {
 	MinReaderVersion      int32
 	MinWriterVersion      int32
 	// Table metadata corresponding to current version
-	CurrentMetadata *DeltaTableMetaData
+	CurrentMetadata *TableMetadata
 	// Retention period for tombstones as time.Duration (nanoseconds)
 	TombstoneRetention time.Duration
 	// Retention period for log entries as time.Duration (nanoseconds)
@@ -117,7 +117,7 @@ func (tableState *TableState) TombstoneCount() int {
 }
 
 // NewTableStateFromCommit reads a specific commit version and returns the contained TableState
-func NewTableStateFromCommit(table *DeltaTable, version int64) (*TableState, error) {
+func NewTableStateFromCommit(table *Table, version int64) (*TableState, error) {
 	actions, err := table.ReadCommitVersion(version)
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 	case *Remove:
 		// TODO - do we need to decode as in delta-rs?
 		tableState.Tombstones[action.Path] = *action
-	case *MetaData:
+	case *Metdata:
 		if action.Configuration != nil {
 			// Parse the configuration options that we make use of
 			option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]
@@ -173,7 +173,7 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 				tableState.ExperimentalEnableExpiredLogCleanup = boolOption
 			}
 		}
-		deltaTableMetadata, err := action.ToDeltaTableMetaData()
+		deltaTableMetadata, err := action.ToTableMetadata()
 		if err != nil {
 			return err
 		}
@@ -247,7 +247,7 @@ func (tableState *TableState) merge(newTableState *TableState, maxRowsPerPart in
 	return nil
 }
 
-func stateFromCheckpoint(table *DeltaTable, checkpoint *CheckPoint, config *OptimizeCheckpointConfiguration) (*TableState, error) {
+func stateFromCheckpoint(table *Table, checkpoint *CheckPoint, config *OptimizeCheckpointConfiguration) (*TableState, error) {
 	newState := NewTableState(checkpoint.Version)
 	checkpointDataPaths := table.GetCheckpointDataPaths(checkpoint)
 
@@ -525,7 +525,7 @@ func checkpointRows(
 
 	// Row 2: metadata
 	if startOffset <= currentOffset && len(checkpointRows) < config.MaxRowsPerPart {
-		metadata := tableState.CurrentMetadata.ToMetaData()
+		metadata := tableState.CurrentMetadata.ToMetadata()
 		checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &metadata})
 	}
 

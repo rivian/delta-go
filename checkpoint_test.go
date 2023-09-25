@@ -123,7 +123,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 			}
 
 			// Does _last_checkpoint point to the checkpoint file
-			table := NewDeltaTable(store, lock, state)
+			table := NewTable(store, lock, state)
 			checkpoints, allReturned, err := table.findLatestCheckpointsForVersion(nil)
 			if err != nil {
 				t.Fatal(err)
@@ -142,7 +142,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 			}
 
 			// Remove the previous log to make sure we use the checkpoint when loading
-			err = store.Delete(CommitUriFromVersion(4))
+			err = store.Delete(CommitURIFromVersion(4))
 			if err != nil {
 				t.Error(err)
 			}
@@ -187,7 +187,7 @@ func TestSimpleCheckpoint(t *testing.T) {
 				}
 			}
 			// Remove the previous log to make sure we use the checkpoint when loading
-			err = store.Delete(CommitUriFromVersion(9))
+			err = store.Delete(CommitURIFromVersion(9))
 			if err != nil {
 				t.Error(err)
 			}
@@ -240,9 +240,9 @@ func getTestRemove(offsetMillis int64, path string) *Remove {
 	return remove
 }
 
-func testDoCommit(t *testing.T, table *DeltaTable, actions []Action) (int64, error) {
+func testDoCommit(t *testing.T, table *Table, actions []Action) (int64, error) {
 	t.Helper()
-	tx := table.CreateTransaction(&DeltaTransactionOptions{})
+	tx := table.CreateTransaction(&TransactionOptions{})
 	tx.AddActions(actions)
 	return tx.Commit(nil, nil)
 }
@@ -261,10 +261,10 @@ func TestTombstones(t *testing.T) {
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointWrite = concurrent
 
-			table := NewDeltaTable(store, lock, state)
+			table := NewTable(store, lock, state)
 
 			// Set tombstone expiry time to 2 hours
-			metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
+			metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
@@ -292,7 +292,7 @@ func TestTombstones(t *testing.T) {
 
 			// Load the checkpoint
 			// Remove the previous log to make sure we use the checkpoint when loading
-			err = store.Delete(CommitUriFromVersion(1))
+			err = store.Delete(CommitURIFromVersion(1))
 			if err != nil {
 				t.Error(err)
 			}
@@ -380,9 +380,9 @@ func TestExpiredTombstones(t *testing.T) {
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointWrite = concurrent
 
-			table := NewDeltaTable(store, lock, state)
+			table := NewTable(store, lock, state)
 
-			metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
+			metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
@@ -488,9 +488,9 @@ func TestCheckpointNoPartition(t *testing.T) {
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointWrite = concurrent
 
-			table := NewDeltaTable(store, lock, stateStore)
+			table := NewTable(store, lock, stateStore)
 
-			metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
+			metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
@@ -568,11 +568,11 @@ func TestMultiPartCheckpoint(t *testing.T) {
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointWrite = concurrent
 
-			table := NewDeltaTable(store, lock, stateStore)
+			table := NewTable(store, lock, stateStore)
 
 			provider := "tester"
 			options := map[string]string{"hello": "world"}
-			metadata := NewDeltaTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: provider, Options: options},
+			metadata := NewTableMetadata("test-data", "For testing multi-part checkpoints", Format{Provider: provider, Options: options},
 				SchemaTypeStruct{}, make([]string, 0), map[string]string{"delta.isTest": "true"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
@@ -640,7 +640,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 			}
 
 			// Does _last_checkpoint point to the checkpoint file
-			table = NewDeltaTable(store, lock, stateStore)
+			table = NewTable(store, lock, stateStore)
 			checkpoints, allReturned, err := table.findLatestCheckpointsForVersion(nil)
 			if err != nil {
 				t.Fatal(err)
@@ -664,7 +664,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 			}
 
 			// Remove the previous commit to make sure we load the checkpoint files
-			err = store.Delete(CommitUriFromVersion(11))
+			err = store.Delete(CommitURIFromVersion(11))
 			if err != nil {
 				t.Error(err)
 			}
@@ -956,9 +956,9 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 		for _, disableCleanupInCheckpointConfig := range tests {
 			store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "")
 
-			table := NewDeltaTable(store, lock, stateStore)
+			table := NewTable(store, lock, stateStore)
 			// Use log expiration of 10 minutes
-			table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, new(Protocol).Default(), CommitInfo{}, []Add{})
+			table.Create(TableMetadata{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, new(Protocol).Default(), CommitInfo{}, []Add{})
 
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
 			add2 := getTestAdd(2 * 60 * 1000) // 2 mins ago
@@ -978,15 +978,15 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 			}
 			now := time.Now()
 			// With cleanup enabled, 25 and 15 minutes ago should be deleted, 5 should not
-			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(0).Raw), now.Add(-25*time.Minute), now.Add(-25*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
+			err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(2).Raw), now.Add(-5*time.Minute), now.Add(-5*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1064,9 +1064,9 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "")
 
-	table := NewDeltaTable(store, lock, stateStore)
+	table := NewTable(store, lock, stateStore)
 	// Use log expiration of 12 minutes
-	table.Create(DeltaTableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetadata{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []Add{})
 
 	add1 := getTestAdd(20 * 60 * 1000) // 20 mins ago
 	add2 := getTestAdd(19 * 60 * 1000) // 19 mins ago
@@ -1105,27 +1105,27 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 	// 3: 13 min ago
 	// 4: 12 min ago
 	// 5: 6 min ago
-	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(0).Raw), now.Add(-20*time.Minute), now.Add(-20*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(0).Raw), now.Add(-20*time.Minute), now.Add(-20*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(1).Raw), now.Add(-15*time.Minute), now.Add(-15*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(2).Raw), now.Add(-10*time.Minute), now.Add(-10*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(2).Raw), now.Add(-10*time.Minute), now.Add(-10*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(3).Raw), now.Add(-13*time.Minute), now.Add(-13*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(3).Raw), now.Add(-13*time.Minute), now.Add(-13*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(3).Raw), now.Add(-12*time.Minute), now.Add(-12*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(3).Raw), now.Add(-12*time.Minute), now.Add(-12*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitUriFromVersion(3).Raw), now.Add(-6*time.Minute), now.Add(-6*time.Minute))
+	err = os.Chtimes(filepath.Join(store.BaseURI().Raw, CommitURIFromVersion(3).Raw), now.Add(-6*time.Minute), now.Add(-6*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1151,21 +1151,21 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 		t.Fatal("did not remove version 1")
 	}
 	// We can't load versions 2 and 3 but the logs should persist
-	_, err = store.Head(CommitUriFromVersion(2))
+	_, err = store.Head(CommitURIFromVersion(2))
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Fatal("should not remove version 2")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.Head(CommitUriFromVersion(3))
+	_, err = store.Head(CommitURIFromVersion(3))
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Fatal("should not remove version 3")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.Head(CommitUriFromVersion(4))
+	_, err = store.Head(CommitURIFromVersion(4))
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Fatal("should not remove version 4")
 	}
@@ -1234,9 +1234,9 @@ func TestCheckpointUnlockFailure(t *testing.T) {
 func TestCheckpointInvalidVersion(t *testing.T) {
 	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "")
 
-	table := NewDeltaTable(store, lock, stateStore)
+	table := NewTable(store, lock, stateStore)
 
-	metadata := NewDeltaTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
+	metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 	protocol := new(Protocol).Default()
 	protocol.MinReaderVersion = 2
 	protocol.MinWriterVersion = 2

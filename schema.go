@@ -24,10 +24,10 @@ import (
 // / Type alias for a string expected to match a GUID/UUID format
 type Guid string
 
-// Represents the schema of the delta table.
+// Represents the schema of the Delta table.
 type Schema = SchemaTypeStruct
 
-// Represents the schema of the delta table.
+// Represents the schema of the Delta table.
 type SchemaTypeStruct struct {
 	Fields []SchemaField //`json:"fields"`
 }

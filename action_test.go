@@ -116,7 +116,7 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
 	id, _ := uuid.Parse("af23c9d7-fff1-4a5a-a2c8-55c59bd782aa")
 	schemaString := "..."
-	action := MetaData{
+	action := Metdata{
 		Id:               id,
 		Format:           format,
 		SchemaString:     schemaString,
@@ -415,7 +415,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 func TestMetadataGetSchema(t *testing.T) {
 	// Simple
 	schemaString := "{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}},{\"name\":\"date\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"
-	md := new(MetaData)
+	md := new(Metdata)
 	md.SchemaString = schemaString
 	schema, err := md.GetSchema()
 	if err != nil {
