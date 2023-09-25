@@ -525,7 +525,7 @@ func checkpointRows(
 
 	// Row 2: metadata
 	if startOffset <= currentOffset && len(checkpointRows) < config.MaxRowsPerPart {
-		metadata := tableState.CurrentMetadata.ToMetadata()
+		metadata := tableState.CurrentMetadata.ToMetaData()
 		checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &metadata})
 	}
 

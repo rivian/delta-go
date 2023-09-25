@@ -168,7 +168,7 @@ func CommitOrCheckpointVersionFromURI(path storage.Path) (bool, int64) {
 // / Note that if the protocol MinReaderVersion or MinWriterVersion is too high, the table will be created
 // / and then an error will be returned
 func (table *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add) error {
-	meta := metadata.ToMetadata()
+	meta := metadata.ToMetaData()
 
 	// delta-go commit info will include the delta-go version and timestamp as of now
 	enrichedCommitInfo := maps.Clone(commitInfo)
@@ -769,7 +769,7 @@ func NewTableMetaData(name string, description string, format Format, schema Sch
 }
 
 // TableMetaData.ToMetaData() converts a TableMetaData to MetaData
-func (dtmd *TableMetaData) ToMetadata() MetaData {
+func (dtmd *TableMetaData) ToMetaData() MetaData {
 	createdTime := dtmd.CreatedTime.UnixMilli()
 	metadata := MetaData{
 		Id:               dtmd.Id,
