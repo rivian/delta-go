@@ -244,7 +244,7 @@ func testDoCommit(t *testing.T, table *Table, actions []Action) (int64, error) {
 	t.Helper()
 	tx := table.CreateTransaction(&TransactionOptions{})
 	tx.AddActions(actions)
-	return tx.Commit(nil, nil)
+	return tx.Commit()
 }
 
 func TestTombstones(t *testing.T) {
