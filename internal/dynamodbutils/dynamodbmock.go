@@ -40,10 +40,10 @@ type MockClient struct {
 	mu            sync.Mutex
 }
 
-// Compile time check that MockDynamoDBClient implements DynamoDBClient
+// Compile time check that MockClient implements DynamoDBClient
 var _ Client = (*MockClient)(nil)
 
-// NewMockClient creates a new MockDynamoDBClient instance.
+// NewMockClient creates a new MockClient instance.
 func NewMockClient() *MockClient {
 	m := new(MockClient)
 	m.tablesToKeys = cmap.New[PrimaryKey]()

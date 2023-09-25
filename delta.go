@@ -821,14 +821,14 @@ type DeltaTransaction struct {
 	Options     *DeltaTransactionOptions
 }
 
-// Read gets actions from a file.
+// ReadActions gets actions from a file.
 //
 // With many concurrent readers/writers, there's a chance that concurrent recovery
 // operations occur on the same file, i.e. the same temp file T(N) is copied into the
 // target N.json file more than once. Though data loss will *NOT* occur, readers of N.json
 // may receive an error from S3 as the ETag of N.json was changed. This is safe to
 // retry, so we do so here.
-func (transaction *DeltaTransaction) Read(path storage.Path) ([]Action, error) {
+func (transaction *DeltaTransaction) ReadActions(path storage.Path) ([]Action, error) {
 	attempt := 0
 	for {
 		if attempt >= int(transaction.Options.MaxRetryReadAttempts) {
@@ -863,13 +863,13 @@ func (transaction *DeltaTransaction) Read(path storage.Path) ([]Action, error) {
 // - Step 1: Ensure that N-1.json exists. If not, perform a recovery.
 // - Step 2: PREPARE the commit.
 //   - Write the actions into temp file T(N).
-//   - Write uncompleted entry E(N, T(N)) with mutual exclusion to the log store.
+//   - Write uncompleted commit entry E(N, T(N)) with mutual exclusion to the log store.
 //
 // - Step 3: COMMIT the commit to the Delta log.
 //   - Copy T(N) into N.json.
 //
 // - Step 4: ACKNOWLEDGE the commit.
-//   - Overwrite and complete entry E in the log store.
+//   - Overwrite and complete commit entry E in the log store.
 func (transaction *DeltaTransaction) CommitLogStore() (int64, error) {
 	attempt := 0
 	for {
@@ -1208,7 +1208,26 @@ func (transaction *DeltaTransaction) Commit(operation DeltaOperation, appMetadat
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `DeltaTable.try_commit_transaction`.
 func (transaction *DeltaTransaction) PrepareCommit(operation DeltaOperation, appMetadata map[string]any) (PreparedCommit, error) {
-	transaction.AddCommitInfoIfNotPresent()
+	anyCommitInfo := false
+	for _, action := range transaction.Actions {
+		switch action.(type) {
+		case CommitInfo:
+			anyCommitInfo = true
+		}
+	}
+	//if not any commit, add new commit info
+	if !anyCommitInfo {
+		commitInfo := make(CommitInfo)
+		commitInfo["timestamp"] = time.Now().UnixMilli()
+		commitInfo["clientVersion"] = fmt.Sprintf("delta-go.%s", deltaClientVersion)
+		if operation != nil {
+			maps.Copy(commitInfo, operation.GetCommitInfo())
+		}
+		if appMetadata != nil {
+			maps.Copy(commitInfo, appMetadata)
+		}
+		transaction.AddAction(commitInfo)
+	}
 
 	// Serialize all actions that are part of this log entry.
 	logEntry, err := LogEntryFromActions(transaction.Actions)

@@ -26,9 +26,9 @@ type CommitEntry struct {
 	fileName storage.Path
 	// Path to the temp file for a commit, relative to the Delta log
 	tempPath storage.Path
-	// true if Delta JSON file is successfully copied to its destination location, else false
+	// True if the temp file has been successfully copied to its destination location, otherwise false
 	isComplete bool
-	// Epoch seconds at which this commit entry is safe to be deleted if complete equals true, else 0
+	// Epoch seconds at which a completed commit entry is safe to be deleted
 	expirationTime uint64
 }
 

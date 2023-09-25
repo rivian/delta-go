@@ -29,9 +29,6 @@ import (
 // attribute represents attribute names in DynamoDB items.
 type attribute string
 
-// Represents attribute names in DynamoDB items
-type Attribute string
-
 const (
 	// DynamoDB table attribute names
 	TablePath  attribute = "tablePath"
@@ -54,9 +51,9 @@ const (
 	// - t1:  W1 begins to try and write to the Delta log.
 	// - t2:  W1 checks if N.json exists in file system. It doesn't.
 	// - t3:  W1 writes actions into temp file T1(N).
-	// - t4:  W1 writes to uncompleted log store entry E1(N).
+	// - t4:  W1 puts uncompleted commit entry E1(N).
 	// - t5:  W1 copies, with overwriting disabled, T1(N) into N.json.
-	// - t6:  W1 overwrites and completes log store entry E1(N), setting the expiration time to the
+	// - t6:  W1 overwrites and completes commit entry E1(N), setting the expiration time to the
 	//        current time.
 	// - t7:  E1 is safe to be deleted, and some log store TTL mechanism deletes E1.
 	// - t8:  W2 begins to try and write to the Delta log.
@@ -65,7 +62,7 @@ const (
 	//        Note: This isn't possible on S3 (which provides strong consistency) but could be
 	//        possible on eventually-consistent systems.
 	// - t10: W2 writes actions into temp file T2(N).
-	// - t11: W2 writes to uncompleted log store entry E2(N).
+	// - t11: W2 puts uncompleted commit entry E2(N).
 	// - t12: W2 successfully copies, with overwriting disabled, T2(N) into N.json. The file system
 	//        didn't provide the ncessary mutual exclusion, so the copy succeeded. Thus, DATA LOSS
 	//        HAS OCCURRED.
@@ -113,17 +110,17 @@ type Options struct {
 	WCU int64
 }
 
-// Client gets the client.
-func (ls LogStore) Client() dynamodbutils.Client {
+// Client gets the DynamoDB client.
+func (ls LogStore) Client() any {
 	return ls.client
 }
 
-// TableName gets the table name.
+// TableName gets the DynamoDB table name.
 func (ls LogStore) TableName() string {
 	return ls.tableName
 }
 
-// ExpirationDelaySeconds gets the number of expiration delay seconds.
+// ExpirationDelaySeconds gets the number of seconds until a commit entry expires.
 func (ls LogStore) ExpirationDelaySeconds() uint64 {
 	return ls.expirationDelaySeconds
 }
@@ -199,7 +196,7 @@ func New(o Options) (*LogStore, error) {
 	return ls, nil
 }
 
-// Put puts an entry into a log store in an exclusive way.
+// Put puts a commit entry into a log store in an exclusive way.
 func (ls *LogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
 	log.Debugf("delta-go: PutItem (tablePath %s, fileName %s, tempPath %s, complete %t, expireTime %d, overwrite %t)", entry.TablePath(), entry.FileName(), entry.TempPath(), entry.IsComplete(), entry.ExpirationTime(), overwrite)
 
@@ -215,7 +212,7 @@ func (ls *LogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
 	return nil
 }
 
-// Get gets an entry corresponding to the commit log for a given table path and file name.
+// Get gets a commit entry corresponding to the commit log identified by the given table path and file name.
 func (ls *LogStore) Get(tablePath storage.Path, fileName storage.Path) (*logstore.CommitEntry, error) {
 	attributes := map[string]types.AttributeValue{string(TablePath): &types.AttributeValueMemberS{Value: tablePath.Raw}, string(FileName): &types.AttributeValueMemberS{Value: fileName.Raw}}
 
@@ -233,7 +230,7 @@ func (ls *LogStore) Get(tablePath storage.Path, fileName storage.Path) (*logstor
 	return ce, err
 }
 
-// Latest gets the latest entry corresponding to the latest commit log for a given table path.
+// Latest gets the commit entry corresponding to the latest commit log for a given table path.
 func (ls *LogStore) Latest(tablePath storage.Path) (*logstore.CommitEntry, error) {
 	qi := dynamodb.QueryInput{TableName: &ls.tableName, ConsistentRead: aws.Bool(true), ScanIndexForward: aws.Bool(false), Limit: aws.Int32(1),
 		ExpressionAttributeValues: map[string]types.AttributeValue{":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw}},

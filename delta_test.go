@@ -1452,7 +1452,7 @@ func TestLoadVersion(t *testing.T) {
 }
 
 // Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
-func setUpSingleDriverLogStoreTest(t *testing.T) (logStoreTableName string, table *DeltaTable, transaction *DeltaTransaction) {
+func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, table *DeltaTable, transaction *DeltaTransaction) {
 	t.Helper()
 
 	logStoreTableName = "version_log_store"
@@ -1522,7 +1522,7 @@ func setUpSingleDriverLogStoreTest(t *testing.T) (logStoreTableName string, tabl
 }
 
 func TestCommitLogStore_Sequential(t *testing.T) {
-	logStoreTableName, table, transaction := setUpSingleDriverLogStoreTest(t)
+	logStoreTableName, table, transaction := setUpSingleClusterLogStoreTest(t)
 
 	transactions := 101
 	for i := 1; i < transactions; i++ {
@@ -1652,7 +1652,7 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 }
 
 func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
-	logStoreTableName, table, transaction := setUpSingleDriverLogStoreTest(t)
+	logStoreTableName, table, transaction := setUpSingleClusterLogStoreTest(t)
 
 	var (
 		wg            sync.WaitGroup
@@ -1792,7 +1792,7 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 }
 
 func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
-	logStoreTableName, table, transaction := setUpSingleDriverLogStoreTest(t)
+	logStoreTableName, table, transaction := setUpSingleClusterLogStoreTest(t)
 
 	var (
 		wg           sync.WaitGroup
@@ -1928,7 +1928,7 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 }
 
 // Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
-func setUpMultiDriverLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *DeltaTable, secondTable *DeltaTable, actions []Action, operation Write, appMetadata map[string]any) {
+func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *DeltaTable, secondTable *DeltaTable, actions []Action, operation Write, appMetadata map[string]any) {
 	t.Helper()
 
 	logStoreTableName = "version_log_store"
@@ -1972,7 +1972,7 @@ func setUpMultiDriverLogStoreTest(t *testing.T) (logStoreTableName string, first
 }
 
 func TestCommitLogStore_DifferentClients(t *testing.T) {
-	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiDriverLogStoreTest(t)
+	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiClusterLogStoreTest(t)
 
 	var (
 		wg                sync.WaitGroup
@@ -2249,7 +2249,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 }
 
 func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
-	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiDriverLogStoreTest(t)
+	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiClusterLogStoreTest(t)
 
 	versions := 1000
 	for version := 1; version < versions; version++ {
