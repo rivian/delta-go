@@ -1167,7 +1167,7 @@ func (transaction *Transaction) SetAppMetadata(appMetadata map[string]any) {
 	transaction.AppMetadata = appMetadata
 }
 
-// Commit commits the given actions to the Delta log.
+// Commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
 func (transaction *Transaction) Commit(operation Operation, appMetadata map[string]any) (int64, error) {
 	// TODO: stubbing `operation` parameter (which will be necessary for writing the CommitInfo action),
