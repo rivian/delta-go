@@ -92,7 +92,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 
 func TestDeltaTableReadCommitVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(TableMetadata{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestDeltaTableReadCommitVersion(t *testing.T) {
 	if !ok {
 		t.Error("Expected Protocol for second action")
 	}
-	_, ok = actions[2].(*Metadata)
+	_, ok = actions[2].(*MetaData)
 	if !ok {
 		t.Error("Expected MetaData for third action")
 	}
@@ -139,7 +139,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	format := new(Format).Default()
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
-	metadata := NewTableMetadata("Test Table", "", format, schema, []string{}, config)
+	metadata := NewTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := new(Protocol).Default()
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
 	path := "part-123.snappy.parquet"
@@ -182,7 +182,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	if !ok {
 		t.Error("Expected Protocol for second action")
 	}
-	_, ok = actions[2].(*Metadata)
+	_, ok = actions[2].(*MetaData)
 	if !ok {
 		t.Error("Expected MetaData for third action")
 	}
@@ -208,7 +208,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 
 func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(TableMetadata{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -331,7 +331,7 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	lock := nillock.New()
 	table := NewTable(store, lock, storeState)
 
-	table.Create(TableMetadata{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -369,7 +369,7 @@ func TestDeltaTableCreate(t *testing.T) {
 	format := new(Format).Default()
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
-	metadata := NewTableMetadata("Test Table", "", format, schema, []string{}, config)
+	metadata := NewTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := new(Protocol).Default()
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
@@ -405,7 +405,7 @@ func TestDeltaTableExists(t *testing.T) {
 	if tableExists {
 		t.Errorf("table should not exist")
 	}
-	metadata := NewTableMetadata("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 
 	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
 	if err != nil {
@@ -513,7 +513,7 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 	table := NewTable(s3Store, lock, state)
 
-	metadata := NewTableMetadata("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 
 	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
 	if err != nil {
@@ -586,7 +586,7 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 
 func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-	table.Create(TableMetadata{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -635,7 +635,7 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 
 func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-	table.Create(TableMetadata{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{
 		MaxRetryCommitAttempts:                5, //Should break on max attempts if the latest version logic fails
 		RetryWaitDuration:                     time.Second,
@@ -701,7 +701,7 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 func TestCommitConcurrent(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 	table, state, tmpDir := setupTest(t)
-	metadata := NewTableMetadata("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 	err := table.Create(*metadata, Protocol{}, CommitInfo{}, []Add{})
 	if err != nil {
 		t.Error(err)
@@ -784,7 +784,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		PartitionValues:  make(map[string]string),
 	}
 
-	metadata := NewTableMetadata("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
 	err = table.Create(*metadata, new(Protocol).Default(), CommitInfo{}, []Add{add})
 	if err != nil {
 		t.Error(err)
@@ -892,7 +892,7 @@ func TestCreateWithParquet(t *testing.T) {
 		PartitionValues:  make(map[string]string),
 	}
 
-	metadata := NewTableMetadata("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
 	err = table.Create(*metadata, new(Protocol).Default(), CommitInfo{}, []Add{add})
 	if err != nil {
 		t.Error(err)
@@ -1185,7 +1185,7 @@ func TestLatestVersion(t *testing.T) {
 		state    = filestate.New(path, "_delta_log/_commit.state")
 		lock     = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
 		table    = NewTable(store, lock, state)
-		metadata = NewTableMetadata("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
+		metadata = NewTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
 	)
 
 	if _, err := table.LatestVersion(); !errors.Is(err, ErrNotATable) { // if NO error
@@ -1426,7 +1426,7 @@ func TestLoadVersion(t *testing.T) {
 	}
 	provider := "parquet"
 	options := map[string]string{}
-	expectedState.CurrentMetadata = NewTableMetadata("", "", Format{Provider: provider, Options: options}, schema, []string{"date"}, make(map[string]string))
+	expectedState.CurrentMetadata = NewTableMetaData("", "", Format{Provider: provider, Options: options}, schema, []string{"date"}, make(map[string]string))
 	expectedState.CurrentMetadata.CreatedTime = time.Unix(1627668675, 432000000)
 	expectedState.CurrentMetadata.Id = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
 
@@ -1486,7 +1486,7 @@ func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, tab
 		}}
 
 	config := make(map[string]string)
-	metadata := NewTableMetadata(
+	metadata := NewTableMetaData(
 		"test",
 		"This is a test table.",
 		new(Format).Default(),

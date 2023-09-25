@@ -49,7 +49,7 @@ type CheckpointEntry struct {
 	Txn      *Txn      `parquet:"name=txn"`
 	Add      *Add      `parquet:"name=add"`
 	Remove   *Remove   `parquet:"name=remove"`
-	MetaData *Metadata `parquet:"name=metaData"`
+	MetaData *MetaData `parquet:"name=metaData"`
 	Protocol *Protocol `parquet:"name=protocol"`
 	Cdc      *Cdc      `parquet:"-"` // CDC not implemented yet
 }

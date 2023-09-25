@@ -53,7 +53,7 @@ type TableState struct {
 	MinReaderVersion      int32
 	MinWriterVersion      int32
 	// Table metadata corresponding to current version
-	CurrentMetadata *TableMetadata
+	CurrentMetadata *TableMetaData
 	// Retention period for tombstones as time.Duration (nanoseconds)
 	TombstoneRetention time.Duration
 	// Retention period for log entries as time.Duration (nanoseconds)
@@ -145,7 +145,7 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 	case *Remove:
 		// TODO - do we need to decode as in delta-rs?
 		tableState.Tombstones[action.Path] = *action
-	case *Metadata:
+	case *MetaData:
 		if action.Configuration != nil {
 			// Parse the configuration options that we make use of
 			option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]

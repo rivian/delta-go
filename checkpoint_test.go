@@ -264,7 +264,7 @@ func TestTombstones(t *testing.T) {
 			table := NewTable(store, lock, state)
 
 			// Set tombstone expiry time to 2 hours
-			metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
+			metadata := NewTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
@@ -382,7 +382,7 @@ func TestExpiredTombstones(t *testing.T) {
 
 			table := NewTable(store, lock, state)
 
-			metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
+			metadata := NewTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
@@ -490,7 +490,7 @@ func TestCheckpointNoPartition(t *testing.T) {
 
 			table := NewTable(store, lock, stateStore)
 
-			metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
+			metadata := NewTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
@@ -572,7 +572,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 
 			provider := "tester"
 			options := map[string]string{"hello": "world"}
-			metadata := NewTableMetadata("test-data", "For testing multi-part checkpoints", Format{Provider: provider, Options: options},
+			metadata := NewTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: provider, Options: options},
 				SchemaTypeStruct{}, make([]string, 0), map[string]string{"delta.isTest": "true"})
 			protocol := new(Protocol).Default()
 			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
@@ -958,7 +958,7 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 
 			table := NewTable(store, lock, stateStore)
 			// Use log expiration of 10 minutes
-			table.Create(TableMetadata{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, new(Protocol).Default(), CommitInfo{}, []Add{})
+			table.Create(TableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, new(Protocol).Default(), CommitInfo{}, []Add{})
 
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
 			add2 := getTestAdd(2 * 60 * 1000) // 2 mins ago
@@ -1066,7 +1066,7 @@ func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 
 	table := NewTable(store, lock, stateStore)
 	// Use log expiration of 12 minutes
-	table.Create(TableMetadata{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []Add{})
 
 	add1 := getTestAdd(20 * 60 * 1000) // 20 mins ago
 	add2 := getTestAdd(19 * 60 * 1000) // 19 mins ago
@@ -1236,7 +1236,7 @@ func TestCheckpointInvalidVersion(t *testing.T) {
 
 	table := NewTable(store, lock, stateStore)
 
-	metadata := NewTableMetadata("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
+	metadata := NewTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 	protocol := new(Protocol).Default()
 	protocol.MinReaderVersion = 2
 	protocol.MinWriterVersion = 2

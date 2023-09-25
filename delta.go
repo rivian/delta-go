@@ -167,7 +167,7 @@ func CommitOrCheckpointVersionFromURI(path storage.Path) (bool, int64) {
 // / Create a Table with version 0 given the provided MetaData, Protocol, and CommitInfo
 // / Note that if the protocol MinReaderVersion or MinWriterVersion is too high, the table will be created
 // / and then an error will be returned
-func (table *Table) Create(metadata TableMetadata, protocol Protocol, commitInfo CommitInfo, addActions []Add) error {
+func (table *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add) error {
 	meta := metadata.ToMetadata()
 
 	// delta-go commit info will include the delta-go version and timestamp as of now
@@ -732,7 +732,7 @@ func ReadCommitLog(store storage.ObjectStore, location storage.Path) ([]Action, 
 }
 
 // Delta table metadata
-type TableMetadata struct {
+type TableMetaData struct {
 	// Unique identifier for this table
 	Id uuid.UUID
 	/// User-provided identifier for this table
@@ -752,10 +752,10 @@ type TableMetadata struct {
 }
 
 // / Create metadata for a Table from scratch
-func NewTableMetadata(name string, description string, format Format, schema Schema, partitionColumns []string, configuration map[string]string) *TableMetadata {
+func NewTableMetaData(name string, description string, format Format, schema Schema, partitionColumns []string, configuration map[string]string) *TableMetaData {
 	// Reference implementation uses uuid v4 to create GUID:
 	// https://github.com/delta-io/delta/blob/master/core/src/main/scala/org/apache/spark/sql/delta/actions/actions.scala#L350
-	metaData := new(TableMetadata)
+	metaData := new(TableMetaData)
 	metaData.Id = uuid.New()
 	metaData.Name = name
 	metaData.Description = description
@@ -768,10 +768,10 @@ func NewTableMetadata(name string, description string, format Format, schema Sch
 
 }
 
-// TableMetadata.ToMetadata() converts a TableMetadata to Metadata
-func (dtmd *TableMetadata) ToMetadata() Metadata {
+// TableMetaData.ToMetaData() converts a TableMetaData to MetaData
+func (dtmd *TableMetaData) ToMetadata() MetaData {
 	createdTime := dtmd.CreatedTime.UnixMilli()
-	metadata := Metadata{
+	metadata := MetaData{
 		Id:               dtmd.Id,
 		IdAsString:       dtmd.Id.String(),
 		Name:             &dtmd.Name,
@@ -785,7 +785,7 @@ func (dtmd *TableMetadata) ToMetadata() Metadata {
 	return metadata
 }
 
-func (dtmd *TableMetadata) GetPartitionColDataTypes() map[string]SchemaDataType {
+func (dtmd *TableMetaData) GetPartitionColDataTypes() map[string]SchemaDataType {
 	partitionColumnsWithType := make(map[string]SchemaDataType, len(dtmd.PartitionColumns))
 	for _, v := range dtmd.Schema.Fields {
 		for _, p := range dtmd.PartitionColumns {
