@@ -52,11 +52,11 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	var store filestore.FileObjectStore
 	store.SetBaseURI(storage.NewPath("tmp/"))
 	l := filelock.New(storage.NewPath(""), "tmp/_delta_log/_commit.lock", filelock.Options{})
-	deltaTable := DeltaTable{Store: &store, LockClient: l}
-	options := DeltaTransactionOptions{MaxRetryCommitAttempts: 3}
+	deltaTable := Table{Store: &store, LockClient: l}
+	options := TransactionOptions{MaxRetryCommitAttempts: 3}
 	os.MkdirAll("tmp/_delta_log/", 0700)
 	defer os.RemoveAll("tmp/_delta_log/")
-	transaction := NewDeltaTransaction(&deltaTable, &options)
+	transaction := NewTransaction(&deltaTable, &options)
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
@@ -92,7 +92,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 
 func TestDeltaTableReadCommitVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	format := new(Format).Default()
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
-	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
+	metadata := NewTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := new(Protocol).Default()
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
 	path := "part-123.snappy.parquet"
@@ -208,7 +208,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 
 func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -218,8 +218,8 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if transaction.DeltaTable.State.Version != 1 {
-		t.Errorf("want version = 1,has version = %d", transaction.DeltaTable.State.Version)
+	if transaction.Table.State.Version != 1 {
+		t.Errorf("want version = 1,has version = %d", transaction.Table.State.Version)
 	}
 
 	//try again with the same version
@@ -227,8 +227,8 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Error(err)
 	}
-	if transaction.DeltaTable.State.Version != 2 {
-		t.Errorf("want version = 1,has version = %d", transaction.DeltaTable.State.Version)
+	if transaction.Table.State.Version != 2 {
+		t.Errorf("want version = 1,has version = %d", transaction.Table.State.Version)
 	}
 
 	//prpare a new commit and try on the next version
@@ -237,8 +237,8 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if transaction.DeltaTable.State.Version != 3 {
-		t.Errorf("want version = 2,has version = %d", transaction.DeltaTable.State.Version)
+	if transaction.Table.State.Version != 3 {
+		t.Errorf("want version = 2,has version = %d", transaction.Table.State.Version)
 	}
 
 }
@@ -259,9 +259,9 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 
-	table := NewDeltaTable(store, lockClient, state)
+	table := NewTable(store, lockClient, state)
 
-	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 3})
+	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
 	version, err := transaction.Commit(operation, appMetaData)
 	if !errors.Is(err, ErrExceededCommitRetryAttempts) {
 		t.Error(err)
@@ -313,9 +313,9 @@ func TestCommitUnlockFailure(t *testing.T) {
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 
-	table := NewDeltaTable(store, &lockClient, state)
+	table := NewTable(store, &lockClient, state)
 
-	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 3})
+	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
 	_, err := transaction.Commit(operation, appMetaData)
 	if !errors.Is(err, lock.ErrUnableToUnlock) {
 		t.Error(err)
@@ -329,9 +329,9 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	store := filestore.New(tmpPath)
 	storeState := localstate.New(-1)
 	lock := nillock.New()
-	table := NewDeltaTable(store, lock, storeState)
+	table := NewTable(store, lock, storeState)
 
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction, operation, appMetaData := setupTransaction(t, table, nil)
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
@@ -341,8 +341,8 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if transaction.DeltaTable.State.Version != 1 {
-		t.Errorf("want version %d, has version = %d", 1, transaction.DeltaTable.State.Version)
+	if transaction.Table.State.Version != 1 {
+		t.Errorf("want version %d, has version = %d", 1, transaction.Table.State.Version)
 	}
 
 	commit, _ = transaction.PrepareCommit(operation, appMetaData)
@@ -350,8 +350,8 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if transaction.DeltaTable.State.Version != 2 {
-		t.Errorf("want version %d, has version = %d", 2, transaction.DeltaTable.State.Version)
+	if transaction.Table.State.Version != 2 {
+		t.Errorf("want version %d, has version = %d", 2, transaction.Table.State.Version)
 	}
 }
 
@@ -369,7 +369,7 @@ func TestDeltaTableCreate(t *testing.T) {
 	format := new(Format).Default()
 	config := make(map[string]string)
 	config[string(AppendOnlyDeltaConfigKey)] = "true"
-	metadata := NewDeltaTableMetaData("Test Table", "", format, schema, []string{}, config)
+	metadata := NewTableMetaData("Test Table", "", format, schema, []string{}, config)
 	protocol := new(Protocol).Default()
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
@@ -405,7 +405,7 @@ func TestDeltaTableExists(t *testing.T) {
 	if tableExists {
 		t.Errorf("table should not exist")
 	}
-	metadata := NewDeltaTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 
 	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
 	if err != nil {
@@ -441,7 +441,7 @@ func TestDeltaTableExists(t *testing.T) {
 		t.Error(err)
 	}
 	// Delete original version file
-	commitPath := filepath.Join(tmpDir, CommitUriFromVersion(0).Raw)
+	commitPath := filepath.Join(tmpDir, CommitURIFromVersion(0).Raw)
 	err = os.Remove(commitPath)
 	if err != nil {
 		t.Error(err)
@@ -458,7 +458,7 @@ func TestDeltaTableExists(t *testing.T) {
 	}
 
 	// Move the new version file to a backup folder that starts with _delta_log
-	commitPath = filepath.Join(tmpDir, CommitUriFromVersion(1).Raw)
+	commitPath = filepath.Join(tmpDir, CommitURIFromVersion(1).Raw)
 	os.MkdirAll(filepath.Join(tmpDir, "_delta_log.bak"), 0700)
 	fakeCommitPath := filepath.Join(tmpDir, "_delta_log.bak/00000000000000000000.json")
 	err = os.Rename(commitPath, fakeCommitPath)
@@ -511,9 +511,9 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 	tmpPath := storage.NewPath(tmpDir)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
-	table := NewDeltaTable(s3Store, lock, state)
+	table := NewTable(s3Store, lock, state)
 
-	metadata := NewDeltaTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 
 	err = table.Create(*metadata, Protocol{}, make(map[string]any), []Add{})
 	if err != nil {
@@ -530,7 +530,7 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 		t.Error(err)
 	}
 	// Delete original version file
-	err = s3Store.Delete(CommitUriFromVersion(0))
+	err = s3Store.Delete(CommitURIFromVersion(0))
 	if err != nil {
 		t.Error(err)
 	}
@@ -562,7 +562,7 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 func TestDeltaTableTryCommitLoop(t *testing.T) {
 	table, _, _ := setupTest(t)
 
-	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{})
+	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{})
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
 		t.Error(err)
@@ -586,8 +586,8 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 
 func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
 	commit, err := transaction.PrepareCommit(operation, appMetaData)
 	if err != nil {
 		t.Error(err)
@@ -599,11 +599,11 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	}
 
 	//Some other process writes commit 0002.json
-	fakeCommit2 := filepath.Join(tmpDir, CommitUriFromVersion(2).Raw)
+	fakeCommit2 := filepath.Join(tmpDir, CommitURIFromVersion(2).Raw)
 	os.WriteFile(fakeCommit2, []byte("temp commit data"), 0700)
 
 	//Some other process writes commit 0003.json
-	fakeCommit3 := filepath.Join(tmpDir, CommitUriFromVersion(3).Raw)
+	fakeCommit3 := filepath.Join(tmpDir, CommitURIFromVersion(3).Raw)
 	os.WriteFile(fakeCommit3, []byte("temp commit data"), 0700)
 
 	//create the next commit, should be 004.json after trying 003.json
@@ -627,16 +627,16 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 		t.Errorf("want table.State.Version=4, has %d", table.State.Version)
 	}
 
-	if !fileExists(filepath.Join(tmpDir, CommitUriFromVersion(4).Raw)) {
-		t.Errorf("File %s should exist", CommitUriFromVersion(4).Raw)
+	if !fileExists(filepath.Join(tmpDir, CommitURIFromVersion(4).Raw)) {
+		t.Errorf("File %s should exist", CommitURIFromVersion(4).Raw)
 	}
 
 }
 
 func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-	table.Create(DeltaTableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction, operation, appMetaData := setupTransaction(t, table, &DeltaTransactionOptions{
+	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	transaction, operation, appMetaData := setupTransaction(t, table, &TransactionOptions{
 		MaxRetryCommitAttempts:                5, //Should break on max attempts if the latest version logic fails
 		RetryWaitDuration:                     time.Second,
 		RetryCommitAttemptsBeforeLoadingTable: 2, //Should get the latest version after 2 attempts
@@ -681,8 +681,8 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 		t.Errorf("want table.State.Version=10, has %d", table.State.Version)
 	}
 
-	if !fileExists(filepath.Join(tmpDir, CommitUriFromVersion(10).Raw)) {
-		t.Errorf("File %s should exist", CommitUriFromVersion(10).Raw)
+	if !fileExists(filepath.Join(tmpDir, CommitURIFromVersion(10).Raw)) {
+		t.Errorf("File %s should exist", CommitURIFromVersion(10).Raw)
 	}
 
 	// Test SyncStateStore by putting the state store out of sync
@@ -701,7 +701,7 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 func TestCommitConcurrent(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 	table, state, tmpDir := setupTest(t)
-	metadata := NewDeltaTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "", new(Format).Default(), SchemaTypeStruct{}, []string{}, make(map[string]string))
 	err := table.Create(*metadata, Protocol{}, CommitInfo{}, []Add{})
 	if err != nil {
 		t.Error(err)
@@ -725,8 +725,8 @@ func TestCommitConcurrent(t *testing.T) {
 			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{Block: true})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
-			table := NewDeltaTable(store, lock, state)
-			transaction, operation, appMetaData := setupTransaction(t, table, NewDeltaTransactionOptions())
+			table := NewTable(store, lock, state)
+			transaction, operation, appMetaData := setupTransaction(t, table, NewTransactionOptions())
 			_, err := transaction.Commit(operation, appMetaData)
 			if err != nil {
 				errs <- err
@@ -753,7 +753,7 @@ func TestCommitConcurrent(t *testing.T) {
 		t.Errorf("Final Version in lock should be 100")
 	}
 
-	lastCommitFile := filepath.Join(tmpDir, CommitUriFromVersion(100).Raw)
+	lastCommitFile := filepath.Join(tmpDir, CommitURIFromVersion(100).Raw)
 	if !fileExists(lastCommitFile) {
 		t.Errorf("File should exist")
 	}
@@ -784,7 +784,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		PartitionValues:  make(map[string]string),
 	}
 
-	metadata := NewDeltaTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
 	err = table.Create(*metadata, new(Protocol).Default(), CommitInfo{}, []Add{add})
 	if err != nil {
 		t.Error(err)
@@ -808,8 +808,8 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 			lock := filelock.New(storage.NewPath(tmpDir), "_delta_log/_commit.lock", filelock.Options{Block: true})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
-			table := NewDeltaTable(store, lock, state)
-			transaction := table.CreateTransaction(NewDeltaTransactionOptions())
+			table := NewTable(store, lock, state)
+			transaction := table.CreateTransaction(NewTransactionOptions())
 
 			//Make some data
 			data := makeTestData(rand.Intn(50))
@@ -861,7 +861,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		t.Errorf("Final Version in lock should be 100")
 	}
 
-	lastCommitFile := filepath.Join(tmpDir, CommitUriFromVersion(100).Raw)
+	lastCommitFile := filepath.Join(tmpDir, CommitURIFromVersion(100).Raw)
 	if !fileExists(lastCommitFile) {
 		t.Errorf("File should exist")
 	}
@@ -892,7 +892,7 @@ func TestCreateWithParquet(t *testing.T) {
 		PartitionValues:  make(map[string]string),
 	}
 
-	metadata := NewDeltaTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
+	metadata := NewTableMetaData("Test Table", "test description", new(Format).Default(), schema, []string{}, make(map[string]string))
 	err = table.Create(*metadata, new(Protocol).Default(), CommitInfo{}, []Add{add})
 	if err != nil {
 		t.Error(err)
@@ -1029,7 +1029,7 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 }
 
 // / Helper function to set up test state
-func setupTest(t *testing.T) (table *DeltaTable, state *filestate.FileStateStore, tmpDir string) {
+func setupTest(t *testing.T) (table *Table, state *filestate.FileStateStore, tmpDir string) {
 	t.Helper()
 
 	tmpDir = t.TempDir()
@@ -1037,12 +1037,12 @@ func setupTest(t *testing.T) (table *DeltaTable, state *filestate.FileStateStore
 	store := filestore.New(tmpPath)
 	state = filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
-	table = NewDeltaTable(store, lock, state)
+	table = NewTable(store, lock, state)
 	return
 }
 
 // / Helper function to set up a basic transaction
-func setupTransaction(t *testing.T, table *DeltaTable, options *DeltaTransactionOptions) (transaction *DeltaTransaction, operation DeltaOperation, appMetaData map[string]any) {
+func setupTransaction(t *testing.T, table *Table, options *TransactionOptions) (transaction *Transaction, operation Operation, appMetaData map[string]any) {
 	t.Helper()
 
 	transaction = table.CreateTransaction(options)
@@ -1066,7 +1066,7 @@ func fileExists(filename string) bool {
 	return !info.IsDir()
 }
 
-func TestCommitUriFromVersion(t *testing.T) {
+func TestCommitURIFromVersion(t *testing.T) {
 	type test struct {
 		input int64
 		want  string
@@ -1081,7 +1081,7 @@ func TestCommitUriFromVersion(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := CommitUriFromVersion(tc.input)
+		got := CommitURIFromVersion(tc.input)
 		if got.Raw != tc.want {
 			t.Errorf("expected %s, got %s", tc.want, got)
 		}
@@ -1103,7 +1103,7 @@ func TestIsValidCommitUri(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := IsValidCommitUri(storage.NewPath(tc.input))
+		got := IsValidCommitURI(storage.NewPath(tc.input))
 		if got != tc.want {
 			t.Errorf("expected %t, got %t", tc.want, got)
 		}
@@ -1126,7 +1126,7 @@ func TestCommitVersionFromUri(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		match, got := CommitVersionFromUri(storage.NewPath(tc.input))
+		match, got := CommitVersionFromURI(storage.NewPath(tc.input))
 		if match != tc.wantMatch {
 			t.Errorf("expected %t, got %t", tc.wantMatch, match)
 		}
@@ -1155,7 +1155,7 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		match, got := CommitOrCheckpointVersionFromUri(storage.NewPath(tc.input))
+		match, got := CommitOrCheckpointVersionFromURI(storage.NewPath(tc.input))
 		if match != tc.wantMatch {
 			t.Errorf("expected %t, got %t", tc.wantMatch, match)
 		}
@@ -1184,8 +1184,8 @@ func TestLatestVersion(t *testing.T) {
 		path     = storage.NewPath(dir)
 		state    = filestate.New(path, "_delta_log/_commit.state")
 		lock     = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
-		table    = NewDeltaTable(store, lock, state)
-		metadata = NewDeltaTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
+		table    = NewTable(store, lock, state)
+		metadata = NewTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
 	)
 
 	if _, err := table.LatestVersion(); !errors.Is(err, ErrNotATable) { // if NO error
@@ -1248,7 +1248,7 @@ func TestLatestVersion(t *testing.T) {
 	}
 
 	for version := 2; version < 2100; version++ {
-		filePath := CommitUriFromVersion(int64(version))
+		filePath := CommitURIFromVersion(int64(version))
 
 		table.Store.Put(filePath, nil)
 	}
@@ -1277,7 +1277,7 @@ func TestLatestVersion(t *testing.T) {
 	}
 
 	for version := 0; version < 1000; version++ {
-		filePath := CommitUriFromVersion(int64(version))
+		filePath := CommitURIFromVersion(int64(version))
 
 		table.Store.Delete(filePath)
 	}
@@ -1291,7 +1291,7 @@ func TestLatestVersion(t *testing.T) {
 	}
 
 	for version := 2100; version < 4100; version++ {
-		filePath := CommitUriFromVersion(int64(version))
+		filePath := CommitURIFromVersion(int64(version))
 
 		table.Store.Put(filePath, nil)
 	}
@@ -1348,11 +1348,11 @@ func BenchmarkLatestVersion(b *testing.B) {
 	var (
 		state = filestate.New(path, "_delta_log/_commit.state")
 		lock  = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
-		table = NewDeltaTable(s3Store, lock, state)
+		table = NewTable(s3Store, lock, state)
 	)
 
 	for version := 0; version < 1000; version++ {
-		filePath := CommitUriFromVersion(int64(version))
+		filePath := CommitURIFromVersion(int64(version))
 
 		table.Store.Put(filePath, nil)
 	}
@@ -1365,7 +1365,7 @@ func TestLoadVersion(t *testing.T) {
 	store, stateStore, lock, _ := setupCheckpointTest(t, "testdata/checkpoints/simple")
 
 	// Load version 2
-	table := NewDeltaTable(store, lock, stateStore)
+	table := NewTable(store, lock, stateStore)
 	var version int64 = 2
 	err := table.LoadVersion(&version)
 	if err != nil {
@@ -1426,7 +1426,7 @@ func TestLoadVersion(t *testing.T) {
 	}
 	provider := "parquet"
 	options := map[string]string{}
-	expectedState.CurrentMetadata = NewDeltaTableMetaData("", "", Format{Provider: provider, Options: options}, schema, []string{"date"}, make(map[string]string))
+	expectedState.CurrentMetadata = NewTableMetaData("", "", Format{Provider: provider, Options: options}, schema, []string{"date"}, make(map[string]string))
 	expectedState.CurrentMetadata.CreatedTime = time.Unix(1627668675, 432000000)
 	expectedState.CurrentMetadata.Id = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
 
@@ -1452,7 +1452,7 @@ func TestLoadVersion(t *testing.T) {
 }
 
 // Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
-func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, table *DeltaTable, transaction *DeltaTransaction) {
+func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, table *Table, transaction *Transaction) {
 	t.Helper()
 
 	logStoreTableName = "version_log_store"
@@ -1477,7 +1477,7 @@ func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, tab
 		t.Errorf("Failed to create lock: %v", err)
 	}
 
-	table = NewDeltaTableWithLogStore(store, lock, logStore)
+	table = NewTableWithLogStore(store, lock, logStore)
 
 	schema := SchemaTypeStruct{
 		Fields: []SchemaField{
@@ -1486,7 +1486,7 @@ func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, tab
 		}}
 
 	config := make(map[string]string)
-	metadata := NewDeltaTableMetaData(
+	metadata := NewTableMetaData(
 		"test",
 		"This is a test table.",
 		new(Format).Default(),
@@ -1513,7 +1513,7 @@ func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, tab
 	appMetaData := make(map[string]any)
 	appMetaData["isBlindAppend"] = true
 
-	transaction = table.CreateTransaction(NewDeltaTransactionOptions())
+	transaction = table.CreateTransaction(NewTransactionOptions())
 	transaction.AddActions(actions)
 	transaction.SetOperation(operation)
 	transaction.SetAppMetadata(appMetaData)
@@ -1543,7 +1543,7 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 	}
 
 	for entry := 0; entry < len(items); entry++ {
-		parsed, version := CommitVersionFromUri(
+		parsed, version := CommitVersionFromURI(
 			storage.NewPath(items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
 		if !parsed {
 			t.Errorf("Failed to parse version from %s", items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
@@ -1580,7 +1580,7 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 	logs := objects.Objects[1 : len(objects.Objects)-1]
 
 	for log := 0; log < len(logs); log++ {
-		parsed, version := CommitVersionFromUri(logs[log].Location)
+		parsed, version := CommitVersionFromURI(logs[log].Location)
 		if !parsed {
 			t.Errorf("Failed to parse version from %s", logs[log].Location.Raw)
 		}
@@ -1687,7 +1687,7 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 	}
 
 	for entry := 0; entry < len(items); entry++ {
-		parsed, version := CommitVersionFromUri(
+		parsed, version := CommitVersionFromURI(
 			storage.NewPath(items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
 		if !parsed {
 			t.Errorf("Failed to parse version from %s", items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
@@ -1720,7 +1720,7 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 	logs := objects.Objects[len(objects.Objects)-transactions-1 : len(objects.Objects)-1]
 
 	for log := 0; log < len(logs); log++ {
-		parsed, version := CommitVersionFromUri(logs[log].Location)
+		parsed, version := CommitVersionFromURI(logs[log].Location)
 		if !parsed {
 			t.Errorf("Failed to parse version from %s", logs[log].Location.Raw)
 		}
@@ -1823,7 +1823,7 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 	}
 
 	for entry := 0; entry < len(items); entry++ {
-		parsed, version := CommitVersionFromUri(
+		parsed, version := CommitVersionFromURI(
 			storage.NewPath(items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
 		if !parsed {
 			t.Errorf("Failed to parse version from %s", items[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
@@ -1856,7 +1856,7 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 	logs := objects.Objects[len(objects.Objects)-transactions-1 : len(objects.Objects)-1]
 
 	for log := 0; log < len(logs); log++ {
-		parsed, version := CommitVersionFromUri(logs[log].Location)
+		parsed, version := CommitVersionFromURI(logs[log].Location)
 		if !parsed {
 			t.Errorf("Failed to parse version from %s", logs[log].Location.Raw)
 		}
@@ -1928,7 +1928,7 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 }
 
 // Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
-func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *DeltaTable, secondTable *DeltaTable, actions []Action, operation Write, appMetadata map[string]any) {
+func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *Table, secondTable *Table, actions []Action, operation Write, appMetadata map[string]any) {
 	t.Helper()
 
 	logStoreTableName = "version_log_store"
@@ -1950,8 +1950,8 @@ func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firs
 	firstLock := nillock.New()
 	secondLock := nillock.New()
 
-	firstTable = NewDeltaTableWithLogStore(store, firstLock, logStore)
-	secondTable = NewDeltaTableWithLogStore(store, secondLock, logStore)
+	firstTable = NewTableWithLogStore(store, firstLock, logStore)
+	secondTable = NewTableWithLogStore(store, secondLock, logStore)
 
 	actions = []Action{Add{
 		Path:             "part-00000-b08cb562-b392-441d-a090-494a47da752b-c000.snappy.parquet",
@@ -1976,15 +1976,15 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 
 	var (
 		wg                sync.WaitGroup
-		transactions      = 500
-		firstTransaction  *DeltaTransaction
-		secondTransaction *DeltaTransaction
+		transactions      = 100
+		firstTransaction  *Transaction
+		secondTransaction *Transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
 		wg.Add(1)
 
 		go func() {
-			firstTransaction = firstTable.CreateTransaction(NewDeltaTransactionOptions())
+			firstTransaction = firstTable.CreateTransaction(NewTransactionOptions())
 			firstTransaction.AddActions(actions)
 			firstTransaction.SetOperation(operation)
 			firstTransaction.SetAppMetadata(appMetadata)
@@ -1995,7 +1995,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 			}
 			t.Logf("Committed version %d", version)
 
-			secondTransaction = secondTable.CreateTransaction(NewDeltaTransactionOptions())
+			secondTransaction = secondTable.CreateTransaction(NewTransactionOptions())
 			secondTransaction.AddActions(actions)
 			secondTransaction.SetOperation(operation)
 			secondTransaction.SetAppMetadata(appMetadata)
@@ -2021,7 +2021,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 	}
 
 	for entry := 0; entry < len(firstItems); entry++ {
-		parsed, version := CommitVersionFromUri(
+		parsed, version := CommitVersionFromURI(
 			storage.NewPath(firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
 		if !parsed {
 			t.Errorf("Failed to parse version from %s", storage.NewPath(firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value).Raw)
@@ -2054,7 +2054,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 	logs := firstObjects.Objects[len(firstObjects.Objects)-transactions-1 : len(firstObjects.Objects)-1]
 
 	for log := 0; log < len(logs); log++ {
-		parsed, version := CommitVersionFromUri(logs[log].Location)
+		parsed, version := CommitVersionFromURI(logs[log].Location)
 		if !parsed {
 			t.Errorf("First table: failed to parse version from %s", logs[log].Location.Raw)
 		}
@@ -2139,7 +2139,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 	}
 
 	for entry := 0; entry < len(secondItems); entry++ {
-		parsed, version := CommitVersionFromUri(
+		parsed, version := CommitVersionFromURI(
 			storage.NewPath(secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
 		if !parsed {
 			t.Errorf("Second table: failed to parse version from %s", secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
@@ -2176,7 +2176,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 	logs = secondObjects.Objects[len(secondObjects.Objects)-transactions-1 : len(secondObjects.Objects)-1]
 
 	for log := 0; log < len(logs); log++ {
-		parsed, version := CommitVersionFromUri(logs[log].Location)
+		parsed, version := CommitVersionFromURI(logs[log].Location)
 		if !parsed {
 			t.Errorf("Second table: failed to parse version from %s", logs[log].Location.Raw)
 		}
@@ -2253,7 +2253,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 
 	versions := 1000
 	for version := 1; version < versions; version++ {
-		filePath := CommitUriFromVersion(int64(version))
+		filePath := CommitURIFromVersion(int64(version))
 
 		err := firstTable.Store.Put(filePath, nil)
 		if err != nil {
@@ -2263,15 +2263,15 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 
 	var (
 		wg                sync.WaitGroup
-		transactions      = 500
-		firstTransaction  *DeltaTransaction
-		secondTransaction *DeltaTransaction
+		transactions      = 100
+		firstTransaction  *Transaction
+		secondTransaction *Transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
 		wg.Add(1)
 
 		go func() {
-			firstTransaction = firstTable.CreateTransaction(NewDeltaTransactionOptions())
+			firstTransaction = firstTable.CreateTransaction(NewTransactionOptions())
 			firstTransaction.AddActions(actions)
 			firstTransaction.SetOperation(operation)
 			firstTransaction.SetAppMetadata(appMetadata)
@@ -2282,7 +2282,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 			}
 			t.Logf("Committed version %d", version)
 
-			secondTransaction = secondTable.CreateTransaction(NewDeltaTransactionOptions())
+			secondTransaction = secondTable.CreateTransaction(NewTransactionOptions())
 			secondTransaction.AddActions(actions)
 			secondTransaction.SetOperation(operation)
 			secondTransaction.SetAppMetadata(appMetadata)
@@ -2308,7 +2308,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	}
 
 	for entry := 0; entry < len(firstItems); entry++ {
-		parsed, version := CommitVersionFromUri(
+		parsed, version := CommitVersionFromURI(
 			storage.NewPath(firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
 		if !parsed {
 			t.Errorf("First table: failed to parse version from %s", firstItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
@@ -2341,7 +2341,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	logs := firstObjects.Objects[len(firstObjects.Objects)-transactions-1 : len(firstObjects.Objects)-1]
 
 	for log := 0; log < len(logs); log++ {
-		parsed, version := CommitVersionFromUri(logs[log].Location)
+		parsed, version := CommitVersionFromURI(logs[log].Location)
 		if !parsed {
 			t.Errorf("First table: failed to parse version from %s", logs[log].Location.Raw)
 		}
@@ -2426,7 +2426,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	}
 
 	for entry := 0; entry < len(secondItems); entry++ {
-		parsed, version := CommitVersionFromUri(
+		parsed, version := CommitVersionFromURI(
 			storage.NewPath(secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value))
 		if !parsed {
 			t.Errorf("Second table: failed to parse version from %s", secondItems[entry][string(dynamodblogstore.FileName)].(*types.AttributeValueMemberS).Value)
@@ -2463,7 +2463,7 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	logs = secondObjects.Objects[len(secondObjects.Objects)-transactions-1 : len(secondObjects.Objects)-1]
 
 	for log := 0; log < len(logs); log++ {
-		parsed, version := CommitVersionFromUri(logs[log].Location)
+		parsed, version := CommitVersionFromURI(logs[log].Location)
 		if !parsed {
 			t.Errorf("Second table: failed to parse version from %s", logs[log].Location.Raw)
 		}

@@ -93,7 +93,7 @@ type Remove struct {
 	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	/// When true the fields partitionValues, size, and tags are present
 	///
-	/// NOTE: Although it's defined as required in scala delta implementation, but some writes
+	/// NOTE: Although it's defined as required in scala Delta implementation, but some writes
 	/// it's still nullable so we keep it as Option<> for compatibly.
 	ExtendedFileMetadata bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, repetition=OPTIONAL"`
 	/// A map from partition column to value for this file.
@@ -147,9 +147,9 @@ type MetaData struct {
 	CreatedTime *int64 `json:"createdTime" parquet:"name=createdTime, repetition=OPTIONAL"`
 }
 
-// MetaData.ToDeltaTableMetaData() converts a MetaData to DeltaTableMetaData
+// MetaData.ToTableMetaData() converts a MetaData to TableMetaData
 // Internally, it converts the schema from a string.
-func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
+func (md *MetaData) ToTableMetadata() (TableMetaData, error) {
 	var err error
 	schema, err := md.GetSchema()
 
@@ -158,10 +158,10 @@ func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
 	if md.Id == uuid.Nil && len(md.IdAsString) > 0 {
 		id, err = uuid.Parse(md.IdAsString)
 		if err != nil {
-			return DeltaTableMetaData{}, errors.Join(err, errors.New("unable to parse UUID in metadata"))
+			return TableMetaData{}, errors.Join(err, errors.New("unable to parse UUID in metadata"))
 		}
 	}
-	dtmd := DeltaTableMetaData{
+	dtmd := TableMetaData{
 		Id:               id,
 		Schema:           schema,
 		PartitionColumns: md.PartitionColumns,
@@ -229,7 +229,7 @@ func logEntryFromAction(action Action) ([]byte, error) {
 
 	var err error
 	switch action.(type) {
-	//TODO: Add errors for missing or null values that are not allowed by the delta protocol
+	//TODO: Add errors for missing or null values that are not allowed by the Delta protocol
 	//https://github.com/delta-io/delta/blob/master/PROTOCOL.md#actions
 	case Remove, CommitInfo, MetaData, Protocol, Txn:
 		// wrap the action data in a camelCase of the action type
@@ -354,7 +354,7 @@ func (m *MetaData) GetSchema() (Schema, error) {
 // #[allow(clippy::large_enum_variant)]
 // #[derive(Serialize, Deserialize, Debug, Clone)]
 // #[serde(rename_all = "camelCase")]
-type DeltaOperation interface {
+type Operation interface {
 	GetCommitInfo() CommitInfo
 }
 
@@ -369,7 +369,7 @@ type Create struct {
 	/// The min reader and writer protocol versions of the table
 	Protocol Protocol
 	/// Metadata associated with the new table
-	MetaData DeltaTableMetaData
+	MetaData TableMetaData
 }
 
 func (op Create) GetCommitInfo() CommitInfo {
@@ -433,7 +433,7 @@ type StreamingUpdate struct {
 	EpochId int64
 }
 
-// / The SaveMode used when performing a DeltaOperation
+// / The SaveMode used when performing a Operation
 type SaveMode string
 
 const (
