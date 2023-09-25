@@ -38,7 +38,7 @@ const (
 type DynamoState struct {
 	Table  string
 	Key    string
-	Client dynamodbutils.DynamoDBClient
+	Client dynamodbutils.Client
 }
 
 type Options struct {
@@ -65,7 +65,7 @@ func (opts *Options) setOptionsDefaults() {
 // Compile time check that DynamoState implements state.StateStore
 var _ state.StateStore = (*DynamoState)(nil)
 
-func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts Options) (*DynamoState, error) {
+func New(client dynamodbutils.Client, tableName string, key string, opts Options) (*DynamoState, error) {
 	opts.setOptionsDefaults()
 
 	createTableInput := dynamodb.CreateTableInput{
@@ -81,7 +81,7 @@ func New(client dynamodbutils.DynamoDBClient, tableName string, key string, opts
 		},
 		TableName: aws.String(tableName),
 	}
-	dynamodbutils.TryEnsureDynamoDBTableExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
+	dynamodbutils.CreateTableIfNotExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
 
 	tb := new(DynamoState)
 	tb.Table = tableName

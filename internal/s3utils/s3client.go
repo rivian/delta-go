@@ -18,8 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// Defines methods implemented by s3.Client
-type S3Client interface {
+// Client defines methods implemented by AWS SDK for Go v2's S3 client.
+type Client interface {
 	CopyObject(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
 	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)

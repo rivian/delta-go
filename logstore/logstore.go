@@ -12,15 +12,23 @@
 // limitations under the License.
 package logstore
 
-import "github.com/rivian/delta-go/storage"
+import (
+	"github.com/rivian/delta-go/storage"
+)
 
 type LogStore interface {
-	// Puts an entry into a log store in an exclusive way
+	// Put puts a commit entry into a log store in an exclusive way.
 	Put(entry *CommitEntry, overwrite bool) error
 
-	// Gets an entry corresponding to the Delta log file with given `tablePath` and `fileName`
+	// Get gets a commit entry corresponding to the commit log identified by the given table path and file name.
 	Get(tablePath storage.Path, fileName storage.Path) (*CommitEntry, error)
 
-	// Gets the latest entry corresponding to the Delta log file for given `tablePath`
-	GetLatest(tablePath storage.Path) (*CommitEntry, error)
+	// Latest gets the commit entry corresponding to the latest commit log for a given table path.
+	Latest(tablePath storage.Path) (*CommitEntry, error)
+
+	// Client gets a log store client.
+	Client() any
+
+	// ExpirationDelaySeconds gets the number of seconds until a commit entry expires.
+	ExpirationDelaySeconds() uint64
 }

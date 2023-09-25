@@ -28,7 +28,7 @@ func TestPut(t *testing.T) {
 	// fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 
 	tmpPath := storage.NewPath(tmpDir)
-	store := FileObjectStore{BaseURI: tmpPath}
+	store := FileObjectStore{baseURI: tmpPath}
 	// lock := filelock.FileLock{Key: fileLockKey}
 
 	putPath := storage.NewPath("test_file.json")
@@ -55,7 +55,7 @@ func TestHead(t *testing.T) {
 	// fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
 
 	tmpPath := storage.NewPath(tmpDir)
-	store := FileObjectStore{BaseURI: tmpPath}
+	store := FileObjectStore{baseURI: tmpPath}
 	// lock := filelock.FileLock{Key: fileLockKey}
 
 	putPath := storage.NewPath("test_file.json")
@@ -92,7 +92,7 @@ func TestRenameIfNotExists(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	store := FileObjectStore{BaseURI: tmpPath}
+	store := FileObjectStore{baseURI: tmpPath}
 
 	fromPath := storage.NewPath("data.json.tmp")
 	toPath := storage.NewPath("data.json")
@@ -127,7 +127,7 @@ func TestDelete(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	store := FileObjectStore{BaseURI: tmpPath}
+	store := FileObjectStore{baseURI: tmpPath}
 
 	filePath := storage.NewPath("data.json")
 
@@ -184,7 +184,7 @@ func TestList(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tmpPath := storage.NewPath(tmpDir)
-	store := FileObjectStore{BaseURI: tmpPath}
+	store := FileObjectStore{baseURI: tmpPath}
 
 	// Create some files and directories
 	filePaths := []string{"data.json", "data2.json", "d3.json", "data/more.json", "data/more2.json", "data3/hello.json"}

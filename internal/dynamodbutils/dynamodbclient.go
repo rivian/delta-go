@@ -14,7 +14,7 @@ package dynamodbutils
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,12 +22,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	ErrExceededTableCreateRetryAttempts error = errors.New("failed to create table")
-)
-
-// Defines methods implemented by dynamodb.Client
-type DynamoDBClient interface {
+// Client defines methods implemented by AWS SDK for Go v2's DynamoDB client.
+type Client interface {
 	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
@@ -37,35 +33,34 @@ type DynamoDBClient interface {
 	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
-// Tries to create a DynamoDB table only if it doesn't exist
-func TryEnsureDynamoDBTableExists(client DynamoDBClient, tableName string, createTableInput dynamodb.CreateTableInput, maxRetryTableCreateAttempts uint16) error {
-	attemptNumber := 0
-	created := false
-
+// CreateTableIfNotExists creates a table if it does not exist.
+func CreateTableIfNotExists(c Client, name string, cti dynamodb.CreateTableInput, maxAttempts uint16) error {
+	var (
+		attemptNumber = 0
+		created       = false
+	)
 	for {
-		if attemptNumber >= int(maxRetryTableCreateAttempts) {
-			log.Debugf("delta-go: Table create attempt failed. Attempts exhausted beyond maxRetryDynamoDbTableCreateAttempts of %d so failing.", maxRetryTableCreateAttempts)
-			return ErrExceededTableCreateRetryAttempts
+		if attemptNumber >= int(maxAttempts) {
+			return fmt.Errorf("failed to create table after %d attempts", maxAttempts)
 		}
 
-		status := "CREATING"
-
-		result, err := client.DescribeTable(context.TODO(), &dynamodb.DescribeTableInput{
-			TableName: aws.String(tableName),
+		result, err := c.DescribeTable(context.TODO(), &dynamodb.DescribeTableInput{
+			TableName: aws.String(name),
 		})
 		if err != nil {
-			log.Infof("delta-go: DynamoDB table %s does not exist. Creating it now with provisioned throughput of %d RCUs and %d WCUs.", tableName, *createTableInput.ProvisionedThroughput.ReadCapacityUnits, *createTableInput.ProvisionedThroughput.ReadCapacityUnits)
-			_, err := client.CreateTable(context.TODO(), &createTableInput)
-			if err != nil {
-				log.Debugf("delta-go: Table %s just created by concurrent process. %v", tableName, err)
+			log.Infof("delta-go: DynamoDB table %s does not exist. Creating it now with provisioned throughput of %d RCUs and %d WCUs.", name, *cti.ProvisionedThroughput.ReadCapacityUnits, *cti.ProvisionedThroughput.ReadCapacityUnits)
+			if _, err := c.CreateTable(context.TODO(), &cti); err != nil {
+				log.Debugf("delta-go: Table %s just created by concurrent process. %v", name, err)
 			}
 
 			created = true
 		}
 
+		var status string
+
 		if result == nil || result.Table == nil {
 			attemptNumber++
-			log.Infof("delta-go: Waiting for %s table creation", tableName)
+			log.Infof("delta-go: Waiting for %s table creation", name)
 			time.Sleep(1 * time.Second)
 			continue
 		} else {
@@ -74,17 +69,18 @@ func TryEnsureDynamoDBTableExists(client DynamoDBClient, tableName string, creat
 
 		if status == "ACTIVE" {
 			if created {
-				log.Infof("delta-go: Successfully created DynamoDB table %s", tableName)
+				log.Infof("delta-go: Successfully created DynamoDB table %s", name)
 			} else {
-				log.Infof("delta-go: Table %s already exists", tableName)
+				log.Infof("delta-go: Table %s already exists", name)
 			}
 		} else if status == "CREATING" {
 			attemptNumber++
-			log.Infof("delta-go: Waiting for %s table creation", tableName)
+			log.Infof("delta-go: Waiting for %s table creation", name)
 			time.Sleep(1 * time.Second)
+			continue
 		} else {
 			attemptNumber++
-			log.Debugf("delta-go: Table %s status: %s. Incrementing attempt number to %d and retrying. %v", tableName, status, attemptNumber, err)
+			log.Debugf("delta-go: Table %s status: %s. Incrementing attempt number to %d and retrying. %v", name, status, attemptNumber, err)
 			continue
 		}
 
