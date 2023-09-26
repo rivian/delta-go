@@ -74,8 +74,8 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 		t.Error("should be locked")
 	}
 
-	if commit.URI.Ext() != ".tmp" {
-		t.Errorf("extension should be .tmp, has %s", commit.URI.Ext())
+	if commit.URI.Ext() != ".json" {
+		t.Errorf("extension should be .json, has %s", commit.URI.Ext())
 	}
 
 	commitFullPath := filepath.Join(store.BaseURI().Base(), commit.URI.Raw)
