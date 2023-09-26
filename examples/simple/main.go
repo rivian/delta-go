@@ -8,13 +8,14 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/storage"
 	"github.com/rivian/delta-go/storage/filestore"
-	"github.com/segmentio/parquet-go"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -27,9 +28,9 @@ func main() {
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 	checkpointLock := filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.Options{})
-	table := delta.NewDeltaTable(store, lock, state)
-	metadata := delta.NewDeltaTableMetaData("Test Table", "test description", new(delta.Format).Default(), getSchema(), []string{}, make(map[string]string))
-	err := table.Create(*metadata, delta.Protocol{}, delta.CommitInfo{}, []delta.Add{})
+	table := delta.NewTable(store, lock, state)
+	metadata := delta.NewTableMetaData("Test Table", "test description", new(delta.Format).Default(), getSchema(), []string{}, make(map[string]string))
+	err := table.Create(*metadata, new(delta.Protocol).Default(), delta.CommitInfo{}, []delta.Add{})
 	if err != nil {
 		log.Error(err)
 	}
@@ -38,30 +39,31 @@ func main() {
 	filePath := filepath.Join(tmpPath.Raw, fileName)
 
 	//Make some data
-	data := makeTestData(5)
-	stats := makeTestDataStats(data)
+	data := makeData(5)
+	stats := makeStats(data)
 	p, err := writeParquet(data, filePath)
 	if err != nil {
 		log.Error(err)
 	}
 
-	s := string(stats.Json())
 	add := delta.Add{
 		Path:             fileName,
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            &s,
+		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
-	transaction := table.CreateTransaction(delta.NewDeltaTransactionOptions())
+	transaction := table.CreateTransaction(delta.NewTransactionOptions())
 
 	transaction.AddAction(add)
 	operation := delta.Write{Mode: delta.Overwrite}
 	appMetaData := make(map[string]any)
 	appMetaData["test"] = 123
 
-	v, err := transaction.Commit(operation, appMetaData)
+	transaction.SetAppMetadata(appMetaData)
+	transaction.SetOperation(operation)
+	v, err := transaction.Commit()
 	if err != nil {
 		log.Error(err)
 	}
@@ -75,7 +77,7 @@ type simpleCheckpointTestPartition struct {
 	Date string `json:"date" parquet:"date"`
 }
 
-type testData struct {
+type data struct {
 	Id     int64     `parquet:"id,snappy"`
 	T1     int64     `parquet:"t1,timestamp(microsecond)"`
 	T2     time.Time `parquet:"t2,timestamp"`
@@ -102,9 +104,9 @@ func getSchema() delta.SchemaTypeStruct {
 	return schema
 }
 
-func makeTestData(n int) []testData {
+func makeData(n int) []data {
 	id := rand.Int()
-	var data []testData
+	var d []data
 	for i := 0; i < n; i++ {
 		v := rand.Float64()
 		var v2 *float64
@@ -113,7 +115,7 @@ func makeTestData(n int) []testData {
 		}
 		b := make([]byte, 8)
 		binary.LittleEndian.PutUint64(b, uint64(rand.Int()))
-		row := testData{
+		row := data{
 			Id:     int64(id),
 			T1:     time.Now().UnixMicro(),
 			T2:     time.Now(),
@@ -122,12 +124,12 @@ func makeTestData(n int) []testData {
 			Value2: v2,
 			Data:   b,
 		}
-		data = append(data, row)
+		d = append(d, row)
 	}
-	return data
+	return d
 }
 
-func makeTestDataStats(data []testData) delta.Stats {
+func makeStats(data []data) delta.Stats {
 	stats := delta.Stats{}
 	for _, row := range data {
 		stats.NumRecords++
@@ -150,56 +152,17 @@ type payload struct {
 func writeParquet[T any](data []T, filename string) (*payload, error) {
 
 	p := new(payload)
-
-	// if err := parquet.WriteFile(filename, data); err != nil {
-	// 	return p, err
-	// }
-
 	file, err := os.Create(filename)
 	if err != nil {
 		fmt.Println(err)
 	}
 	defer file.Close()
 
-	writer := parquet.NewGenericWriter[T](file)
+	props := parquet.WriterProperties{}
+	rfarrow.WriteGoStructsToParquet(data, file, &props)
 
-	_, err = writer.Write(data)
-	if err != nil {
-		log.Error(err)
-	}
-	if err := writer.Close(); err != nil {
-		fmt.Println(err)
-	}
 	info, _ := file.Stat()
 	p.Size = info.Size()
 	p.File = file
 	return p, nil
 }
-
-// func writeParquet[T any](data []T, filename string) (*payload, error) {
-
-// 	p := new(payload)
-
-// 	file, err := os.Create(filename)
-// 	if err != nil {
-// 		fmt.Println(err)
-// 	}
-// 	b, err := writeStructsToParquetBytes(data)
-// 	if err != nil {
-// 		return p, err
-// 	}
-// 	i, err := file.Write(b)
-// 	println(i)
-// 	if err != nil {
-// 		return p, err
-// 	}
-
-// 	info, _ := file.Stat()
-// 	p.Size = info.Size()
-// 	p.File = file
-
-// 	if err := file.Close(); err != nil {
-// 		return p, err
-// 	}
-// 	return p, nil
-// }

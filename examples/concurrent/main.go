@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go"
 	"github.com/rivian/delta-go/lock/filelock"
 	"github.com/rivian/delta-go/state/filestate"
 	"github.com/rivian/delta-go/storage"
 	"github.com/rivian/delta-go/storage/filestore"
-	"github.com/segmentio/parquet-go"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -27,7 +28,7 @@ func main() {
 	store := filestore.New(tmpPath)
 	state := filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
-	table := delta.NewDeltaTable(store, lock, state)
+	table := delta.NewTable(store, lock, state)
 
 	// First write
 	fileName := fmt.Sprintf("part-%s.snappy.parquet", uuid.New().String())
@@ -42,18 +43,17 @@ func main() {
 		log.Error(err)
 	}
 
-	s := string(stats.Json())
 	add := delta.Add{
 		Path:             fileName,
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            &s,
+		Stats:            string(stats.Json()),
 		PartitionValues:  make(map[string]string),
 	}
 
-	metadata := delta.NewDeltaTableMetaData("Test Table", "test description", new(delta.Format).Default(), schema, []string{}, make(map[string]string))
-	err = table.Create(*metadata, delta.Protocol{}, delta.CommitInfo{}, []delta.Add{add})
+	metadata := delta.NewTableMetaData("Test Table", "test description", new(delta.Format).Default(), schema, []string{}, make(map[string]string))
+	err = table.Create(*metadata, new(delta.Protocol).Default(), delta.CommitInfo{}, []delta.Add{add})
 	if err != nil {
 		log.Error(err)
 	}
@@ -74,8 +74,8 @@ func main() {
 			lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 
 			//Lock needs to be instantiated for each worker because it is passed by reference, so if it is not created different instances of tables would share the same lock
-			table := delta.NewDeltaTable(store, lock, state)
-			transaction := table.CreateTransaction(delta.NewDeltaTransactionOptions())
+			table := delta.NewTable(store, lock, state)
+			transaction := table.CreateTransaction(delta.NewTransactionOptions())
 
 			//Make some data
 			data := makeTestData(rand.Intn(50))
@@ -87,13 +87,12 @@ func main() {
 				log.Error(err)
 			}
 
-			s := string(stats.Json())
 			add := delta.Add{
 				Path:             fileName,
 				Size:             p.Size,
 				DataChange:       true,
 				ModificationTime: time.Now().UnixMilli(),
-				Stats:            &s,
+				Stats:            string(stats.Json()),
 				PartitionValues:  make(map[string]string),
 			}
 
@@ -102,7 +101,9 @@ func main() {
 			appMetaData := make(map[string]any)
 			appMetaData["test"] = 123
 
-			_, err = transaction.Commit(operation, appMetaData)
+			transaction.SetOperation(operation)
+			transaction.SetAppMetadata(appMetaData)
+			_, err = transaction.Commit()
 			if err != nil {
 				log.Error(err)
 			}
@@ -190,26 +191,15 @@ type payload struct {
 func writeParquet[T any](data []T, filename string) (*payload, error) {
 
 	p := new(payload)
-
-	// if err := parquet.WriteFile(filename, data); err != nil {
-	// 	return p, err
-	// }
-
 	file, err := os.Create(filename)
 	if err != nil {
 		fmt.Println(err)
 	}
 	defer file.Close()
 
-	writer := parquet.NewGenericWriter[T](file)
+	props := parquet.WriterProperties{}
+	rfarrow.WriteGoStructsToParquet(data, file, &props)
 
-	_, err = writer.Write(data)
-	if err != nil {
-		log.Error(err)
-	}
-	if err := writer.Close(); err != nil {
-		fmt.Println(err)
-	}
 	info, _ := file.Stat()
 	p.Size = info.Size()
 	p.File = file
