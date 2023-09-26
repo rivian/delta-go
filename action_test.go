@@ -65,17 +65,16 @@ func TestLogEntryFromActions(t *testing.T) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
-	if !strings.Contains(string(logs), `{"add":{"path":"part-1.snappy.parquet","partitionValues":null,"size":1,"modificationTime":1675020556534,"dataChange":false,"stats":null}}`) {
+	if !strings.Contains(string(logs), `{"add":{"path":"part-1.snappy.parquet","partitionValues":null,"size":1,"modificationTime":1675020556534,"dataChange":false,"stats":""}}`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 
-	if !strings.Contains(string(logs), `{"path":"part-2.snappy.parquet","partitionValues":null,"size":2,"modificationTime":1675020556534,"dataChange":false,"stats":null}`) {
+	if !strings.Contains(string(logs), `{"path":"part-2.snappy.parquet","partitionValues":null,"size":2,"modificationTime":1675020556534,"dataChange":false,"stats":""}`) {
 		t.Errorf("want:\n%s\nhas:\n%s\n", expectedStr, string(logs))
 	}
 }
 
 func TestLogEntryFromAction(t *testing.T) {
-
 	commit := make(CommitInfo)
 	commit["path"] = "part-1.snappy.parquet"
 	commit["size"] = 1
@@ -91,7 +90,6 @@ func TestLogEntryFromAction(t *testing.T) {
 
 // Test from example at https://github.com/delta-io/delta/blob/master/PROTOCOL.md#change-metadata
 func TestLogEntryFromActionChangeMetaData(t *testing.T) {
-
 	expectedStr := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(`
 	{
 		"metaData":{
@@ -140,7 +138,6 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 
 // TestUpdateStats tests gathering stats over a data set that includes pointers
 func TestUpdateStats(t *testing.T) {
-
 	type rowType struct {
 		Id    int      `parquet:"id,snappy"`
 		Label string   `parquet:"label,dict,snappy"`
@@ -161,7 +158,6 @@ func TestUpdateStats(t *testing.T) {
 
 	stats := Stats{}
 	for _, row := range data {
-
 		stats.NumRecords++
 		UpdateStats(&stats, "id", &row.Id)
 		UpdateStats(&stats, "label", &row.Label)
@@ -174,7 +170,6 @@ func TestUpdateStats(t *testing.T) {
 	if statsString != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", statsString, expectedStr)
 	}
-
 }
 
 func TestStatsFromJSON(t *testing.T) {
@@ -224,18 +219,15 @@ func TestStatsFromJSON(t *testing.T) {
 }
 
 func TestFormatDefault(t *testing.T) {
-
 	format := new(Format).Default()
 	b, _ := json.Marshal(format)
 	expectedStr := `{"provider":"parquet","options":{}}`
 	if string(b) != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", string(b), expectedStr)
 	}
-
 }
 
 func TestWriteOperationParameters(t *testing.T) {
-
 	write := Write{Mode: Append, PartitionBy: []string{"date"}}
 	commit := write.GetCommitInfo()
 	commit["timestamp"] = 1675020556534
@@ -253,7 +245,6 @@ func TestWriteOperationParameters(t *testing.T) {
 	if !reflect.DeepEqual(expectedStr, string(logs)) {
 		t.Errorf("expected %s, but got %s", expectedStr, string(logs))
 	}
-
 }
 
 func TestWrite_GetCommitInfo(t *testing.T) {
@@ -336,20 +327,20 @@ func TestActionFromLogEntry(t *testing.T) {
 	}{
 		{name: "Add", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`{"path":"mypath.parquet","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true,"stats":"{\"numRecords\":155,\"tightBounds\":false,\"minValues\":{\"timestamp\":1615338375007003},\"maxValues\":{\"timestamp\":1615338377517216},\"nullCount\":null}"}`)}},
 			want: &Add{Path: "mypath.parquet", Size: 8382, PartitionValues: map[string]string{"date": "2021-03-09"}, ModificationTime: 1679610144893, DataChange: true,
-				Stats: &statsString}, wantErr: nil},
+				Stats: statsString}, wantErr: nil},
 		{name: "CommitInfo", args: args{unstructuredResult: map[string]json.RawMessage{"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
 			want: &CommitInfo{"clientVersion": "delta-go.alpha-0.0.0", "isBlindAppend": true, "operation": "delta-go.Write",
 				"timestamp": float64(1679610144893)}, wantErr: nil},
 		{name: "Protocol", args: args{unstructuredResult: map[string]json.RawMessage{"protocol": []byte(`{"minReaderVersion":2,"minWriterVersion":7}`)}},
 			want: &Protocol{MinReaderVersion: 2, MinWriterVersion: 7}, wantErr: nil},
 		{name: "Fail on invalid JSON", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`"path":"s3a://bucket/table","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true}`)}},
-			want: nil, wantErr: ErrorActionJSONFormat},
-		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: ErrorActionUnknown},
-		{name: "Fail on CDC", args: args{unstructuredResult: map[string]json.RawMessage{"cdc": []byte(`{}`)}}, want: nil, wantErr: ErrorCDCNotSupported},
+			want: nil, wantErr: ErrActionJSONFormat},
+		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: ErrActionUnknown},
+		{name: "Fail on CDC", args: args{unstructuredResult: map[string]json.RawMessage{"cdc": []byte(`{}`)}}, want: nil, wantErr: ErrCDCNotSupported},
 		{name: "Fail on multiple entries", args: args{unstructuredResult: map[string]json.RawMessage{
 			"protocol":   []byte(`{"minReaderVersion":2,"minWriterVersion":7}`),
 			"commitInfo": []byte(`{"clientVersion":"delta-go.alpha-0.0.0","isBlindAppend":true,"operation":"delta-go.Write","timestamp":1679610144893}`)}},
-			want: nil, wantErr: ErrorActionJSONFormat},
+			want: nil, wantErr: ErrActionJSONFormat},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -371,12 +362,11 @@ func TestActionsFromLogEntries(t *testing.T) {
 		NumRecords: 123,
 	}
 
-	statsString := string(stats.Json())
 	add := Add{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: 1675020556534,
-		Stats:            &statsString,
+		Stats:            string(stats.Json()),
 	}
 
 	write := Write{Mode: ErrorIfExists}

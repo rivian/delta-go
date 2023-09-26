@@ -25,9 +25,9 @@ import (
 )
 
 var (
-	ErrorActionJSONFormat error = errors.New("invalid format for action JSON")
-	ErrorActionUnknown    error = errors.New("unknown action")
-	ErrorActionConversion error = errors.New("error reading action")
+	ErrActionJSONFormat error = errors.New("invalid format for action JSON")
+	ErrActionUnknown    error = errors.New("unknown action")
+	ErrActionConversion error = errors.New("error reading action")
 )
 
 // Delta log action that describes a parquet data file that is part of the table.
@@ -57,9 +57,9 @@ type Add struct {
 	// that would not affect the final results.
 	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	// Map containing metadata about this file
-	Tags *map[string]string `json:"tags,omitempty" parquet:"name=tags, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
+	Tags map[string]string `json:"tags,omitempty" parquet:"name=tags, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	// Contains statistics (e.g., count, min/max values for columns) about the data in this file
-	Stats *string `json:"stats" parquet:"name=stats, repetition=OPTIONAL, converted=UTF8"`
+	Stats string `json:"stats" parquet:"name=stats, repetition=OPTIONAL, converted=UTF8"`
 
 	// TODO - parsed fields dropped after the parquet library switch.
 	// This requires dropping writer version to 2.
@@ -93,9 +93,9 @@ type Remove struct {
 	DataChange bool `json:"dataChange" parquet:"name=dataChange, repetition=OPTIONAL"`
 	/// When true the fields partitionValues, size, and tags are present
 	///
-	/// NOTE: Although it's defined as required in scala delta implementation, but some writes
+	/// NOTE: Although it's defined as required in scala Delta implementation, but some writes
 	/// it's still nullable so we keep it as Option<> for compatibly.
-	ExtendedFileMetadata *bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, repetition=OPTIONAL"`
+	ExtendedFileMetadata bool `json:"extendedFileMetadata" parquet:"name=extendedFileMetadata, repetition=OPTIONAL"`
 	/// A map from partition column to value for this file.
 	PartitionValues *map[string]string `json:"partitionValues" parquet:"name=partitionValues, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 	/// Size of this file in bytes
@@ -147,9 +147,9 @@ type MetaData struct {
 	CreatedTime *int64 `json:"createdTime" parquet:"name=createdTime, repetition=OPTIONAL"`
 }
 
-// MetaData.ToDeltaTableMetaData() converts a MetaData to DeltaTableMetaData
+// MetaData.ToTableMetaData() converts a MetaData to TableMetaData
 // Internally, it converts the schema from a string.
-func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
+func (md *MetaData) ToTableMetadata() (TableMetaData, error) {
 	var err error
 	schema, err := md.GetSchema()
 
@@ -158,10 +158,10 @@ func (md *MetaData) ToDeltaTableMetaData() (DeltaTableMetaData, error) {
 	if md.Id == uuid.Nil && len(md.IdAsString) > 0 {
 		id, err = uuid.Parse(md.IdAsString)
 		if err != nil {
-			return DeltaTableMetaData{}, errors.Join(err, errors.New("unable to parse UUID in metadata"))
+			return TableMetaData{}, errors.Join(err, errors.New("unable to parse UUID in metadata"))
 		}
 	}
-	dtmd := DeltaTableMetaData{
+	dtmd := TableMetaData{
 		Id:               id,
 		Schema:           schema,
 		PartitionColumns: md.PartitionColumns,
@@ -229,7 +229,7 @@ func logEntryFromAction(action Action) ([]byte, error) {
 
 	var err error
 	switch action.(type) {
-	//TODO: Add errors for missing or null values that are not allowed by the delta protocol
+	//TODO: Add errors for missing or null values that are not allowed by the Delta protocol
 	//https://github.com/delta-io/delta/blob/master/PROTOCOL.md#actions
 	case Remove, CommitInfo, MetaData, Protocol, Txn:
 		// wrap the action data in a camelCase of the action type
@@ -284,7 +284,7 @@ const (
 // / Retrieve an action from a log entry
 func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, error) {
 	if len(unstructuredResult) != 1 {
-		return nil, errors.Join(ErrorActionJSONFormat, errors.New("log entry JSON must have one value"))
+		return nil, errors.Join(ErrActionJSONFormat, errors.New("log entry JSON must have one value"))
 	}
 
 	var action Action
@@ -306,14 +306,14 @@ func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, 
 	} else if marshalledAction, actionFound = unstructuredResult[string(TransactionActionKey)]; actionFound {
 		action = new(Txn)
 	} else if _, actionFound = unstructuredResult[string(CDCActionKey)]; actionFound {
-		return nil, ErrorCDCNotSupported
+		return nil, ErrCDCNotSupported
 	} else {
-		return nil, ErrorActionUnknown
+		return nil, ErrActionUnknown
 	}
 
 	err := json.Unmarshal(marshalledAction, action)
 	if err != nil {
-		return nil, errors.Join(ErrorActionJSONFormat, err)
+		return nil, errors.Join(ErrActionJSONFormat, err)
 	}
 
 	return action, nil
@@ -330,7 +330,7 @@ func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 		var unstructuredResult map[string]json.RawMessage
 		err := json.Unmarshal(currentLine, &unstructuredResult)
 		if err != nil {
-			return nil, errors.Join(ErrorActionJSONFormat, err)
+			return nil, errors.Join(ErrActionJSONFormat, err)
 		}
 		action, err := actionFromLogEntry(unstructuredResult)
 		if err != nil {
@@ -354,7 +354,7 @@ func (m *MetaData) GetSchema() (Schema, error) {
 // #[allow(clippy::large_enum_variant)]
 // #[derive(Serialize, Deserialize, Debug, Clone)]
 // #[serde(rename_all = "camelCase")]
-type DeltaOperation interface {
+type Operation interface {
 	GetCommitInfo() CommitInfo
 }
 
@@ -369,7 +369,7 @@ type Create struct {
 	/// The min reader and writer protocol versions of the table
 	Protocol Protocol
 	/// Metadata associated with the new table
-	MetaData DeltaTableMetaData
+	MetaData TableMetaData
 }
 
 func (op Create) GetCommitInfo() CommitInfo {
@@ -433,7 +433,7 @@ type StreamingUpdate struct {
 	EpochId int64
 }
 
-// / The SaveMode used when performing a DeltaOperation
+// / The SaveMode used when performing a Operation
 type SaveMode string
 
 const (
@@ -485,7 +485,6 @@ func StatsFromJson(b []byte) (*Stats, error) {
 // the struct property is passed in as a pointer to ensure that it can be evaluated as nil[NULL]
 // TODO Handle struct types
 func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
-
 	var v T
 	if s.NullCount == nil {
 		s.NullCount = make(map[string]int64)
@@ -524,5 +523,4 @@ func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
 		s.MaxValues[k] = v
 
 	}
-
 }

@@ -24,16 +24,10 @@ import (
 // / Type alias for a string expected to match a GUID/UUID format
 type Guid string
 
-const (
-	STRUCT_TAG = "struct"
-	ARRAY_TAG  = "array"
-	MAP_TAG    = "map"
-)
-
-// Represents the schema of the delta table.
+// Represents the schema of the Delta table.
 type Schema = SchemaTypeStruct
 
-// Represents the schema of the delta table.
+// Represents the schema of the Delta table.
 type SchemaTypeStruct struct {
 	Fields []SchemaField //`json:"fields"`
 }
@@ -41,7 +35,6 @@ type SchemaTypeStruct struct {
 // TODO this does not handle nested maps, arrays, or structs correctly
 // See TestMetadataGetSchema in action_test.go for example outputs for those cases
 func (s *SchemaTypeStruct) Json() []byte {
-
 	type constructorSchemaField struct {
 		// will always be struct
 		Type SchemaDataType `json:"type"`
@@ -97,12 +90,10 @@ const (
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#schema-serialization-format
 // i.e. Value int is not currently readable with spark.read.format("delta").load("...")
 func GetSchema(i any) SchemaTypeStruct {
-
 	t := reflect.TypeOf(i).Elem()
 	numFields := t.NumField()
 	var fields []SchemaField
 	for index := 0; index < numFields; index++ {
-
 		structField := t.FieldByIndex([]int{index})
 
 		typeTag := structField.Tag.Get("type")

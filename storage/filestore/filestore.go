@@ -14,6 +14,7 @@ package filestore
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -25,90 +26,99 @@ import (
 
 // FileObjectStore provides local file storage
 type FileObjectStore struct {
-	BaseURI *storage.Path
+	baseURI storage.Path
 }
 
 // Compile time check that FileObjectStore implements storage.ObjectStore
 var _ storage.ObjectStore = (*FileObjectStore)(nil)
 
-func New(baseURI *storage.Path) *FileObjectStore {
+func New(baseURI storage.Path) *FileObjectStore {
 	fs := new(FileObjectStore)
-	fs.BaseURI = baseURI
+	fs.baseURI = baseURI
 	return fs
 }
 
-func (s *FileObjectStore) Put(location *storage.Path, bytes []byte) error {
-	writePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+func (s *FileObjectStore) Put(location storage.Path, bytes []byte) error {
+	writePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.MkdirAll(filepath.Dir(writePath), 0700)
 	if err != nil {
-		return errors.Join(storage.ErrorPutObject, err)
+		return errors.Join(storage.ErrPutObject, err)
 	}
 	err = os.WriteFile(writePath, bytes, 0700)
 	if err != nil {
-		return errors.Join(storage.ErrorPutObject, err)
+		return errors.Join(storage.ErrPutObject, err)
 	}
 	return nil
 }
 
-func (s *FileObjectStore) RenameIfNotExists(from *storage.Path, to *storage.Path) error {
-	// return ErrorObjectAlreadyExists if the destination file exists
+func (s *FileObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
+	// return ErrObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
-	if !errors.Is(err, storage.ErrorObjectDoesNotExist) {
-		return errors.Join(storage.ErrorObjectAlreadyExists, err)
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+		return errors.Join(storage.ErrObjectAlreadyExists, err)
 	}
 	// rename source to destination
 	return s.Rename(from, to)
 }
 
-func (s *FileObjectStore) Get(location *storage.Path) ([]byte, error) {
-	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+func (s *FileObjectStore) Get(location storage.Path) ([]byte, error) {
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	data, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
-		return nil, errors.Join(storage.ErrorObjectDoesNotExist, err)
+		return nil, errors.Join(storage.ErrObjectDoesNotExist, err)
 	}
 	if err != nil {
-		return nil, errors.Join(storage.ErrorGetObject, err)
+		return nil, errors.Join(storage.ErrGetObject, err)
 	}
 	return data, nil
 }
 
-func (s *FileObjectStore) Head(location *storage.Path) (storage.ObjectMeta, error) {
-	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+func (s *FileObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) {
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	var meta storage.ObjectMeta
 	info, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
-		return meta, errors.Join(storage.ErrorObjectDoesNotExist, err)
+		return meta, errors.Join(storage.ErrObjectDoesNotExist, err)
 	}
 	if err != nil {
-		return meta, errors.Join(storage.ErrorHeadObject, err)
+		return meta, errors.Join(storage.ErrHeadObject, err)
 	}
 	meta.Size = info.Size()
 	meta.Location = storage.Path{Raw: filePath}
 	meta.LastModified = info.ModTime()
 
 	if info.IsDir() {
-		return meta, storage.ErrorObjectIsDir
+		return meta, storage.ErrObjectIsDir
 	}
 
 	return meta, nil
 }
 
-func (s *FileObjectStore) Rename(from *storage.Path, to *storage.Path) error {
+func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 	// rename source to destination
-	f := s.BaseURI.Join(from)
-	t := s.BaseURI.Join(to)
+	f := s.baseURI.Join(from)
+	t := s.baseURI.Join(to)
 	err := os.Rename(f.Raw, t.Raw)
 	if err != nil {
-		return errors.Join(storage.ErrorObjectDoesNotExist, err)
+		return errors.Join(storage.ErrObjectDoesNotExist, err)
 	}
 	return nil
 }
 
-func (s *FileObjectStore) Delete(location *storage.Path) error {
-	filePath := filepath.Join(s.BaseURI.Raw, location.Raw)
+func (s *FileObjectStore) Delete(location storage.Path) error {
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.Remove(filePath)
 	if err != nil {
-		return errors.Join(storage.ErrorDeleteObject, err)
+		return errors.Join(storage.ErrDeleteObject, err)
+	}
+	return nil
+}
+
+func (s *FileObjectStore) DeleteFolder(location storage.Path) error {
+	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
+	err := os.RemoveAll(filePath)
+	if err != nil {
+		return errors.Join(storage.ErrDeleteObject, err)
 	}
 	return nil
 }
@@ -128,7 +138,7 @@ func objectMetaFromFileInfo(info fs.FileInfo, name string, isDir bool, parentDir
 	} else {
 		meta.Size = info.Size()
 	}
-	meta.Location = *storage.NewPath(location)
+	meta.Location = storage.NewPath(location)
 	return meta
 }
 
@@ -175,11 +185,11 @@ func listFilesInDirRecursively(baseURI string, dir string, prefix string) ([]sto
 	return out, nil
 }
 
-func (s *FileObjectStore) ListAll(prefix *storage.Path) (storage.ListResult, error) {
+func (s *FileObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error) {
 	var listResult storage.ListResult
 	dir, filePrefix := filepath.Split(prefix.Raw)
 
-	fullDir := filepath.Join(s.BaseURI.Raw, dir)
+	fullDir := filepath.Join(s.baseURI.Raw, dir)
 
 	// If filePrefix was "", make sure fullDir includes a trailing separator.
 	// Otherwise we will return results in the parent directory that start with the same
@@ -190,22 +200,22 @@ func (s *FileObjectStore) ListAll(prefix *storage.Path) (storage.ListResult, err
 
 	// baseURI will be trimmed from the beginning of the results returned.
 	// It must have a trailing separator.
-	baseURI := s.BaseURI.Raw
+	baseURI := s.baseURI.Raw
 	if !os.IsPathSeparator(baseURI[len(baseURI)-1]) {
 		baseURI += string(filepath.Separator)
 	}
 
 	files, err := listFilesInDirRecursively(baseURI, fullDir, filePrefix)
 	if err != nil {
-		return listResult, errors.Join(storage.ErrorListObjects, err)
+		return listResult, errors.Join(storage.ErrListObjects, err)
 	}
 
 	// If the prefix passed in was a directory, add the root directory explicitly
 	if dir != "" && filePrefix == "" {
-		info, err := os.Stat(filepath.Join(s.BaseURI.Raw, dir))
+		info, err := os.Stat(filepath.Join(s.baseURI.Raw, dir))
 		// If we get an error the directory doesn't exist, that's okay
 		if err != nil && !os.IsNotExist(err) {
-			return listResult, errors.Join(storage.ErrorListObjects, err)
+			return listResult, errors.Join(storage.ErrListObjects, err)
 		}
 		if err == nil {
 			meta := objectMetaFromFileInfo(info, dir, true, "", baseURI)
@@ -217,10 +227,40 @@ func (s *FileObjectStore) ListAll(prefix *storage.Path) (storage.ListResult, err
 	return listResult, nil
 }
 
-func (s *FileObjectStore) List(prefix *storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
+func (s *FileObjectStore) List(prefix storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
 	return s.ListAll(prefix)
 }
 
 func (s *FileObjectStore) IsListOrdered() bool {
 	return true
+}
+
+func (s *FileObjectStore) SupportsWriter() bool {
+	return true
+}
+
+func (s *FileObjectStore) Writer(location storage.Path, flag int) (io.Writer, func(), error) {
+	writePath := filepath.Join(s.baseURI.Raw, location.Raw)
+	err := os.MkdirAll(filepath.Dir(writePath), 0700)
+	if err != nil {
+		return nil, nil, errors.Join(storage.ErrWriter, err)
+	}
+
+	f, err := os.OpenFile(writePath, os.O_WRONLY|flag, 0700)
+	return f, func() { f.Close() }, err
+}
+
+// BaseURI gets the base URI.
+func (s *FileObjectStore) BaseURI() storage.Path {
+	return s.baseURI
+}
+
+// SetBaseURI sets the base URI.
+func (s *FileObjectStore) SetBaseURI(baseURI storage.Path) {
+	s.baseURI = baseURI
+}
+
+// SupportsAtomicPutIfAbsent returns false because local file storage does not provide a "put-if-absent" API.
+func (s *FileObjectStore) SupportsAtomicPutIfAbsent() bool {
+	return false
 }

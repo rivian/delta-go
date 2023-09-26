@@ -22,7 +22,7 @@ import (
 type DeltaConfigKey string
 
 var (
-	ErrorConfigValidation = errors.New("error validating delta configuration")
+	ErrConfigValidation = errors.New("error validating delta configuration")
 )
 
 const (
@@ -54,7 +54,7 @@ func ParseInterval(input string) (time.Duration, error) {
 	input = strings.TrimPrefix(strings.ToLower(input), "interval ")
 	components := strings.Fields(input)
 	if len(components) == 0 || len(components)%2 != 0 {
-		return time.Duration(0), ErrorConfigValidation
+		return time.Duration(0), ErrConfigValidation
 	}
 	i := 0
 	var totalDuration time.Duration
@@ -64,7 +64,7 @@ func ParseInterval(input string) (time.Duration, error) {
 		numericComponent, err := strconv.ParseInt(numericComponentStr, 10, 64)
 		durationComponent := time.Duration(numericComponent)
 		if err != nil {
-			return time.Duration(0), errors.Join(ErrorConfigValidation, err)
+			return time.Duration(0), errors.Join(ErrConfigValidation, err)
 		}
 		i++
 		unit := components[i]
@@ -95,7 +95,7 @@ func ParseInterval(input string) (time.Duration, error) {
 		case "year", "years":
 			durationUnit = time.Hour * 24 * 7 * 365
 		default:
-			return time.Duration(0), ErrorConfigValidation
+			return time.Duration(0), ErrConfigValidation
 		}
 		totalDuration += (durationUnit * durationComponent)
 	}

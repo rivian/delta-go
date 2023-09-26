@@ -116,7 +116,10 @@ func main() {
 			appMetaData := make(map[string]any)
 			appMetaData["test"] = 123
 
-			_, err = transaction.Commit(operation, appMetaData)
+			transaction.SetOperation(operation)
+			transaction.SetAppMetadata(appMetaData)
+
+			_, err = transaction.Commit()
 			if err != nil {
 				log.Error(err)
 			}
@@ -136,7 +139,6 @@ type testData struct {
 }
 
 func (data *testData) getSchema() delta.SchemaTypeStruct {
-
 	// schema := GetSchema(data)
 	schema := delta.SchemaTypeStruct{
 		Fields: []delta.SchemaField{
@@ -198,7 +200,6 @@ type payload struct {
 }
 
 func writeParquet[T any](data []T, filename string) (*payload, error) {
-
 	p := new(payload)
 
 	// if err := parquet.WriteFile(filename, data); err != nil {

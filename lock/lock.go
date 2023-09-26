@@ -17,16 +17,16 @@ import (
 )
 
 var (
-	ErrorLockNotObtained error = errors.New("the lock could not be obtained")
-	ErrorUnableToUnlock  error = errors.New("the lock could not be released")
+	ErrLockNotObtained error = errors.New("the lock could not be obtained")
+	ErrUnableToUnlock  error = errors.New("the lock could not be released")
 )
 
 // Locker is the abstract interface for providing a lock client that stores data in the lock
 // The data can be used to provide information about the application using the lock including
 // the prior lock client version.
 type Locker interface {
-	// Creates a new lock using an existing lock object
-	NewLock(string) (Locker, error)
+	// Creates a new lock using an existing lock instance
+	NewLock(key string) (Locker, error)
 
 	// Releases the lock
 	// Otherwise returns ErrorUnableToUnlock.

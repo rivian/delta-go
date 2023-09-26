@@ -13,35 +13,14 @@
 package dynamolock
 
 import (
-	"context"
-	"fmt"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/rivian/delta-go/internal/dynamodbutils"
 )
 
-type mockDynamoDBClient struct {
-	DynamoDBClient
-}
-
-func (m *mockDynamoDBClient) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	return &dynamodb.GetItemOutput{}, nil
-}
-
-func (m *mockDynamoDBClient) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	for _, v := range input.Item {
-		fmt.Printf("Put Lock: %v\n", v)
-	}
-	return &dynamodb.PutItemOutput{Attributes: input.Item}, nil
-}
-
-func (m *mockDynamoDBClient) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
-	return &dynamodb.UpdateItemOutput{}, nil
-}
-
 func TestLock(t *testing.T) {
-	client := &mockDynamoDBClient{}
+	client := dynamodbutils.NewMockClient()
 	options := Options{
 		TTL:       2 * time.Second,
 		HeartBeat: 10 * time.Millisecond,
@@ -66,7 +45,7 @@ func TestLock(t *testing.T) {
 }
 
 func TestNewLock(t *testing.T) {
-	client := &mockDynamoDBClient{}
+	client := dynamodbutils.NewMockClient()
 	options := Options{
 		TTL: 3 * time.Second,
 	}
@@ -103,5 +82,73 @@ func TestNewLock(t *testing.T) {
 	isExpired = nl.(*DynamoLock).lockedItem.IsExpired()
 	if !isExpired {
 		t.Error("Lock should be expired")
+	}
+}
+
+func TestDeleteOnRelease(t *testing.T) {
+	client := dynamodbutils.NewMockClient()
+	opts := Options{
+		TTL:             2 * time.Second,
+		HeartBeat:       10 * time.Millisecond,
+		DeleteOnRelease: true,
+	}
+	l, err := New(client, "delta_lock_table", "_commit.lock", opts)
+	if err != nil {
+		t.Error(err)
+	}
+
+	haslock, err := l.TryLock()
+	if err != nil {
+		t.Error(err)
+	}
+	if haslock {
+		t.Log("Acquired lock")
+	}
+
+	l.Unlock()
+
+	isExpired := l.lockedItem.IsExpired()
+	if !isExpired {
+		t.Error("Lock should be expired")
+	}
+
+	items, ok := client.TablesToItems().Get("delta_lock_table")
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+	if len(items) != 0 {
+		t.Error("Lock should be deleted on release")
+	}
+
+	opts = Options{
+		TTL:       2 * time.Second,
+		HeartBeat: 10 * time.Millisecond,
+	}
+	l, err = New(client, "delta_lock_table", "_new_commit.lock", opts)
+	if err != nil {
+		t.Error(err)
+	}
+
+	haslock, err = l.TryLock()
+	if err != nil {
+		t.Error(err)
+	}
+	if haslock {
+		t.Log("Acquired lock")
+	}
+
+	l.Unlock()
+
+	isExpired = l.lockedItem.IsExpired()
+	if !isExpired {
+		t.Error("Lock should be expired")
+	}
+
+	items, ok = client.TablesToItems().Get("delta_lock_table")
+	if !ok {
+		t.Error("Failed to get table items")
+	}
+	if len(items) != 1 {
+		t.Error("Lock should not be deleted on release")
 	}
 }
