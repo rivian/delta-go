@@ -1195,7 +1195,7 @@ func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
 	// Write Delta log entry as temporary file to storage. For the actual commit,
 	// the temporary file is moved (atomic rename) to the Delta log folder within `commit` function.
 	token := uuid.New().String()
-	fileName := fmt.Sprintf("_commit_%s.json.tmp", token)
+	fileName := fmt.Sprintf(".tmp/_commit_%s.json", token)
 	// TODO: Open question, should storagePath use the basePath for the transaction or just hard code the _delta_log path?
 	path := storage.Path{Raw: filepath.Join("_delta_log", fileName)}
 	commit := PreparedCommit{URI: path}
