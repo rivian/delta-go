@@ -160,8 +160,8 @@ func checkpointInfoFromURI(path storage.Path) (checkpoint *CheckPoint, part int3
 	return
 }
 
-// / Check whether the given checkpoint version exists, either as a single- or multi-part checkpoint
-func doesCheckpointVersionExist(store storage.ObjectStore, version int64, validateAllPartsExist bool) (bool, error) {
+// DoesCheckpointVersionExist returns true if the given checkpoint version exists, either as a single- or multi-part checkpoint
+func DoesCheckpointVersionExist(store storage.ObjectStore, version int64, validateAllPartsExist bool) (bool, error) {
 	// List all files starting with the version prefix.  This will also find commit logs and possible crc files
 	str := fmt.Sprintf("%020d", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
@@ -208,7 +208,7 @@ func doesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 // / Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
 // / Applies tombstone expiration first
 func createCheckpointFor(tableState *TableState, store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
-	checkpointExists, err := doesCheckpointVersionExist(store, tableState.Version, false)
+	checkpointExists, err := DoesCheckpointVersionExist(store, tableState.Version, false)
 	if err != nil {
 		return err
 	}

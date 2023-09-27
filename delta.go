@@ -50,10 +50,10 @@ var (
 )
 
 var (
-	commitFileRegex         *regexp.Regexp = regexp.MustCompile(`(?P<Version>\d{20}).json`)
-	checkpointRegex         *regexp.Regexp = regexp.MustCompile(`(?P<Version>\d{20})\.checkpoint\.parquet$`)
-	checkpointPartsRegex    *regexp.Regexp = regexp.MustCompile(`(?P<Version>\d{20})\.checkpoint\.(?P<CurrentPart>\d{10})\.(?P<Parts>\d{10})\.parquet$`)
-	commitOrCheckpointRegex *regexp.Regexp = regexp.MustCompile(`(\d{20})\.((json)|(checkpoint))`)
+	commitFileRegex         *regexp.Regexp = regexp.MustCompile(`^(\d{20}).json$`)
+	checkpointRegex         *regexp.Regexp = regexp.MustCompile(`^(\d{20})\.checkpoint\.parquet$`)
+	checkpointPartsRegex    *regexp.Regexp = regexp.MustCompile(`^(\d{20})\.checkpoint\.(\d{10})\.(\d{10})\.parquet$`)
+	commitOrCheckpointRegex *regexp.Regexp = regexp.MustCompile(`^(\d{20})\.((json$)|(checkpoint\.parquet$)|(checkpoint\.(\d{10})\.(\d{10})\.parquet$))`)
 )
 
 type Table struct {
@@ -155,7 +155,7 @@ func CommitVersionFromURI(path storage.Path) (bool, int64) {
 // / Return true plus the version if the URI is a valid commit or checkpoint filename
 func CommitOrCheckpointVersionFromURI(path storage.Path) (bool, int64) {
 	groups := commitOrCheckpointRegex.FindStringSubmatch(path.Base())
-	if len(groups) == 5 {
+	if groups != nil {
 		version, err := strconv.ParseInt(groups[1], 10, 64)
 		if err == nil {
 			return true, int64(version)
@@ -525,7 +525,7 @@ func (table *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints
 			// For multi-part checkpoint, verify that all parts are present before using it
 			isCompleteCheckpoint := true
 			if checkpoint.Parts != nil {
-				isCompleteCheckpoint, err = doesCheckpointVersionExist(table.Store, checkpoint.Version, true)
+				isCompleteCheckpoint, err = DoesCheckpointVersionExist(table.Store, checkpoint.Version, true)
 				if err != nil {
 					return nil, false, err
 				}

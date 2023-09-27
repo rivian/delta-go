@@ -1116,6 +1116,8 @@ func TestIsValidCommitUri(t *testing.T) {
 		{input: "_delta_log/00000000000000000000.json", want: true},
 		{input: "_delta_log/00000000000000000001.json", want: true},
 		{input: "_delta_log/01234567890123456789.json", want: true},
+		{input: "_delta_log/tmp_00000000000000000001.json", want: false},
+		{input: "_delta_log/00000000000000000001.json.tmp", want: false},
 		{input: "_delta_log/00000000000000000001.checkpoint.parquet", want: false},
 		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", want: false},
 	}
@@ -1165,21 +1167,28 @@ func TestCommitOrCheckpointVersionFromUri(t *testing.T) {
 
 	tests := []test{
 		{input: "_delta_log/00000000000000000000.json", wantMatch: true, wantVersion: 0},
+		{input: "_delta_log/tmp_00000000000000000000.json", wantMatch: false},
+		{input: "_delta_log/00000000000000000000.json.tmp", wantMatch: false},
 		{input: "_delta_log/00000000000000000001.json", wantMatch: true, wantVersion: 1},
 		{input: "_delta_log/01234567890123456789.json", wantMatch: true, wantVersion: 1234567890123456789},
 		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantMatch: true, wantVersion: 1},
 		{input: "_delta_log/00000000000000094451.checkpoint.0000000002.0000000061.parquet", wantMatch: true, wantVersion: 94451},
 		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantMatch: false},
+		{input: "_delta_log/tmp_00000000000000000001.checkpoint.parquet", wantMatch: false},
+		{input: "_delta_log/00000000000000000001.checkpoint.tmp.parquet", wantMatch: false},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet.tmp", wantMatch: false},
+		{input: "_delta_log/tmp_00000000000000094451.checkpoint.0000000002.0000000061.parquet", wantMatch: false},
+		{input: "_delta_log/00000000000000094451.checkpoint.0000000002.0000000061.parquet.tmp", wantMatch: false},
 	}
 
 	for _, tc := range tests {
 		match, got := CommitOrCheckpointVersionFromURI(storage.NewPath(tc.input))
 		if match != tc.wantMatch {
-			t.Errorf("expected %t, got %t", tc.wantMatch, match)
+			t.Errorf("expected %t, got %t for %s", tc.wantMatch, match, tc.input)
 		}
 		if match == tc.wantMatch && match {
 			if got != tc.wantVersion {
-				t.Errorf("expected %d, got %d", tc.wantVersion, got)
+				t.Errorf("expected %d, got %d for %s", tc.wantVersion, got, tc.input)
 			}
 		}
 	}
