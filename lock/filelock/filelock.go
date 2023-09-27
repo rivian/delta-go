@@ -14,7 +14,6 @@ package filelock
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -82,11 +81,6 @@ func (l *FileLock) TryLock() (bool, error) {
 	lockPath := filepath.Join(l.baseURI.Raw, l.key)
 	if l.lock == nil {
 		l.lock = flock.New(lockPath)
-	}
-
-	// l.lock.TryLock() fails if the lock path's directory hasn't been created.
-	if err := os.MkdirAll(filepath.Dir(lockPath), os.ModePerm); err != nil {
-		return false, fmt.Errorf("create lock path's directory: %v", err)
 	}
 
 	// locked, err := l.lock.TryLock()

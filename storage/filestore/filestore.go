@@ -14,7 +14,6 @@ package filestore
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -99,11 +98,6 @@ func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 	// rename source to destination
 	f := s.baseURI.Join(from)
 	t := s.baseURI.Join(to)
-
-	// os.Rename() fails if the new path's directory hasn't been created.
-	if err := os.MkdirAll(filepath.Dir(t.Raw), os.ModePerm); err != nil {
-		return fmt.Errorf("create new path's directory: %v", err)
-	}
 
 	err := os.Rename(f.Raw, t.Raw)
 	if err != nil {
