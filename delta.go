@@ -1197,7 +1197,7 @@ func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
 	token := uuid.New().String()
 	fileName := fmt.Sprintf("_commit_%s.json", token)
 	// TODO: Open question, should storagePath use the basePath for the transaction or just hard code the _delta_log path?
-	path := storage.Path{Raw: filepath.Join(".tmp", "_delta_log", fileName)}
+	path := storage.Path{Raw: filepath.Join("_delta_log", ".tmp", fileName)}
 	commit := PreparedCommit{URI: path}
 
 	err = transaction.Table.Store.Put(path, logEntry)
