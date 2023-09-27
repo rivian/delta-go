@@ -96,10 +96,10 @@ func NewCheckpointConfiguration() *CheckpointConfiguration {
 // NewOptimizeCheckpointConfiguration returns a default enabled optimization configuration
 // with a working folder in the table store's _delta_log/.tmp/ folder
 // but no concurrency enabled
-func NewOptimizeCheckpointConfiguration(table *Table, version int64) (*OptimizeCheckpointConfiguration, error) {
+func NewOptimizeCheckpointConfiguration(store storage.ObjectStore, version int64) (*OptimizeCheckpointConfiguration, error) {
 	optimizeCheckpointConfiguration := new(OptimizeCheckpointConfiguration)
 	optimizeCheckpointConfiguration.OnDiskOptimization = true
-	optimizeCheckpointConfiguration.WorkingStore = table.Store
+	optimizeCheckpointConfiguration.WorkingStore = store
 	optimizeCheckpointConfiguration.WorkingFolder = storage.NewPath(fmt.Sprintf("_delta_log/.tmp/checkpoint-v%d-%s", version, uuid.NewString()))
 	return optimizeCheckpointConfiguration, nil
 }
