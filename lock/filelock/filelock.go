@@ -82,7 +82,7 @@ func (l *FileLock) TryLock() (bool, error) {
 	if l.lock == nil {
 		l.lock = flock.New(lockPath)
 	}
-	
+
 	// locked, err := l.lock.TryLock()
 	var err error
 	var locked bool
