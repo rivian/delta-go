@@ -775,8 +775,11 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 		{input: "_delta_log/00000000000000000000.json", wantCheckpoint: nil},
 		{input: "_delta_log/01234567890123456789.json", wantCheckpoint: nil},
 		{input: "_delta_log/_commit_aabbccdd-eeff-1122-3344-556677889900.json.tmp", wantCheckpoint: nil},
+		{input: "_delta_log/00000000000000000001.checkpoint.parquet.tmp", wantCheckpoint: nil},
+		{input: "_delta_log/tmp_00000000000000000001.checkpoint.parquet", wantCheckpoint: nil},
 		{input: "_delta_log/00000000000000000001.checkpoint.parquet", wantCheckpoint: &CheckPoint{Version: 1, Size: 0, Parts: nil}, wantPart: 0},
 		{input: "_delta_log/00000000000000123456.checkpoint.0000000002.0000000063.parquet", wantCheckpoint: &CheckPoint{Version: 123456, Size: 0, Parts: &part63}, wantPart: 2},
+		{input: "_delta_log/tmp_00000000000000123456.checkpoint.0000000002.0000000063.parquet", wantCheckpoint: nil},
 	}
 
 	for _, tc := range tests {
@@ -786,20 +789,20 @@ func TestCheckpointInfoFromURI(t *testing.T) {
 		}
 		if gotCheckpoint == nil {
 			if tc.wantCheckpoint != nil {
-				t.Errorf("expected %v, got nil", tc.wantCheckpoint)
+				t.Errorf("expected %v, got nil for %s", tc.wantCheckpoint, tc.input)
 			}
 			continue
 		}
 		if tc.wantCheckpoint == nil {
-			t.Errorf("expected nil, got %v", gotCheckpoint)
+			t.Errorf("expected nil, got %v for %s", gotCheckpoint, tc.input)
 			continue
 		}
 
 		if !reflect.DeepEqual(*gotCheckpoint, *tc.wantCheckpoint) {
-			t.Errorf("expected %v, got %v", *tc.wantCheckpoint, *gotCheckpoint)
+			t.Errorf("expected %v, got %v for %s", *tc.wantCheckpoint, *gotCheckpoint, tc.input)
 		}
 		if gotPart != tc.wantPart {
-			t.Errorf("expected %d, got %d", tc.wantPart, gotPart)
+			t.Errorf("expected %d, got %d for %s", tc.wantPart, gotPart, tc.input)
 		}
 	}
 }
@@ -810,7 +813,7 @@ func TestDoesCheckpointVersionExist(t *testing.T) {
 	checkpointConfiguration.MaxRowsPerPart = 8
 
 	// There is no checkpoint at version 5 yet
-	checkpointExists, err := doesCheckpointVersionExist(store, 5, false)
+	checkpointExists, err := DoesCheckpointVersionExist(store, 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -824,12 +827,40 @@ func TestDoesCheckpointVersionExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verify checkpoint exists
-	checkpointExists, err = doesCheckpointVersionExist(store, 5, false)
+	checkpointExists, err = DoesCheckpointVersionExist(store, 5, false)
 	if err != nil {
 		t.Error(err)
 	}
 	if !checkpointExists {
 		t.Error("checkpoint should exist")
+	}
+
+	// Rename the checkpoint with a prefix
+	err = store.Rename(storage.NewPath("_delta_log/00000000000000000005.checkpoint.parquet"), storage.NewPath("_delta_log/test_00000000000000000005.checkpoint.parquet"))
+	if err != nil {
+		t.Error(err)
+	}
+	// Verify checkpoint does not exist
+	checkpointExists, err = DoesCheckpointVersionExist(store, 5, false)
+	if err != nil {
+		t.Error(err)
+	}
+	if checkpointExists {
+		t.Error("checkpoint should not exist")
+	}
+
+	// Rename the checkpoint with a suffix
+	err = store.Rename(storage.NewPath("_delta_log/test_00000000000000000005.checkpoint.parquet"), storage.NewPath("_delta_log/00000000000000000005.checkpoint.parquet.test"))
+	if err != nil {
+		t.Error(err)
+	}
+	// Verify checkpoint does not exist
+	checkpointExists, err = DoesCheckpointVersionExist(store, 5, false)
+	if err != nil {
+		t.Error(err)
+	}
+	if checkpointExists {
+		t.Error("checkpoint should not exist")
 	}
 
 	// Create a multi-part checkpoint at version 10
@@ -838,7 +869,7 @@ func TestDoesCheckpointVersionExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verify checkpoint exists without multi-part validation
-	checkpointExists, err = doesCheckpointVersionExist(store, 10, false)
+	checkpointExists, err = DoesCheckpointVersionExist(store, 10, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -847,7 +878,7 @@ func TestDoesCheckpointVersionExist(t *testing.T) {
 	}
 
 	// Validate multi-part is all present
-	checkpointExists, err = doesCheckpointVersionExist(store, 10, true)
+	checkpointExists, err = DoesCheckpointVersionExist(store, 10, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -862,7 +893,7 @@ func TestDoesCheckpointVersionExist(t *testing.T) {
 	}
 
 	// Validating the multi-part should return an error
-	_, err = doesCheckpointVersionExist(store, 10, true)
+	_, err = DoesCheckpointVersionExist(store, 10, true)
 	if !errors.Is(err, ErrCheckpointInvalidMultipartFileName) {
 		t.Error("doesCheckpointVersionExist on incomplete checkpoint did not return correct error")
 	}
@@ -874,7 +905,7 @@ func TestDoesCheckpointVersionExist(t *testing.T) {
 	}
 
 	// Validating the multi-part should return an error
-	_, err = doesCheckpointVersionExist(store, 10, true)
+	_, err = DoesCheckpointVersionExist(store, 10, true)
 	if !errors.Is(err, ErrCheckpointIncomplete) {
 		t.Error("doesCheckpointVersionExist on incomplete checkpoint did not return correct error")
 	}
