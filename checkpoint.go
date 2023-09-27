@@ -25,6 +25,7 @@ import (
 	"github.com/apache/arrow/go/v13/parquet"
 	"github.com/apache/arrow/go/v13/parquet/compress"
 	"github.com/chelseajonesr/rfarrow"
+	"github.com/google/uuid"
 	"github.com/rivian/delta-go/storage"
 	"golang.org/x/sync/errgroup"
 )
@@ -71,6 +72,17 @@ type CheckpointConfiguration struct {
 	ReadWriteConfiguration OptimizeCheckpointConfiguration
 }
 
+// OptimizeCheckpointConfiguration holds settings for optimizing checkpoint read and write operations
+type OptimizeCheckpointConfiguration struct {
+	// Use an intermediate on-disk storage location to reduce memory
+	OnDiskOptimization bool
+	WorkingStore       storage.ObjectStore
+	WorkingFolder      storage.Path
+	// If these are > 1, checkpoint read and write operations will use this many goroutines
+	ConcurrentCheckpointRead  int
+	ConcurrentCheckpointWrite int
+}
+
 // NewCheckpointConfiguration returns the default configuration for creating checkpoints
 func NewCheckpointConfiguration() *CheckpointConfiguration {
 	checkpointConfiguration := new(CheckpointConfiguration)
@@ -79,6 +91,17 @@ func NewCheckpointConfiguration() *CheckpointConfiguration {
 	checkpointConfiguration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors = false
 	checkpointConfiguration.DisableCleanup = false
 	return checkpointConfiguration
+}
+
+// NewOptimizeCheckpointConfiguration returns a default enabled optimization configuration
+// with a working folder in the table store's _delta_log/.tmp/ folder
+// but no concurrency enabled
+func NewOptimizeCheckpointConfiguration(table *Table, version int64) (*OptimizeCheckpointConfiguration, error) {
+	optimizeCheckpointConfiguration := new(OptimizeCheckpointConfiguration)
+	optimizeCheckpointConfiguration.OnDiskOptimization = true
+	optimizeCheckpointConfiguration.WorkingStore = table.Store
+	optimizeCheckpointConfiguration.WorkingFolder = storage.NewPath(fmt.Sprintf("_delta_log/.tmp/checkpoint-v%d-%s", version, uuid.NewString()))
+	return optimizeCheckpointConfiguration, nil
 }
 
 var (
@@ -94,8 +117,10 @@ var (
 	// ErrCheckpointAddZeroSize is returned if there is an Add action with size 0
 	// because including this would cause subsequent Optimize operations to fail.
 	ErrCheckpointAddZeroSize error = errors.New("zero size in add not allowed")
-	// ErrCheckpointEntryMultipleActions if a checkpoint entry has more than one non-null action
+	// ErrCheckpointEntryMultipleActions is returned if a checkpoint entry has more than one non-null action
 	ErrCheckpointEntryMultipleActions error = errors.New("checkpoint entry contains multiple actions")
+	// ErrWorkingFolder is returned if there is a problem with the optimization working folder
+	ErrCheckpointOptimizationWorkingFolder error = errors.New("error using checkpoint optimization working folder")
 )
 
 func checkpointFromBytes(bytes []byte) (*CheckPoint, error) {

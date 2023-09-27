@@ -294,7 +294,26 @@ func (s *S3ObjectStore) Writer(to storage.Path, flag int) (io.Writer, func(), er
 }
 
 func (s *S3ObjectStore) DeleteFolder(location storage.Path) error {
-	return storage.ErrOperationNotSupported
+	deletedAnything := false
+	results, err := s.ListAll(location)
+	if err != nil {
+		return errors.Join(storage.ErrDeleteObject, err)
+	}
+	for _, o := range results.Objects {
+		// Don't try to directly delete a subfolder
+		// Our List() operation will list their contents
+		if !strings.HasSuffix(o.Location.Raw, "/") {
+			deletedAnything = true
+			err = s.Delete(o.Location)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if !deletedAnything {
+		return storage.ErrObjectDoesNotExist
+	}
+	return nil
 }
 
 // BaseURI gets the base URI.

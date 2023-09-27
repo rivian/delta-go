@@ -14,6 +14,7 @@ package filestore
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -37,7 +38,11 @@ func TestPut(t *testing.T) {
 		t.Errorf("err = %e;", err)
 	}
 
-	if !fileExists(filepath.Join(tmpDir, putPath.Raw)) {
+	exists, err := fileExists(filepath.Join(tmpDir, putPath.Raw))
+	if err != nil {
+		t.Errorf("err = %e;", err)
+	}
+	if !exists {
 		t.Errorf("File does not exist")
 	}
 
@@ -134,11 +139,15 @@ func TestDelete(t *testing.T) {
 	// Write data to be deleted
 	err := store.Put(filePath, []byte("some data"))
 	if err != nil {
-		t.Errorf("Error setting up TestDelete: %e", err)
+		t.Fatalf("Error setting up TestDelete: %e", err)
 	}
 
 	// Verify file exists before test
-	if !fileExists(filepath.Join(tmpDir, filePath.Raw)) {
+	exists, err := fileExists(filepath.Join(tmpDir, filePath.Raw))
+	if err != nil {
+		t.Fatalf("Error setting up TestDelete: %e", err)
+	}
+	if !exists {
 		t.Errorf("File does not exist")
 	}
 
@@ -147,7 +156,11 @@ func TestDelete(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error calling Delete: %e", err)
 	}
-	if fileExists(filepath.Join(tmpDir, filePath.Raw)) {
+	exists, err = fileExists(filepath.Join(tmpDir, filePath.Raw))
+	if err != nil {
+		t.Error(err)
+	}
+	if exists {
 		t.Errorf("File exists after Delete")
 	}
 
@@ -158,6 +171,46 @@ func TestDelete(t *testing.T) {
 	}
 	if !errors.Is(err, storage.ErrDeleteObject) && !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Errorf("Invalid error from Delete: %e", err)
+	}
+}
+
+func TestDeleteFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tmpPath := storage.NewPath(tmpDir)
+	store := FileObjectStore{baseURI: tmpPath}
+
+	// Set up test folder
+	data := []byte("some data")
+	for i := 0; i < 100; i++ {
+		path := storage.NewPath(fmt.Sprintf("test/%d.txt", i))
+		err := store.Put(path, data)
+		if err != nil {
+			t.Fatalf("Error occurred setting up TestDeleteFolder: %e", err)
+		}
+		exists, err := fileExists(filepath.Join(tmpDir, path.Raw))
+		if err != nil {
+			t.Fatalf("Error occurred setting up TestDeleteFolder: %e", err)
+		}
+		if !exists {
+			t.Fatal("File does not exist")
+		}
+	}
+
+	// Delete and verify results
+	err := store.DeleteFolder(storage.NewPath("test"))
+	if err != nil {
+		t.Errorf("Unexpected error calling DeleteFolder: %e", err)
+	}
+	for i := 0; i < 100; i++ {
+		path := storage.NewPath(fmt.Sprintf("test/%d.txt", i))
+		exists, err := fileExists(filepath.Join(tmpDir, path.Raw))
+		if err != nil {
+			t.Error(err)
+		}
+		if exists {
+			t.Errorf("File exists after Delete")
+		}
 	}
 }
 
@@ -239,10 +292,13 @@ func TestList(t *testing.T) {
 	}
 }
 
-func fileExists(filename string) bool {
+func fileExists(filename string) (bool, error) {
 	info, err := os.Stat(filename)
 	if os.IsNotExist(err) {
-		return false
+		return false, nil
 	}
-	return !info.IsDir()
+	if err != nil {
+		return false, err
+	}
+	return !info.IsDir(), nil
 }

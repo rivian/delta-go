@@ -95,9 +95,25 @@ func NewTableState(version int64) *TableState {
 	return tableState
 }
 
-func (tableState *TableState) enableOnDiskOptimization(initialFileCount int) {
-	tableState.onDiskOptimization = true
-	tableState.onDiskTempFiles = make([]storage.Path, 0, initialFileCount)
+func setupOnDiskOptimization(config *OptimizeCheckpointConfiguration, tableState *TableState, initialFileCount int) error {
+	if config != nil && config.OnDiskOptimization {
+		if config.WorkingStore == nil {
+			return errors.Join(ErrCheckpointOptimizationWorkingFolder, errors.New("the optimization working store is not set"))
+		}
+		existingFiles, err := config.WorkingStore.List(config.WorkingFolder, nil)
+		if err != nil {
+			return errors.Join(ErrCheckpointOptimizationWorkingFolder, err)
+		}
+		if len(existingFiles.Objects) > 0 {
+			// List may return a single result consisting of the folder itself
+			if len(existingFiles.Objects) > 1 || !strings.HasSuffix(existingFiles.Objects[0].Location.Raw, "/") {
+				return errors.Join(ErrCheckpointOptimizationWorkingFolder, errors.New("the optimization working folder is not empty"))
+			}
+		}
+		tableState.onDiskOptimization = true
+		tableState.onDiskTempFiles = make([]storage.Path, 0, initialFileCount)
+	}
+	return nil
 }
 
 // FileCount returns the total number of Parquet files making up the table at the loaded version
@@ -250,9 +266,9 @@ func (tableState *TableState) merge(newTableState *TableState, maxRowsPerPart in
 func stateFromCheckpoint(table *Table, checkpoint *CheckPoint, config *OptimizeCheckpointConfiguration) (*TableState, error) {
 	newState := NewTableState(checkpoint.Version)
 	checkpointDataPaths := table.GetCheckpointDataPaths(checkpoint)
-
-	if config != nil && config.OnDiskOptimization && config.WorkingStore != nil {
-		newState.enableOnDiskOptimization(len(checkpointDataPaths))
+	err := setupOnDiskOptimization(config, newState, len(checkpointDataPaths))
+	if err != nil {
+		return nil, err
 	}
 
 	// Optional concurrency support

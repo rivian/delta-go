@@ -96,6 +96,49 @@ func copyFilesToTempDirRecursively(t *testing.T, inputFolder string, outputFolde
 	return nil
 }
 
+func TestCheckpointInUseWorkingFolder(t *testing.T) {
+	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "testdata/checkpoints/simple")
+	table := NewTable(store, lock, stateStore)
+	checkpointConfiguration := NewCheckpointConfiguration()
+	optimizeConfig, err := NewOptimizeCheckpointConfiguration(table, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpointConfiguration.ReadWriteConfiguration = *optimizeConfig
+
+	tempFilePath := storage.NewPath(filepath.Join(optimizeConfig.WorkingFolder.Raw, "/test1.txt"))
+	err = store.Put(tempFilePath, []byte{1, 2, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = CreateCheckpoint(store, checkpointLock, checkpointConfiguration, 5)
+	if !errors.Is(err, ErrCheckpointOptimizationWorkingFolder) {
+		t.Errorf("Expected error creating checkpoint with non-empty working folder, got %v", err)
+	}
+
+	// Remove the temp file and create the checkpoint
+	err = store.Delete(tempFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CreateCheckpoint(store, checkpointLock, checkpointConfiguration, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Replace the temp file
+	err = store.Put(tempFilePath, []byte{1, 2, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This CreateCheckpoint follows a different code path but should return the same error
+	_, err = CreateCheckpoint(store, checkpointLock, checkpointConfiguration, 10)
+	if !errors.Is(err, ErrCheckpointOptimizationWorkingFolder) {
+		t.Errorf("Expected error creating checkpoint with non-empty working folder, got %v", err)
+	}
+}
+
 func TestSimpleCheckpoint(t *testing.T) {
 	for _, useOnDisk := range []bool{false, true} {
 		for _, concurrent := range []int{0, 4} {
@@ -104,16 +147,19 @@ func TestSimpleCheckpoint(t *testing.T) {
 			if useOnDisk {
 				path := storage.NewPath("tempCheckpoint")
 				readConfig := OptimizeCheckpointConfiguration{OnDiskOptimization: true, WorkingStore: store, WorkingFolder: path}
-				defer store.Delete(path)
 				checkpointConfiguration.ReadWriteConfiguration = readConfig
 			}
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointWrite = concurrent
 
 			// Create a checkpoint at version 5
-			_, err := CreateCheckpoint(store, checkpointLock, checkpointConfiguration, 5)
+			created, err := CreateCheckpoint(store, checkpointLock, checkpointConfiguration, 5)
 			if err != nil {
 				t.Fatal(err)
+			}
+
+			if !created {
+				t.Fatal("Did not create checkpoint")
 			}
 
 			// Does the checkpoint exist

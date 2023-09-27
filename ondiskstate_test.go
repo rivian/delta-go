@@ -14,6 +14,8 @@ package delta
 
 import (
 	"bytes"
+	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -198,5 +200,75 @@ func TestCountAddsAndTombstones(t *testing.T) {
 	}
 	if state.onDiskTombstoneCount != 1 {
 		t.Errorf("expected onDiskTombstoneCount 1, found %d", state.onDiskTombstoneCount)
+	}
+}
+
+func TestSetupOnDiskOptimization(t *testing.T) {
+	store, _, _, _ := setupCheckpointTest(t, "")
+
+	tableState := NewTableState(-1)
+	config := OptimizeCheckpointConfiguration{OnDiskOptimization: false}
+
+	err := setupOnDiskOptimization(nil, tableState, 0)
+	if err != nil {
+		t.Error(err)
+	}
+	if tableState.onDiskOptimization {
+		t.Error("optimization should be disabled")
+	}
+
+	tableState = NewTableState(-1)
+	err = setupOnDiskOptimization(&config, tableState, 0)
+	if err != nil {
+		t.Error(err)
+	}
+	if tableState.onDiskOptimization {
+		t.Error("optimization should be disabled")
+	}
+
+	config.OnDiskOptimization = true
+	config.WorkingFolder = storage.NewPath(".tmp")
+	tableState = NewTableState(-1)
+	err = setupOnDiskOptimization(&config, tableState, 0)
+	if !errors.Is(err, ErrCheckpointOptimizationWorkingFolder) {
+		t.Errorf("expected error setting optimization with no working store/folder but returned %v", err)
+	}
+	if tableState.onDiskOptimization {
+		t.Error("optimization should be disabled")
+	}
+
+	config.WorkingStore = store
+	tableState = NewTableState(-1)
+	err = setupOnDiskOptimization(&config, tableState, 0)
+	if err != nil {
+		t.Error(err)
+	}
+	if !tableState.onDiskOptimization {
+		t.Error("optimization should be enabled")
+	}
+	if cap(tableState.onDiskTempFiles) != 0 || len(tableState.onDiskTempFiles) != 0 {
+		t.Error("temp files length and capacity should be 0")
+	}
+
+	tableState = NewTableState(-1)
+	err = setupOnDiskOptimization(&config, tableState, 7)
+	if err != nil {
+		t.Error(err)
+	}
+	if !tableState.onDiskOptimization {
+		t.Error("optimization should be enabled")
+	}
+	if cap(tableState.onDiskTempFiles) != 7 || len(tableState.onDiskTempFiles) != 0 {
+		t.Error("temp files length should be 0 and capacity should be 7")
+	}
+
+	tableState = NewTableState(-1)
+	store.Put(storage.NewPath(filepath.Join(config.WorkingFolder.Raw, "test.txt")), []byte{1, 2, 3})
+	err = setupOnDiskOptimization(&config, tableState, 0)
+	if !errors.Is(err, ErrCheckpointOptimizationWorkingFolder) {
+		t.Errorf("expected error setting optimization with non empty working store/folder but returned %v", err)
+	}
+	if tableState.onDiskOptimization {
+		t.Error("optimization should be disabled")
 	}
 }
