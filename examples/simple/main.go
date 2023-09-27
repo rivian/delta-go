@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v13/parquet"
+	"github.com/apache/arrow/go/v13/parquet/compress"
 	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go"
@@ -19,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// pyspark --packages io.delta:delta-core_2.12:2.4.0 --conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" --conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog"
 func main() {
 	dir := "table"
 	os.MkdirAll(dir, 0766)
@@ -73,18 +76,13 @@ func main() {
 
 }
 
-type simpleCheckpointTestPartition struct {
-	Date string `json:"date" parquet:"date"`
-}
-
 type data struct {
-	Id     int64     `parquet:"id,snappy"`
-	T1     int64     `parquet:"t1,timestamp(microsecond)"`
-	T2     time.Time `parquet:"t2,timestamp"`
-	Label  string    `parquet:"label,dict,snappy"`
-	Value1 float64   `parquet:"value1,snappy" nullable:"false"`
-	Value2 *float64  `parquet:"value2,snappy" nullable:"true"`
-	Data   []byte    `parquet:"data,plain,snappy" nullable:"true"`
+	Id        int64    `json:"id" parquet:"name=id"`
+	Timestamp int64    `json:"timestamp" parquet:"name=timestamp, converted=timestamp_micros"`
+	Label     string   `json:"label" parquet:"name=label, converted=UTF8"`
+	Value1    float64  `json:"value1" parquet:"name=value1"`
+	Value2    *float64 `json:"value2" parquet:"name=value2"`
+	Data      []byte   `json:"data" parquet:"name=data"`
 }
 
 func getSchema() delta.SchemaTypeStruct {
@@ -93,8 +91,7 @@ func getSchema() delta.SchemaTypeStruct {
 	schema := delta.SchemaTypeStruct{
 		Fields: []delta.SchemaField{
 			{Name: "id", Type: delta.Long, Nullable: false, Metadata: make(map[string]any)},
-			{Name: "t1", Type: delta.Timestamp, Nullable: false, Metadata: make(map[string]any)},
-			{Name: "t2", Type: delta.Timestamp, Nullable: false, Metadata: make(map[string]any)},
+			{Name: "timestamp", Type: delta.Timestamp, Nullable: false, Metadata: make(map[string]any)},
 			{Name: "label", Type: delta.String, Nullable: false, Metadata: make(map[string]any)},
 			{Name: "value1", Type: delta.Double, Nullable: false, Metadata: make(map[string]any)},
 			{Name: "value2", Type: delta.Double, Nullable: true, Metadata: make(map[string]any)},
@@ -116,13 +113,12 @@ func makeData(n int) []data {
 		b := make([]byte, 8)
 		binary.LittleEndian.PutUint64(b, uint64(rand.Int()))
 		row := data{
-			Id:     int64(id),
-			T1:     time.Now().UnixMicro(),
-			T2:     time.Now(),
-			Label:  uuid.NewString(),
-			Value1: v,
-			Value2: v2,
-			Data:   b,
+			Id:        int64(id),
+			Timestamp: time.Now().UnixMicro(),
+			Label:     uuid.NewString(),
+			Value1:    v,
+			Value2:    v2,
+			Data:      b,
 		}
 		d = append(d, row)
 	}
@@ -134,9 +130,7 @@ func makeStats(data []data) delta.Stats {
 	for _, row := range data {
 		stats.NumRecords++
 		delta.UpdateStats(&stats, "id", &row.Id)
-		delta.UpdateStats(&stats, "t1", &row.T1)
-		i := row.T2.UnixMicro()
-		delta.UpdateStats(&stats, "t2", &i)
+		delta.UpdateStats(&stats, "t1", &row.Timestamp)
 		delta.UpdateStats(&stats, "label", &row.Label)
 		delta.UpdateStats(&stats, "value1", &row.Value1)
 		delta.UpdateStats(&stats, "value2", row.Value2)
@@ -150,19 +144,32 @@ type payload struct {
 }
 
 func writeParquet[T any](data []T, filename string) (*payload, error) {
-
 	p := new(payload)
+
 	file, err := os.Create(filename)
 	if err != nil {
 		fmt.Println(err)
 	}
-	defer file.Close()
-
-	props := parquet.WriterProperties{}
-	rfarrow.WriteGoStructsToParquet(data, file, &props)
+	buf := new(bytes.Buffer)
+	props := parquet.NewWriterProperties(
+		parquet.WithCompression(compress.Codecs.Snappy),
+	)
+	err = rfarrow.WriteGoStructsToParquet(data, buf, props)
+	if err != nil {
+		return p, err
+	}
+	i, err := file.Write(buf.Bytes())
+	println(i)
+	if err != nil {
+		return p, err
+	}
 
 	info, _ := file.Stat()
 	p.Size = info.Size()
 	p.File = file
+
+	if err := file.Close(); err != nil {
+		return p, err
+	}
 	return p, nil
 }
