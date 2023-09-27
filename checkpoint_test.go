@@ -100,7 +100,7 @@ func TestCheckpointInUseWorkingFolder(t *testing.T) {
 	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "testdata/checkpoints/simple")
 	table := NewTable(store, lock, stateStore)
 	checkpointConfiguration := NewCheckpointConfiguration()
-	optimizeConfig, err := NewOptimizeCheckpointConfigurationWithWorkingFolder(table, 5)
+	optimizeConfig, err := NewOptimizeCheckpointConfiguration(table, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
