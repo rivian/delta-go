@@ -117,7 +117,8 @@ func main() {
 	}
 	wg.Wait()
 	checkpointLock := filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.Options{})
-	table.CreateCheckpoint(checkpointLock, delta.NewCheckpointConfiguration(), 100)
+	v, _ := table.LatestVersion()
+	table.CreateCheckpoint(checkpointLock, delta.NewCheckpointConfiguration(), v)
 }
 
 type data struct {
