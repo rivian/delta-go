@@ -408,6 +408,72 @@ func TestDeleteErrorHandling(t *testing.T) {
 	}
 }
 
+func TestDeleteFolder(t *testing.T) {
+	baseURI, mockClient, s3Store := setupTest(t)
+
+	// Set up test folder
+	data := []byte("some data")
+	for i := 0; i < 100; i++ {
+		path := storage.NewPath(fmt.Sprintf("test/%d.txt", i))
+		err := mockClient.PutFile(baseURI, path, data)
+		if err != nil {
+			t.Errorf("Error occurred setting up TestDeleteFolder: %v", err)
+		}
+		fileExists, err := mockClient.FileExists(baseURI, path)
+		if err != nil {
+			t.Errorf("Error occurred setting up TestDeleteFolder: %v", err)
+		}
+		if !fileExists {
+			t.Errorf("Error occurred setting up TestDeleteFolder: file does not exist")
+		}
+	}
+
+	err := s3Store.DeleteFolder(storage.NewPath("test"))
+	if err != nil {
+		t.Errorf("Unexpected error calling DeleteFolder: %v", err)
+	}
+
+	for i := 0; i < 100; i++ {
+		path := storage.NewPath(fmt.Sprintf("test/%d.txt", i))
+		verifyFileDoesNotExist(t, baseURI, path, mockClient, "File still exists after DeleteFolder")
+	}
+}
+
+func TestDeleteFolderErrorHandling(t *testing.T) {
+	baseURI, mockClient, s3Store := setupTest(t)
+
+	// Test deleting a nonexistent folder
+	path := storage.NewPath("test")
+	err := s3Store.DeleteFolder(path)
+	if !errors.Is(err, storage.ErrDeleteObject) && !errors.Is(err, storage.ErrObjectDoesNotExist) {
+		t.Errorf("DeleteFolder did not return an expected error for nonexistent file")
+	}
+
+	// Test client returning an error
+	// Set up test folder
+	data := []byte("some data")
+	for i := 0; i < 100; i++ {
+		path := storage.NewPath(fmt.Sprintf("test/%d.txt", i))
+		err := mockClient.PutFile(baseURI, path, data)
+		if err != nil {
+			t.Errorf("Error occurred setting up TestDeleteFolder: %e", err)
+		}
+		fileExists, err := mockClient.FileExists(baseURI, path)
+		if err != nil {
+			t.Errorf("Error occurred setting up TestDeleteFolder: %e", err)
+		}
+		if !fileExists {
+			t.Errorf("Error occurred setting up TestDeleteFolder: file does not exist")
+		}
+	}
+
+	mockClient.MockError = errors.New("Something went wrong")
+	err = s3Store.DeleteFolder(path)
+	if !errors.Is(err, storage.ErrDeleteObject) {
+		t.Errorf("DeleteFolder did not return an expected error")
+	}
+}
+
 func compareExpectedPaths(t *testing.T, expected []string, results []storage.ObjectMeta) {
 	t.Helper()
 
