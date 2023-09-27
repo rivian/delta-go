@@ -73,17 +73,6 @@ type Table struct {
 	LogStore logstore.LogStore
 }
 
-// OptimizeCheckpointConfiguration holds settings for optimizing checkpoint read and write operations
-type OptimizeCheckpointConfiguration struct {
-	// Use an intermediate on-disk storage location to reduce memory
-	OnDiskOptimization bool
-	WorkingStore       storage.ObjectStore
-	WorkingFolder      storage.Path
-	// If these are > 1, checkpoint read and write operations will use this many goroutines
-	ConcurrentCheckpointRead  int
-	ConcurrentCheckpointWrite int
-}
-
 // Create a new Table struct without loading any data from backing storage.
 //
 // NOTE: This is for advanced users. If you don't know why you need to use this method, please
@@ -402,13 +391,19 @@ func (table *Table) LoadVersion(version *int64) error {
 
 // LoadVersionWithConfiguration loads the table state at the specified version using the given configuration
 func (table *Table) LoadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration) error {
+	return table.loadVersionWithConfiguration(version, config, true)
+}
+
+func (table *Table) loadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) error {
 	table.LastCheckPoint = nil
 	table.State = *NewTableState(-1)
-	if config != nil && config.OnDiskOptimization && config.WorkingStore != nil {
-		table.State.enableOnDiskOptimization(0)
+	err := setupOnDiskOptimization(config, &table.State, 0)
+	if err != nil {
+		return err
 	}
-
-	var err error
+	if cleanupWorkingStorage && table.State.onDiskOptimization {
+		defer config.WorkingStore.DeleteFolder(config.WorkingFolder)
+	}
 	var checkpointLoadError error
 	if version != nil {
 		commitURI := CommitURIFromVersion(*version)
@@ -657,13 +652,16 @@ func (table *Table) CreateCheckpoint(checkpointLock lock.Locker, checkpointConfi
 // If the lock cannot be obtained, does not retry - if other processes are checkpointing there's no need to duplicate the effort
 func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version int64) (checkpointed bool, err error) {
 	// The table doesn't need a commit lock or state store as we are not going to perform any commits
-	table, err := OpenTableWithVersionAndConfiguration(store, nil, nil, version, &checkpointConfiguration.ReadWriteConfiguration)
+	table, err := openTableWithVersionAndConfiguration(store, nil, nil, version, &checkpointConfiguration.ReadWriteConfiguration, false)
 	if err != nil {
 		// If the UnsafeIgnoreUnsupportedReaderWriterVersionErrors option is true, we can ignore unsupported version errors
 		isUnsupportedVersionError := errors.Is(err, ErrUnsupportedReaderVersion) || errors.Is(err, ErrUnsupportedWriterVersion)
 		if !(isUnsupportedVersionError && checkpointConfiguration.UnsafeIgnoreUnsupportedReaderWriterVersionErrors) {
 			return false, err
 		}
+	}
+	if table.State.onDiskOptimization {
+		defer checkpointConfiguration.ReadWriteConfiguration.WorkingStore.DeleteFolder(checkpointConfiguration.ReadWriteConfiguration.WorkingFolder)
 	}
 	locked, err := checkpointLock.TryLock()
 	if err != nil {
@@ -1356,8 +1354,12 @@ func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStor
 
 // OpenTableWithVersionAndConfiguration loads the table at this specific version using the given configuration for optimization settings
 func OpenTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64, config *OptimizeCheckpointConfiguration) (*Table, error) {
+	return openTableWithVersionAndConfiguration(store, lock, stateStore, version, config, true)
+}
+
+func openTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) (*Table, error) {
 	table := NewTable(store, lock, stateStore)
-	err := table.LoadVersionWithConfiguration(&version, config)
+	err := table.loadVersionWithConfiguration(&version, config, cleanupWorkingStorage)
 	if err != nil {
 		return nil, err
 	}
