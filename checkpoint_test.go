@@ -97,10 +97,9 @@ func copyFilesToTempDirRecursively(t *testing.T, inputFolder string, outputFolde
 }
 
 func TestCheckpointInUseWorkingFolder(t *testing.T) {
-	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "testdata/checkpoints/simple")
-	table := NewTable(store, lock, stateStore)
+	store, _, _, checkpointLock := setupCheckpointTest(t, "testdata/checkpoints/simple")
 	checkpointConfiguration := NewCheckpointConfiguration()
-	optimizeConfig, err := NewOptimizeCheckpointConfiguration(table, 5)
+	optimizeConfig, err := NewOptimizeCheckpointConfiguration(store, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
