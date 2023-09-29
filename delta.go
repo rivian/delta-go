@@ -33,10 +33,11 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-const clientVersion = "alpha-0.0.0"
-
-const maxReaderVersionSupported = 1
-const maxWriterVersionSupported = 1
+const (
+	clientVersion             = "alpha-0.0.0"
+	maxReaderVersionSupported = 1
+	maxWriterVersionSupported = 1
+)
 
 var (
 	ErrExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
@@ -101,8 +102,33 @@ func NewTableWithLogStore(store storage.ObjectStore, lock lock.Locker, logStore 
 // Creates a new Transaction for the Table.
 // The transaction holds a mutable reference to the Table, preventing other references
 // until the transaction is dropped.
-func (table *Table) CreateTransaction(opts TransactionOptions) *Transaction {
-	return NewTransaction(table, opts)
+func (t *Table) CreateTransaction(opts TransactionOptions) *transaction {
+	opts.setOptionsDefaults()
+
+	transaction := new(transaction)
+	transaction.Table = t
+	transaction.options = opts
+
+	return transaction
+}
+
+// setOptionsDefaults sets the default transaction options.
+func (o *TransactionOptions) setOptionsDefaults() {
+	if o.MaxRetryCommitAttempts == 0 {
+		o.MaxRetryCommitAttempts = defaultMaxRetryCommitAttempts
+	}
+	if o.MaxRetryReadAttempts == 0 {
+		o.MaxRetryReadAttempts = defaultMaxReadAttempts
+	}
+	if o.MaxRetryWriteAttempts == 0 {
+		o.MaxRetryWriteAttempts = defaultMaxWriteAttempts
+	}
+	if o.RetryCommitAttemptsBeforeLoadingTable == 0 {
+		o.RetryCommitAttemptsBeforeLoadingTable = defaultRetryCommitAttemptsBeforeLoadingTable
+	}
+	if o.MaxRetryLogFixAttempts == 0 {
+		o.MaxRetryLogFixAttempts = defaultMaxRetryLogFixAttempts
+	}
 }
 
 // / Return the uri of commit version.
@@ -156,8 +182,8 @@ func CommitOrCheckpointVersionFromURI(path storage.Path) (bool, int64) {
 // / Create a Table with version 0 given the provided MetaData, Protocol, and CommitInfo
 // / Note that if the protocol MinReaderVersion or MinWriterVersion is too high, the table will be created
 // / and then an error will be returned
-func (table *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add) error {
-	meta := metadata.ToMetaData()
+func (t *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add) error {
+	meta := metadata.toMetaData()
 
 	// delta-go commit info will include the delta-go version and timestamp as of now
 	enrichedCommitInfo := maps.Clone(commitInfo)
@@ -177,38 +203,38 @@ func (table *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo
 	var version int64
 	var err error
 
-	transaction := table.CreateTransaction(NewTransactionOptions())
+	transaction := t.CreateTransaction(NewTransactionOptions())
 	transaction.AddActions(actions)
 
-	if table.LogStore != nil {
+	if t.LogStore != nil {
 		version, err = transaction.CommitLogStore()
 		if err != nil {
 			return err
 		}
 	} else {
-		preparedCommit, err := transaction.PrepareCommit()
+		preparedCommit, err := transaction.prepareCommit()
 		if err != nil {
 			return err
 		}
 		//Set StateStore Version=-1 synced with the table State Version
 		zeroState := state.CommitState{
-			Version: table.State.Version,
+			Version: t.State.Version,
 		}
 		transaction.Table.StateStore.Put(zeroState)
-		err = transaction.TryCommit(&preparedCommit)
+		err = transaction.tryCommit(&preparedCommit)
 		if err != nil {
 			return err
 		}
 
-		version = table.State.Version
+		version = t.State.Version
 	}
 
 	// Merge state from new commit version
-	newState, err := NewTableStateFromCommit(table, version)
+	newState, err := NewTableStateFromCommit(t, version)
 	if err != nil {
 		return err
 	}
-	table.State.merge(newState, 150000, nil, false)
+	t.State.merge(newState, 150000, nil, false)
 
 	// If either version is too high, we return an error, but we still create the table first
 	if protocol.MinReaderVersion > maxReaderVersionSupported {
@@ -222,13 +248,13 @@ func (table *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo
 }
 
 // / Exists checks if a Table with version 0 exists in the object store.
-func (table *Table) Exists() (bool, error) {
+func (t *Table) Exists() (bool, error) {
 	path := CommitURIFromVersion(0)
 
-	meta, err := table.Store.Head(path)
+	meta, err := t.Store.Head(path)
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		// Fallback: check for other variants of the version
-		logIterator := storage.NewListIterator(BaseCommitURI(), table.Store)
+		logIterator := storage.NewListIterator(BaseCommitURI(), t.Store)
 		for {
 			meta, err := logIterator.Next()
 			if errors.Is(err, storage.ErrObjectDoesNotExist) {
@@ -260,9 +286,10 @@ func (table *Table) Exists() (bool, error) {
 }
 
 // / Read a commit log and return the actions from the log
-func (table *Table) ReadCommitVersion(version int64) ([]Action, error) {
+func (t *Table) ReadCommitVersion(version int64) ([]Action, error) {
 	path := CommitURIFromVersion(version)
-	return ReadCommitLog(table.Store, path)
+	transaction := t.CreateTransaction(NewTransactionOptions())
+	return transaction.ReadActions(path)
 }
 
 // LatestVersion gets the latest version of a table.
@@ -349,8 +376,8 @@ func findValidCommitOrCheckpointURI(metadata []storage.ObjectMeta) (bool, int64)
 	return false, -1
 }
 
-// SyncStateStore syncs the table's state store with its latest version.
-func (t *Table) SyncStateStore() (err error) {
+// syncStateStore syncs the table's state store with its latest version.
+func (t *Table) syncStateStore() (err error) {
 	locked, err := t.LockClient.TryLock()
 	if err != nil {
 		return fmt.Errorf("acquire lock: %w", err)
@@ -380,34 +407,34 @@ func (t *Table) SyncStateStore() (err error) {
 }
 
 // Load loads the table state using the given configuration
-func (table *Table) Load(config *OptimizeCheckpointConfiguration) error {
-	return table.LoadVersionWithConfiguration(nil, config)
+func (t *Table) Load(config *OptimizeCheckpointConfiguration) error {
+	return t.LoadVersionWithConfiguration(nil, config)
 }
 
 // LoadVersion loads the table state at the specified version using default configuration options
-func (table *Table) LoadVersion(version *int64) error {
-	return table.LoadVersionWithConfiguration(version, nil)
+func (t *Table) LoadVersion(version *int64) error {
+	return t.LoadVersionWithConfiguration(version, nil)
 }
 
 // LoadVersionWithConfiguration loads the table state at the specified version using the given configuration
-func (table *Table) LoadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration) error {
-	return table.loadVersionWithConfiguration(version, config, true)
+func (t *Table) LoadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration) error {
+	return t.loadVersionWithConfiguration(version, config, true)
 }
 
-func (table *Table) loadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) error {
-	table.LastCheckPoint = nil
-	table.State = *NewTableState(-1)
-	err := setupOnDiskOptimization(config, &table.State, 0)
+func (t *Table) loadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) error {
+	t.LastCheckPoint = nil
+	t.State = *NewTableState(-1)
+	err := setupOnDiskOptimization(config, &t.State, 0)
 	if err != nil {
 		return err
 	}
-	if cleanupWorkingStorage && table.State.onDiskOptimization {
+	if cleanupWorkingStorage && t.State.onDiskOptimization {
 		defer config.WorkingStore.DeleteFolder(config.WorkingFolder)
 	}
 	var checkpointLoadError error
 	if version != nil {
 		commitURI := CommitURIFromVersion(*version)
-		_, err := table.Store.Head(commitURI)
+		_, err := t.Store.Head(commitURI)
 		if errors.Is(err, storage.ErrObjectDoesNotExist) {
 			return ErrInvalidVersion
 		}
@@ -415,7 +442,7 @@ func (table *Table) loadVersionWithConfiguration(version *int64, config *Optimiz
 			return err
 		}
 	}
-	checkpoints, allReturned, err := table.findLatestCheckpointsForVersion(version)
+	checkpoints, allReturned, err := t.findLatestCheckpointsForVersion(version)
 	if err != nil {
 		return err
 	}
@@ -428,7 +455,7 @@ func (table *Table) loadVersionWithConfiguration(version *int64, config *Optimiz
 
 		// Checkpoints are sorted ascending
 		checkpointIndex := len(checkpoints) - 1
-		err = table.restoreCheckpoint(&checkpoints[checkpointIndex], config)
+		err = t.restoreCheckpoint(&checkpoints[checkpointIndex], config)
 		if err == nil {
 			// We successfully loaded a checkpoint
 			checkpointLoadError = nil
@@ -445,7 +472,7 @@ func (table *Table) loadVersionWithConfiguration(version *int64, config *Optimiz
 			// We didn't retrieve all checkpoints, so look for any earlier than the one that just failed
 			prevVersion := checkpoints[checkpointIndex].Version - 1
 			if prevVersion > 0 {
-				checkpoints, allReturned, err = table.findLatestCheckpointsForVersion(&prevVersion)
+				checkpoints, allReturned, err = t.findLatestCheckpointsForVersion(&prevVersion)
 				if err != nil {
 					return err
 				}
@@ -455,13 +482,13 @@ func (table *Table) loadVersionWithConfiguration(version *int64, config *Optimiz
 		}
 	}
 
-	err = table.updateIncremental(version, config)
+	err = t.updateIncremental(version, config)
 	if err != nil {
 		// If we happened to get both a checkpoint read error and an incremental load error, it may be helpful to return both
 		return errors.Join(err, checkpointLoadError)
 	}
 	// If there was no error but we failed to load the specified version, return error indicating that
-	if version != nil && table.State.Version != *version {
+	if version != nil && t.State.Version != *version {
 		return errors.Join(ErrUnableToLoadVersion, checkpointLoadError)
 	}
 	return nil
@@ -471,11 +498,11 @@ func (table *Table) loadVersionWithConfiguration(version *int64, config *Optimiz
 // / If we are returning all checkpoints at or before the version, allReturned will be true, otherwise it will be false
 // / If we are able to use the _last_checkpoint to retrieve the checkpoint then we will just return that one, and set allReturned to false
 // / If we need to search through the directory for checkpoints, then allReturned will be true if the listing is ordered and false otherwise
-func (table *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints []CheckPoint, allReturned bool, err error) {
+func (t *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints []CheckPoint, allReturned bool, err error) {
 	// First check if _last_checkpoint exists and is prior to the desired version
 	var errReadingLastCheckpoint error
 	path := lastCheckpointPath()
-	lastCheckpointBytes, err := table.Store.Get(path)
+	lastCheckpointBytes, err := t.Store.Get(path)
 	if err == nil {
 		checkpoint, err := checkpointFromBytes(lastCheckpointBytes)
 		if err != nil {
@@ -491,10 +518,10 @@ func (table *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints
 		return nil, false, err
 	}
 
-	logIterator := storage.NewListIterator(BaseCommitURI(), table.Store)
+	logIterator := storage.NewListIterator(BaseCommitURI(), t.Store)
 
 	foundCheckpoints := make([]CheckPoint, 0, 20)
-	listResultsAreOrdered := table.Store.IsListOrdered()
+	listResultsAreOrdered := t.Store.IsListOrdered()
 
 	for {
 		meta, err := logIterator.Next()
@@ -520,7 +547,7 @@ func (table *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints
 			// For multi-part checkpoint, verify that all parts are present before using it
 			isCompleteCheckpoint := true
 			if checkpoint.Parts != nil {
-				isCompleteCheckpoint, err = DoesCheckpointVersionExist(table.Store, checkpoint.Version, true)
+				isCompleteCheckpoint, err = DoesCheckpointVersionExist(t.Store, checkpoint.Version, true)
 				if err != nil {
 					return nil, false, err
 				}
@@ -560,7 +587,7 @@ func (table *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints
 
 // GetCheckpointDataPaths returns the expected file path(s) for the given checkpoint Parquet files
 // If it is a multi-part checkpoint then there will be one path for each part
-func (table *Table) GetCheckpointDataPaths(checkpoint *CheckPoint) []storage.Path {
+func (t *Table) GetCheckpointDataPaths(checkpoint *CheckPoint) []storage.Path {
 	paths := make([]storage.Path, 0, 10)
 	prefix := fmt.Sprintf("%020d", checkpoint.Version)
 	if checkpoint.Parts == nil {
@@ -575,25 +602,25 @@ func (table *Table) GetCheckpointDataPaths(checkpoint *CheckPoint) []storage.Pat
 }
 
 // Update the table state from the given checkpoint
-func (table *Table) restoreCheckpoint(checkpoint *CheckPoint, config *OptimizeCheckpointConfiguration) error {
-	state, err := stateFromCheckpoint(table, checkpoint, config)
+func (t *Table) restoreCheckpoint(checkpoint *CheckPoint, config *OptimizeCheckpointConfiguration) error {
+	state, err := stateFromCheckpoint(t, checkpoint, config)
 	if err != nil {
 		return err
 	}
-	table.State = *state
+	t.State = *state
 	return nil
 }
 
 // Updates the Table to the latest version by incrementally applying newer versions.
 // It assumes that the table is already updated to the current version `self.version`.
 // This function does not look for checkpoints
-func (table *Table) updateIncremental(maxVersion *int64, config *OptimizeCheckpointConfiguration) error {
+func (t *Table) updateIncremental(maxVersion *int64, config *OptimizeCheckpointConfiguration) error {
 	for {
-		if maxVersion != nil && table.State.Version == *maxVersion {
+		if maxVersion != nil && t.State.Version == *maxVersion {
 			break
 		}
 
-		nextCommitVersion, nextCommitActions, noMoreCommits, err := table.nextCommitDetails()
+		nextCommitVersion, nextCommitActions, noMoreCommits, err := t.nextCommitDetails()
 		if err != nil {
 			return err
 		}
@@ -605,18 +632,18 @@ func (table *Table) updateIncremental(maxVersion *int64, config *OptimizeCheckpo
 			return err
 		}
 		// TODO configuration option for max rows per part? It is only used for on disk optimization.
-		err = table.State.merge(newState, 150000, config, false)
+		err = t.State.merge(newState, 150000, config, false)
 		if err != nil {
 			return err
 		}
 	}
 
-	if table.State.Version == -1 {
+	if t.State.Version == -1 {
 		return ErrInvalidVersion
 	}
-	if table.State.onDiskOptimization {
+	if t.State.onDiskOptimization {
 		// We need to do one final "merge" to resolve any remaining adds/removes in our buffer
-		err := table.State.merge(nil, 150000, config, true)
+		err := t.State.merge(nil, 150000, config, true)
 		if err != nil {
 			return err
 		}
@@ -626,12 +653,13 @@ func (table *Table) updateIncremental(maxVersion *int64, config *OptimizeCheckpo
 
 // / Get the actions inside the next commit log if it exists and return the next commit's version and its actions
 // / If the next commit doesn't exist, returns false in the third return parameter
-func (table *Table) nextCommitDetails() (int64, []Action, bool, error) {
-	nextVersion := table.State.Version + 1
+func (t *Table) nextCommitDetails() (int64, []Action, bool, error) {
+	nextVersion := t.State.Version + 1
 	nextCommitURI := CommitURIFromVersion(nextVersion)
 	noMoreCommits := false
-	actions, err := ReadCommitLog(table.Store, nextCommitURI)
-	if errors.Is(err, storage.ErrObjectDoesNotExist) {
+	transaction := t.CreateTransaction(NewTransactionOptions())
+	actions, err := transaction.ReadActions(nextCommitURI)
+	if err != nil {
 		noMoreCommits = true
 		err = nil
 	}
@@ -642,8 +670,8 @@ func (table *Table) nextCommitDetails() (int64, []Action, bool, error) {
 // The existing table state will not be used or modified; a new table instance will be opened at the checkpoint version
 // Returns whether the checkpoint was created and any error
 // If the lock cannot be obtained, does not retry
-func (table *Table) CreateCheckpoint(checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version int64) (bool, error) {
-	return CreateCheckpoint(table.Store, checkpointLock, checkpointConfiguration, version)
+func (t *Table) CreateCheckpoint(checkpointLock lock.Locker, checkpointConfiguration *CheckpointConfiguration, version int64) (bool, error) {
+	return CreateCheckpoint(t.Store, checkpointLock, checkpointConfiguration, version)
 }
 
 // CreateCheckpoint creates a checkpoint for a table located at the store for the given version
@@ -715,20 +743,6 @@ func validateCheckpointAndCleanup(table *Table, store storage.ObjectStore, check
 	return err
 }
 
-// ReadCommitLog reads a commit log and return the actions inside it
-func ReadCommitLog(store storage.ObjectStore, location storage.Path) ([]Action, error) {
-	commitData, err := store.Get(location)
-	if err != nil {
-		return nil, err
-	}
-
-	actions, err := ActionsFromLogEntries(commitData)
-	if err != nil {
-		return nil, err
-	}
-	return actions, nil
-}
-
 // Delta table metadata
 type TableMetaData struct {
 	// Unique identifier for this table
@@ -766,33 +780,21 @@ func NewTableMetaData(name string, description string, format Format, schema Sch
 
 }
 
-// TableMetaData.ToMetaData() converts a TableMetaData to MetaData
-func (dtmd *TableMetaData) ToMetaData() MetaData {
-	createdTime := dtmd.CreatedTime.UnixMilli()
+// toMetaData converts a TableMetaData instance to a MetaData instance.
+func (md *TableMetaData) toMetaData() MetaData {
+	createdTime := md.CreatedTime.UnixMilli()
 	metadata := MetaData{
-		Id:               dtmd.Id,
-		IdAsString:       dtmd.Id.String(),
-		Name:             &dtmd.Name,
-		Description:      &dtmd.Description,
-		Format:           dtmd.Format,
-		SchemaString:     string(dtmd.Schema.Json()),
-		PartitionColumns: dtmd.PartitionColumns,
+		Id:               md.Id,
+		IdAsString:       md.Id.String(),
+		Name:             &md.Name,
+		Description:      &md.Description,
+		Format:           md.Format,
+		SchemaString:     string(md.Schema.Json()),
+		PartitionColumns: md.PartitionColumns,
 		CreatedTime:      &createdTime,
-		Configuration:    dtmd.Configuration,
+		Configuration:    md.Configuration,
 	}
 	return metadata
-}
-
-func (dtmd *TableMetaData) GetPartitionColDataTypes() map[string]SchemaDataType {
-	partitionColumnsWithType := make(map[string]SchemaDataType, len(dtmd.PartitionColumns))
-	for _, v := range dtmd.Schema.Fields {
-		for _, p := range dtmd.PartitionColumns {
-			if p == v.Name {
-				partitionColumnsWithType[p] = v.Type
-			}
-		}
-	}
-	return partitionColumnsWithType
 }
 
 // / Object representing a Delta transaction.
@@ -806,12 +808,12 @@ func (dtmd *TableMetaData) GetPartitionColDataTypes() map[string]SchemaDataType 
 // /
 // / Please not that in case of non-retryable error the temporary commit file such as
 // / `_delta_log/_commit_<uuid>.json` will orphaned in storage.
-type Transaction struct {
+type transaction struct {
 	Table       *Table
 	Actions     []Action
 	Operation   Operation
 	AppMetadata map[string]any
-	Options     TransactionOptions
+	options     TransactionOptions
 }
 
 // ReadActions gets actions from a file.
@@ -821,18 +823,18 @@ type Transaction struct {
 // target N.json file more than once. Though data loss will *NOT* occur, readers of N.json
 // may receive an error from S3 as the ETag of N.json was changed. This is safe to
 // retry, so we do so here.
-func (transaction *Transaction) ReadActions(path storage.Path) ([]Action, error) {
+func (t *transaction) ReadActions(path storage.Path) ([]Action, error) {
 	var (
 		entry   []byte
 		err     error
 		attempt = 0
 	)
 	for {
-		if attempt >= int(transaction.Options.MaxRetryReadAttempts) {
-			return nil, fmt.Errorf("failed to get actions after %d attempts: %v", transaction.Options.MaxRetryReadAttempts, err)
+		if attempt >= int(t.options.MaxRetryReadAttempts) {
+			return nil, fmt.Errorf("failed to get actions after %d attempts: %v", t.options.MaxRetryReadAttempts, err)
 		}
 
-		entry, err = transaction.Table.Store.Get(path)
+		entry, err = t.Table.Store.Get(path)
 		if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to get log entry. %v", attempt, err)
@@ -866,18 +868,18 @@ func (transaction *Transaction) ReadActions(path storage.Path) ([]Action, error)
 //
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite and complete commit entry E in the log store.
-func (transaction *Transaction) CommitLogStore() (int64, error) {
+func (t *transaction) CommitLogStore() (int64, error) {
 	var (
 		version int64
 		err     error
 		attempt = 0
 	)
 	for {
-		if attempt >= int(transaction.Options.MaxRetryWriteAttempts) {
-			return -1, fmt.Errorf("failed to commit with log store after %d attempts: %v", transaction.Options.MaxRetryWriteAttempts, err)
+		if attempt >= int(t.options.MaxRetryWriteAttempts) {
+			return -1, fmt.Errorf("failed to commit with log store after %d attempts: %v", t.options.MaxRetryWriteAttempts, err)
 		}
 
-		version, err = transaction.tryCommitLogStore()
+		version, err = t.tryCommitLogStore()
 		if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to commit with log store. %v", attempt, err)
@@ -888,7 +890,7 @@ func (transaction *Transaction) CommitLogStore() (int64, error) {
 	}
 }
 
-func (t *Transaction) tryCommitLogStore() (version int64, err error) {
+func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	var currURI storage.Path
 	prevURI, err := t.Table.LogStore.Latest(t.Table.Store.BaseURI())
 
@@ -923,7 +925,7 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 		}
 	}
 
-	t.AddCommitInfoIfNotPresent()
+	t.addCommitInfoIfNotPresent()
 
 	// Prevent concurrent writers from either
 	// a) concurrently overwriting N.json if overwriting is enabled
@@ -1021,7 +1023,7 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 	return currVersion, nil
 }
 
-func (t *Transaction) complete(entry *logstore.CommitEntry) error {
+func (t *transaction) complete(entry *logstore.CommitEntry) error {
 	seconds := t.Table.LogStore.ExpirationDelaySeconds()
 	entry, err := entry.Complete(seconds)
 	if err != nil {
@@ -1035,15 +1037,15 @@ func (t *Transaction) complete(entry *logstore.CommitEntry) error {
 	return nil
 }
 
-func (t *Transaction) copyTempFile(src storage.Path, dst storage.Path) error {
+func (t *transaction) copyTempFile(src storage.Path, dst storage.Path) error {
 	return t.Table.Store.RenameIfNotExists(src, dst)
 }
 
-func (t *Transaction) createTempPath(path storage.Path) (storage.Path, error) {
+func (t *transaction) createTempPath(path storage.Path) (storage.Path, error) {
 	return storage.NewPath(fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid.New().String())), nil
 }
 
-func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
+func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	if entry.IsComplete() {
 		return nil
 	}
@@ -1072,8 +1074,8 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 		copied  = false
 	)
 	for {
-		if attempt >= int(t.Options.MaxRetryLogFixAttempts) {
-			return fmt.Errorf("failed to fix Delta log after %d attempts: %v", t.Options.MaxRetryLogFixAttempts, err)
+		if attempt >= int(t.options.MaxRetryLogFixAttempts) {
+			return fmt.Errorf("failed to fix Delta log after %d attempts: %v", t.options.MaxRetryLogFixAttempts, err)
 		}
 
 		log.Infof("delta-go: Trying to fix %s.", entry.FileName().Raw)
@@ -1108,59 +1110,28 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	}
 }
 
-func (transaction *Transaction) writeActions(path storage.Path, actions []Action) error {
+func (t *transaction) writeActions(path storage.Path, actions []Action) error {
 	// Serialize all actions that are part of this log entry.
 	entry, err := LogEntryFromActions(actions)
 	if err != nil {
 		return errors.New("failed to serialize actions")
 	}
 
-	return transaction.Table.Store.Put(path, entry)
-}
-
-// setOptionsDefaults sets the default transaction options.
-func (opts *TransactionOptions) setOptionsDefaults() {
-	if opts.MaxRetryCommitAttempts == 0 {
-		opts.MaxRetryCommitAttempts = defaultMaxRetryCommitAttempts
-	}
-	if opts.MaxRetryReadAttempts == 0 {
-		opts.MaxRetryReadAttempts = defaultMaxRetryCommitAttempts
-	}
-	if opts.MaxRetryWriteAttempts == 0 {
-		opts.MaxRetryWriteAttempts = defaultMaxWriteCommitAttempts
-	}
-	if opts.RetryCommitAttemptsBeforeLoadingTable == 0 {
-		opts.RetryCommitAttemptsBeforeLoadingTable = defaultRetryCommitAttemptsBeforeLoadingTable
-	}
-	if opts.MaxRetryLogFixAttempts == 0 {
-		opts.MaxRetryLogFixAttempts = defaultMaxRetryLogFixAttempts
-	}
-}
-
-// / Creates a new Delta transaction.
-// / Holds a mutable reference to the Delta table to prevent outside mutation while a transaction commit is in progress.
-// / Transaction behavior may be customized by passing an instance of `TransactionOptions`.
-func NewTransaction(table *Table, opts TransactionOptions) *Transaction {
-	opts.setOptionsDefaults()
-
-	transaction := new(Transaction)
-	transaction.Table = table
-	transaction.Options = opts
-	return transaction
+	return t.Table.Store.Put(path, entry)
 }
 
 // / Add an arbitrary "action" to the actions associated with this transaction
-func (transaction *Transaction) AddAction(action Action) {
-	transaction.Actions = append(transaction.Actions, action)
+func (t *transaction) AddAction(action Action) {
+	t.Actions = append(t.Actions, action)
 }
 
 // / Add an arbitrary number of actions to the actions associated with this transaction
-func (transaction *Transaction) AddActions(actions []Action) {
-	transaction.Actions = append(transaction.Actions, actions...)
+func (t *transaction) AddActions(actions []Action) {
+	t.Actions = append(t.Actions, actions...)
 }
 
-// AddCommitInfo adds a `commitInfo` action to a transaction's actions if not already present.
-func (t *Transaction) AddCommitInfoIfNotPresent() {
+// addCommitInfoIfNotPresent adds a `commitInfo` action to a transaction's actions if not already present.
+func (t *transaction) addCommitInfoIfNotPresent() {
 	found := false
 	for _, action := range t.Actions {
 		switch action.(type) {
@@ -1186,36 +1157,36 @@ func (t *Transaction) AddCommitInfoIfNotPresent() {
 }
 
 // SetOperation sets the Delta operation for this transaction.
-func (transaction *Transaction) SetOperation(operation Operation) {
-	transaction.Operation = operation
+func (t *transaction) SetOperation(operation Operation) {
+	t.Operation = operation
 }
 
 // SetAppMetadata sets the app metadata for this transaction.
-func (transaction *Transaction) SetAppMetadata(appMetadata map[string]any) {
-	transaction.AppMetadata = appMetadata
+func (t *transaction) SetAppMetadata(appMetadata map[string]any) {
+	t.AppMetadata = appMetadata
 }
 
 // Commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
-func (transaction *Transaction) Commit() (int64, error) {
-	commit, err := transaction.PrepareCommit()
+func (t *transaction) Commit() (int64, error) {
+	PreparedCommit, err := t.prepareCommit()
 	if err != nil {
 		log.Debugf("delta-go: PrepareCommit attempt failed. %v", err)
-		return transaction.Table.State.Version, err
+		return t.Table.State.Version, err
 	}
 
-	err = transaction.TryCommitLoop(&commit)
-	return transaction.Table.State.Version, err
+	err = t.tryCommitLoop(&PreparedCommit)
+	return t.Table.State.Version, err
 }
 
 // / Low-level transaction API. Creates a temporary commit file. Once created,
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `Table.try_commit_transaction`.
-func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
-	transaction.AddCommitInfoIfNotPresent()
+func (t *transaction) prepareCommit() (PreparedCommit, error) {
+	t.addCommitInfoIfNotPresent()
 
 	// Serialize all actions that are part of this log entry.
-	logEntry, err := LogEntryFromActions(transaction.Actions)
+	logEntry, err := LogEntryFromActions(t.Actions)
 	if err != nil {
 		return PreparedCommit{}, nil
 	}
@@ -1227,7 +1198,7 @@ func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
 	path := storage.Path{Raw: filepath.Join("_delta_log", ".tmp", fileName)}
 	commit := PreparedCommit{URI: path}
 
-	err = transaction.Table.Store.Put(path, logEntry)
+	err = t.Table.Store.Put(path, logEntry)
 	if err != nil {
 		return commit, err
 	}
@@ -1236,21 +1207,21 @@ func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
 }
 
 // TryCommitLoop loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
-func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
+func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 	var (
 		err     error
 		attempt = 0
 	)
 	for {
 		if attempt > 0 {
-			time.Sleep(transaction.Options.RetryWaitDuration)
+			time.Sleep(t.options.RetryWaitDuration)
 		}
-		if attempt >= int(transaction.Options.MaxRetryCommitAttempts) {
-			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond MaxRetryCommitAttempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+		if attempt >= int(t.options.MaxRetryCommitAttempts) {
+			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond MaxRetryCommitAttempts of %d so failing.", t.options.MaxRetryCommitAttempts)
 			return errors.Join(ErrExceededCommitRetryAttempts, err)
 		}
 
-		err = transaction.TryCommit(commit)
+		err = t.tryCommit(commit)
 		if err == nil {
 			return nil
 		}
@@ -1259,10 +1230,10 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 		log.Debugf("delta-go: Attempt number %d: failed to commit. %v", attempt, err)
 
 		// TODO: check if state is higher than current latest version of table by checking n-1
-		if attempt%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+		if attempt%int(t.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 			// Every 100 attempts, sync the table's state store with its latest version.
-			if err := transaction.Table.SyncStateStore(); err != nil {
-				log.Debugf("delta-go: Table.SyncStateStore() failed with '%v'.", err)
+			if err := t.Table.syncStateStore(); err != nil {
+				log.Debugf("delta-go: Table.syncStateStore() failed with '%v'.", err)
 			}
 		}
 
@@ -1270,14 +1241,14 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 }
 
 // TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
-func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
+func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 	// Step 1) Acquire Lock
-	locked, err := transaction.Table.LockClient.TryLock()
+	locked, err := t.Table.LockClient.TryLock()
 	// Step 5) Always Release Lock
 	// defer transaction.Table.LockClient.Unlock()
 	defer func() {
 		// Defer the unlock and overwrite any errors if unlock fails
-		if unlockErr := transaction.Table.LockClient.Unlock(); unlockErr != nil {
+		if unlockErr := t.Table.LockClient.Unlock(); unlockErr != nil {
 			log.Debugf("delta-go: Unlock attempt failed. %v", unlockErr)
 			err = unlockErr
 		}
@@ -1289,7 +1260,7 @@ func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
 
 	if locked {
 		// 2) Lookup the latest prior state
-		priorState, err := transaction.Table.StateStore.Get()
+		priorState, err := t.Table.StateStore.Get()
 		if err != nil {
 			// Failed on state store get, fallback to using the local version
 			log.Debugf("delta-go: StateStore Get() attempt failed. %v", err)
@@ -1299,13 +1270,13 @@ func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
 		// 4) Update the state with the latest tried, even in the case that the
 		// RenameNotExists was unsuccessful, this ensures that the next try increments the version
 		// Take the max of the local state and remote state version in the case that the remote state is not accessible.
-		version := max(priorState.Version, transaction.Table.State.Version) + 1
-		transaction.Table.State.Version = version
+		version := max(priorState.Version, t.Table.State.Version) + 1
+		t.Table.State.Version = version
 		newState := state.CommitState{
 			Version: version,
 		}
 		defer func() {
-			if putErr := transaction.Table.StateStore.Put(newState); putErr != nil {
+			if putErr := t.Table.StateStore.Put(newState); putErr != nil {
 				log.Debugf("delta-go: StateStore Put() attempt failed. %v", putErr)
 				err = putErr
 			}
@@ -1314,15 +1285,8 @@ func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
 		// 3) Try to Rename the file
 		from := commit.URI
 		to := CommitURIFromVersion(version)
-		err = transaction.Table.Store.RenameIfNotExists(from, to)
-		if errors.Is(err, storage.ErrCopyObject) {
-			version = max(priorState.Version, transaction.Table.State.Version)
-			transaction.Table.State.Version = version
-			newState = state.CommitState{
-				Version: version,
-			}
-		}
-		if err != nil && !errors.Is(err, storage.ErrDeleteObject) {
+		err = t.Table.Store.RenameIfNotExists(from, to)
+		if err != nil {
 			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
 			return err
 		}
@@ -1348,7 +1312,8 @@ type PreparedCommit struct {
 
 const (
 	defaultMaxRetryCommitAttempts                uint32 = 10000000
-	defaultMaxWriteCommitAttempts                uint32 = 10000000
+	defaultMaxReadAttempts                       uint16 = 3
+	defaultMaxWriteAttempts                      uint32 = 10000000
 	defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
 	defaultMaxRetryLogFixAttempts                uint16 = 3
 )
@@ -1360,7 +1325,7 @@ type TransactionOptions struct {
 	// RetryWaitDuration sets the amount of times between retry's on the transaction
 	RetryWaitDuration time.Duration
 	// Number of retry attempts allowed when reading actions from a log entry
-	MaxRetryReadAttempts uint32
+	MaxRetryReadAttempts uint16
 	// Number of retry attempts allowed when writing actions to a log entry
 	MaxRetryWriteAttempts uint32
 	// number of retry commit attempts before loading the latest version from the table rather
@@ -1372,7 +1337,7 @@ type TransactionOptions struct {
 
 // NewTransactionOptions sets the default transaction options.
 func NewTransactionOptions() TransactionOptions {
-	return TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteCommitAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
+	return TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
 }
 
 // OpenTableWithVersion loads the table at this specific version
