@@ -56,7 +56,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	options := TransactionOptions{MaxRetryCommitAttempts: 3}
 	os.MkdirAll("tmp/_delta_log/", 0700)
 	defer os.RemoveAll("tmp/_delta_log/")
-	transaction := NewTransaction(&deltaTable, &options)
+	transaction := deltaTable.CreateTransaction(options)
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
@@ -96,7 +96,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 func TestDeltaTableReadCommitVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction := setupTransaction(t, table, nil)
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -160,7 +160,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 		t.Error(err)
 	}
 
-	transaction := setupTransaction(t, table, nil)
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -214,7 +214,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table, _, _ := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction := setupTransaction(t, table, nil)
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -266,7 +266,7 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 
 	table := NewTable(store, lockClient, state)
 
-	transaction := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
+	transaction := setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
 
 	version, err := transaction.Commit()
 	if !errors.Is(err, ErrExceededCommitRetryAttempts) {
@@ -321,7 +321,7 @@ func TestCommitUnlockFailure(t *testing.T) {
 
 	table := NewTable(store, &lockClient, state)
 
-	transaction := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 3})
+	transaction := setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
 	_, err := transaction.Commit()
 	if !errors.Is(err, lock.ErrUnableToUnlock) {
 		t.Error(err)
@@ -338,7 +338,7 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	table := NewTable(store, lock, storeState)
 
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction := setupTransaction(t, table, nil)
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -438,7 +438,7 @@ func TestDeltaTableExists(t *testing.T) {
 	}
 
 	// Create another version file
-	transaction := setupTransaction(t, table, nil)
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -528,7 +528,7 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 		t.Error(err)
 	}
 	// Create another version file
-	transaction := setupTransaction(t, table, nil)
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -571,7 +571,7 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 func TestDeltaTableTryCommitLoop(t *testing.T) {
 	table, _, _ := setupTest(t)
 
-	transaction := setupTransaction(t, table, &TransactionOptions{})
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -597,7 +597,7 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction := setupTransaction(t, table, &TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
+	transaction := setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -647,7 +647,7 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
-	transaction := setupTransaction(t, table, &TransactionOptions{
+	transaction := setupTransaction(t, table, TransactionOptions{
 		MaxRetryCommitAttempts:                5, //Should break on max attempts if the latest version logic fails
 		RetryWaitDuration:                     time.Second,
 		RetryCommitAttemptsBeforeLoadingTable: 2, //Should get the latest version after 2 attempts
@@ -1056,10 +1056,10 @@ func setupTest(t *testing.T) (table *Table, state *filestate.FileStateStore, tmp
 }
 
 // / Helper function to set up a basic transaction
-func setupTransaction(t *testing.T, table *Table, options *TransactionOptions) (transaction *Transaction) {
+func setupTransaction(t *testing.T, table *Table, opts TransactionOptions) (transaction *transaction) {
 	t.Helper()
 
-	transaction = table.CreateTransaction(options)
+	transaction = table.CreateTransaction(opts)
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,
@@ -1242,7 +1242,7 @@ func TestLatestVersion(t *testing.T) {
 		t.Errorf("After adding first commit: LatestVersion() = %v, want %v", version, 0)
 	}
 
-	transaction := setupTransaction(t, table, nil)
+	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
 	if err != nil {
@@ -1480,7 +1480,7 @@ func TestLoadVersion(t *testing.T) {
 }
 
 // Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
-func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, table *Table, transaction *Transaction) {
+func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, table *Table, transaction *transaction) {
 	t.Helper()
 
 	logStoreTableName = "version_log_store"
@@ -2005,8 +2005,8 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 	var (
 		wg                sync.WaitGroup
 		transactions      = 100
-		firstTransaction  *Transaction
-		secondTransaction *Transaction
+		firstTransaction  *transaction
+		secondTransaction *transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
 		wg.Add(1)
@@ -2292,8 +2292,8 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	var (
 		wg                sync.WaitGroup
 		transactions      = 100
-		firstTransaction  *Transaction
-		secondTransaction *Transaction
+		firstTransaction  *transaction
+		secondTransaction *transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
 		wg.Add(1)
