@@ -58,18 +58,18 @@ type OnDiskTableState struct {
 
 // Merge the current in-memory table state with existing on-disk state
 // Do not merge newTableState. After this returns it will be added to the in-memory state.
-func (tableState *TableState) mergeOnDiskState(newTableState *TableState, maxRowsPerPart int, config *OptimizeCheckpointConfiguration, finalMerge bool) error {
+func (ts *TableState) mergeOnDiskState(newTableState *TableState, maxRowsPerPart int, config *OptimizeCheckpointConfiguration, finalMerge bool) error {
 	// Try to batch file updates before applying them to the on-disk files as that process can be slow
 	// If we have incoming adds and existing removes, or vice versa, or if we have too many pending updates, then process the pending updates
 	if finalMerge ||
-		(len(tableState.Files) > 0 && len(newTableState.Tombstones) > 0) ||
-		(len(tableState.Tombstones) > 0 && len(newTableState.Files) > 0) ||
-		(len(tableState.Files)+len(tableState.Tombstones) > maxRowsPerPart) {
+		(len(ts.Files) > 0 && len(newTableState.Tombstones) > 0) ||
+		(len(ts.Tombstones) > 0 && len(newTableState.Files) > 0) ||
+		(len(ts.Files)+len(ts.Tombstones) > maxRowsPerPart) {
 		appended := false
 
 		mergeSinglePart := func(part int) error {
-			tryAppend := part == len(tableState.onDiskTempFiles)-1
-			didAppend, addsDiff, tombstonesDiff, err := mergeNewAddsAndRemovesToOnDiskPartState(config.WorkingStore, tableState.onDiskTempFiles[part], tableState.Files, tableState.Tombstones, maxRowsPerPart, tryAppend)
+			tryAppend := part == len(ts.onDiskTempFiles)-1
+			didAppend, addsDiff, tombstonesDiff, err := mergeNewAddsAndRemovesToOnDiskPartState(config.WorkingStore, ts.onDiskTempFiles[part], ts.Files, ts.Tombstones, maxRowsPerPart, tryAppend)
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ func (tableState *TableState) mergeOnDiskState(newTableState *TableState, maxRow
 			}
 			// This is threadsafe
 			if addsDiff != 0 || tombstonesDiff != 0 {
-				tableState.updateOnDiskCounts(addsDiff, tombstonesDiff)
+				ts.updateOnDiskCounts(addsDiff, tombstonesDiff)
 			}
 			return nil
 		}
@@ -102,7 +102,7 @@ func (tableState *TableState) mergeOnDiskState(newTableState *TableState, maxRow
 			g.Go(func() error {
 				defer close(fileIndexChannel)
 				done := ctx.Done()
-				for i := range tableState.onDiskTempFiles {
+				for i := range ts.onDiskTempFiles {
 					if err := ctx.Err(); err != nil {
 						return err
 					}
@@ -121,7 +121,7 @@ func (tableState *TableState) mergeOnDiskState(newTableState *TableState, maxRow
 			}
 		} else {
 			// non-concurrent
-			for part := range tableState.onDiskTempFiles {
+			for part := range ts.onDiskTempFiles {
 				err := mergeSinglePart(part)
 				if err != nil {
 					return err
@@ -141,24 +141,24 @@ func (tableState *TableState) mergeOnDiskState(newTableState *TableState, maxRow
 			if err != nil {
 				return err
 			}
-			newRecord, err := newRecordForAddsAndRemoves(tableState.Files, tableState.Tombstones, schemaDetails.addFieldIndex, schemaDetails.removeFieldIndex)
+			newRecord, err := newRecordForAddsAndRemoves(ts.Files, ts.Tombstones, schemaDetails.addFieldIndex, schemaDetails.removeFieldIndex)
 			if err != nil {
 				return err
 			}
 			defer newRecord.Release()
 			(*schemaDetails).schema = newRecord.Schema()
 
-			onDiskFile := storage.PathFromIter([]string{config.WorkingFolder.Raw, fmt.Sprintf("intermediate.%d.parquet", len(tableState.onDiskTempFiles))})
+			onDiskFile := storage.PathFromIter([]string{config.WorkingFolder.Raw, fmt.Sprintf("intermediate.%d.parquet", len(ts.onDiskTempFiles))})
 			err = writeRecords(config.WorkingStore, onDiskFile, schemaDetails.schema, []arrow.Record{newRecord})
 			if err != nil {
 				return err
 			}
-			tableState.onDiskTempFiles = append(tableState.onDiskTempFiles, onDiskFile)
-			tableState.updateOnDiskCounts(len(tableState.Files), len(tableState.Tombstones))
+			ts.onDiskTempFiles = append(ts.onDiskTempFiles, onDiskFile)
+			ts.updateOnDiskCounts(len(ts.Files), len(ts.Tombstones))
 		}
 		// Reset the pending files and tombstones
-		tableState.Files = make(map[string]Add, 10000)
-		tableState.Tombstones = make(map[string]Remove, 10000)
+		ts.Files = make(map[string]Add, 10000)
+		ts.Tombstones = make(map[string]Remove, 10000)
 	}
 	return nil
 }
@@ -365,8 +365,8 @@ type tempFileSchemaDetails struct {
 }
 
 // / This only supports top level checkpoint column skipping, by using excludePrefixes
-func (details *tempFileSchemaDetails) setFromArrowSchema(arrowSchema *arrow.Schema, excludePrefixes []string) error {
-	details.schema = arrowSchema
+func (d *tempFileSchemaDetails) setFromArrowSchema(arrowSchema *arrow.Schema, excludePrefixes []string) error {
+	d.schema = arrowSchema
 
 	currentNonExcludedIdx := 0
 	var addFieldIndexWithoutExclusions, removeFieldIndexWithoutExclusions int
@@ -380,10 +380,10 @@ func (details *tempFileSchemaDetails) setFromArrowSchema(arrowSchema *arrow.Sche
 		}
 		if field.Name == "add" {
 			addFieldIndexWithoutExclusions = i
-			details.addFieldIndex = currentNonExcludedIdx
+			d.addFieldIndex = currentNonExcludedIdx
 		} else if field.Name == "remove" {
 			removeFieldIndexWithoutExclusions = i
-			details.removeFieldIndex = currentNonExcludedIdx
+			d.removeFieldIndex = currentNonExcludedIdx
 		}
 		if !excluded {
 			currentNonExcludedIdx++
@@ -395,23 +395,23 @@ func (details *tempFileSchemaDetails) setFromArrowSchema(arrowSchema *arrow.Sche
 	if !ok {
 		return errors.Join(ErrReadingCheckpoint, errors.New("temporary checkpoint file schema has invalid add.path column index"))
 	}
-	details.addPathFieldIndex = index
+	d.addPathFieldIndex = index
 	removeStruct := arrowSchema.Field(removeFieldIndexWithoutExclusions).Type.(*arrow.StructType)
 	index, ok = removeStruct.FieldIdx("path")
 	if !ok {
 		return errors.Join(ErrReadingCheckpoint, errors.New("temporary checkpoint file schema has invalid remove.path column index"))
 	}
-	details.removePathFieldIndex = index
+	d.removePathFieldIndex = index
 	index, ok = removeStruct.FieldIdx("extendedFileMetadata")
 	if !ok {
 		return errors.Join(ErrReadingCheckpoint, errors.New("temporary checkpoint file schema has invalid remove.extendedFileMetadata column index"))
 	}
-	details.removeExtendedFileMetadataIndex = index
+	d.removeExtendedFileMetadataIndex = index
 	index, ok = removeStruct.FieldIdx("deletionTimestamp")
 	if !ok {
 		return errors.Join(ErrReadingCheckpoint, errors.New("temporary checkpoint file schema has invalid remove.deletionTimestamp column index"))
 	}
-	details.removeDeletionTimestampIndex = index
+	d.removeDeletionTimestampIndex = index
 
 	return nil
 }
@@ -530,7 +530,7 @@ func copyArrowArrayWithNulls(in arrow.Array, nullRows []int64, allocator memory.
 }
 
 // Apply checkpoint parts to the table state concurrently
-func (tableState *TableState) applyCheckpointConcurrently(store storage.ObjectStore, checkpointDataPaths []storage.Path, config *OptimizeCheckpointConfiguration) error {
+func (ts *TableState) applyCheckpointConcurrently(store storage.ObjectStore, checkpointDataPaths []storage.Path, config *OptimizeCheckpointConfiguration) error {
 	var taskChannel chan checkpointProcessingTask
 	g, ctx := errgroup.WithContext(context.Background())
 	taskChannel = make(chan checkpointProcessingTask)
@@ -554,7 +554,7 @@ func (tableState *TableState) applyCheckpointConcurrently(store storage.ObjectSt
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			task := checkpointProcessingTask{store: store, location: location, state: tableState, part: i, config: config}
+			task := checkpointProcessingTask{store: store, location: location, state: ts, part: i, config: config}
 			select {
 			case taskChannel <- task:
 				continue
@@ -572,40 +572,40 @@ func (tableState *TableState) applyCheckpointConcurrently(store storage.ObjectSt
 }
 
 // Threadsafe: update state with changes to the number of adds/removes on disk
-func (tableState *TableState) updateOnDiskCounts(addsDiff int, tombstonesDiff int) {
-	tableState.concurrentUpdateMutex.Lock()
-	defer tableState.concurrentUpdateMutex.Unlock()
-	tableState.onDiskFileCount += addsDiff
-	tableState.onDiskTombstoneCount += tombstonesDiff
+func (ts *TableState) updateOnDiskCounts(addsDiff int, tombstonesDiff int) {
+	ts.concurrentUpdateMutex.Lock()
+	defer ts.concurrentUpdateMutex.Unlock()
+	ts.onDiskFileCount += addsDiff
+	ts.onDiskTombstoneCount += tombstonesDiff
 }
 
 // Threadsafe: mark that tombstones were found without extended metadata
-func (tableState *TableState) setTombstoneWithoutExtendedMetadata() {
-	tableState.concurrentUpdateMutex.Lock()
-	defer tableState.concurrentUpdateMutex.Unlock()
-	tableState.onDiskRemoveExtendedFileMetadata = true
+func (ts *TableState) setTombstoneWithoutExtendedMetadata() {
+	ts.concurrentUpdateMutex.Lock()
+	defer ts.concurrentUpdateMutex.Unlock()
+	ts.onDiskRemoveExtendedFileMetadata = true
 }
 
 // Find out whether there are any non-extended metadata tombstones and null out any expired tombstones
 // Also count adds and removes in each on disk temp file
-func (tableState *TableState) prepareOnDiskStateForCheckpoint(retentionTimestamp int64, config *OptimizeCheckpointConfiguration) error {
-	tableState.onDiskFileCountsPerPart = make([]int, len(tableState.onDiskTempFiles))
-	tableState.onDiskTombstoneCountsPerPart = make([]int, len(tableState.onDiskTempFiles))
+func (ts *TableState) prepareOnDiskStateForCheckpoint(retentionTimestamp int64, config *OptimizeCheckpointConfiguration) error {
+	ts.onDiskFileCountsPerPart = make([]int, len(ts.onDiskTempFiles))
+	ts.onDiskTombstoneCountsPerPart = make([]int, len(ts.onDiskTempFiles))
 
 	prepareSinglePart := func(part int) error {
-		tombstoneWithoutExtendedMetadata, tombstonesDiff, partFileCount, partTombstoneCount, err := prepareOnDiskPartStateForCheckpoint(config.WorkingStore, tableState.onDiskTempFiles[part], retentionTimestamp)
+		tombstoneWithoutExtendedMetadata, tombstonesDiff, partFileCount, partTombstoneCount, err := prepareOnDiskPartStateForCheckpoint(config.WorkingStore, ts.onDiskTempFiles[part], retentionTimestamp)
 		if err != nil {
 			return err
 		}
-		tableState.onDiskFileCountsPerPart[part] = partFileCount
-		tableState.onDiskTombstoneCountsPerPart[part] = partTombstoneCount
+		ts.onDiskFileCountsPerPart[part] = partFileCount
+		ts.onDiskTombstoneCountsPerPart[part] = partTombstoneCount
 
 		// These updates are threadsafe
 		if tombstoneWithoutExtendedMetadata {
-			tableState.setTombstoneWithoutExtendedMetadata()
+			ts.setTombstoneWithoutExtendedMetadata()
 		}
 		if tombstonesDiff != 0 {
-			tableState.updateOnDiskCounts(0, tombstonesDiff)
+			ts.updateOnDiskCounts(0, tombstonesDiff)
 		}
 		return nil
 	}
@@ -629,7 +629,7 @@ func (tableState *TableState) prepareOnDiskStateForCheckpoint(retentionTimestamp
 		g.Go(func() error {
 			defer close(fileIndexChannel)
 			done := ctx.Done()
-			for i := range tableState.onDiskTempFiles {
+			for i := range ts.onDiskTempFiles {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
@@ -648,7 +648,7 @@ func (tableState *TableState) prepareOnDiskStateForCheckpoint(retentionTimestamp
 		}
 	} else {
 		// non-concurrent
-		for part := range tableState.onDiskTempFiles {
+		for part := range ts.onDiskTempFiles {
 			err := prepareSinglePart(part)
 			if err != nil {
 				return err

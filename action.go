@@ -149,7 +149,7 @@ type MetaData struct {
 
 // MetaData.ToTableMetaData() converts a MetaData to TableMetaData
 // Internally, it converts the schema from a string.
-func (md *MetaData) ToTableMetadata() (TableMetaData, error) {
+func (md *MetaData) toTableMetadata() (TableMetaData, error) {
 	var err error
 	schema, err := md.GetSchema()
 
@@ -343,9 +343,9 @@ func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 
 // Returns the table schema from the embedded schema string contained within the metadata
 // action.
-func (m *MetaData) GetSchema() (Schema, error) {
+func (md *MetaData) GetSchema() (Schema, error) {
 	var schema Schema
-	err := json.Unmarshal([]byte(m.SchemaString), &schema)
+	err := json.Unmarshal([]byte(md.SchemaString), &schema)
 	return schema, err
 }
 

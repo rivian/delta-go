@@ -166,7 +166,7 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 			// Parse the configuration options that we make use of
 			option, ok := action.Configuration[string(DeletedFileRetentionDurationDeltaConfigKey)]
 			if ok {
-				duration, err := ParseInterval(option)
+				duration, err := parseInterval(option)
 				if err != nil {
 					return err
 				}
@@ -174,7 +174,7 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 			}
 			option, ok = action.Configuration[string(LogRetentionDurationDeltaConfigKey)]
 			if ok {
-				duration, err := ParseInterval(option)
+				duration, err := parseInterval(option)
 				if err != nil {
 					return err
 				}
@@ -189,7 +189,7 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 				tableState.ExperimentalEnableExpiredLogCleanup = boolOption
 			}
 		}
-		deltaTableMetadata, err := action.ToTableMetadata()
+		deltaTableMetadata, err := action.toTableMetadata()
 		if err != nil {
 			return err
 		}
