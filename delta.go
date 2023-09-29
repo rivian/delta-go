@@ -634,7 +634,7 @@ func (t *Table) nextCommitDetails() (int64, []Action, bool, error) {
 	noMoreCommits := false
 	transaction := t.CreateTransaction(NewTransactionOptions())
 	actions, err := transaction.ReadActions(nextCommitURI)
-	if errors.Is(err, storage.ErrObjectDoesNotExist) {
+	if err != nil {
 		noMoreCommits = true
 		err = nil
 	}
