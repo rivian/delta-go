@@ -50,7 +50,7 @@ const (
 
 // See safeStringToInterval at
 // https://apache.googlesource.com/spark/+/master/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/util/IntervalUtils.scala
-func ParseInterval(input string) (time.Duration, error) {
+func parseInterval(input string) (time.Duration, error) {
 	input = strings.TrimPrefix(strings.ToLower(input), "interval ")
 	components := strings.Fields(input)
 	if len(components) == 0 || len(components)%2 != 0 {

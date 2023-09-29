@@ -69,7 +69,7 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	transaction.SetOperation(operation)
 	transaction.SetAppMetadata(appMetaData)
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error("should be locked")
 	}
@@ -98,11 +98,11 @@ func TestDeltaTableReadCommitVersion(t *testing.T) {
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,11 +162,11 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,11 +216,11 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -229,7 +229,7 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	}
 
 	//try again with the same version
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
 		t.Error(err)
 	}
@@ -238,8 +238,8 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	}
 
 	//prpare a new commit and try on the next version
-	commit, _ = transaction.PrepareCommit()
-	err = transaction.TryCommit(&commit)
+	commit, _ = transaction.prepareCommit()
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -340,11 +340,11 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -352,8 +352,8 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 		t.Errorf("want version %d, has version = %d", 1, transaction.Table.State.Version)
 	}
 
-	commit, _ = transaction.PrepareCommit()
-	err = transaction.TryCommit(&commit)
+	commit, _ = transaction.prepareCommit()
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -440,11 +440,11 @@ func TestDeltaTableExists(t *testing.T) {
 	// Create another version file
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -530,11 +530,11 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 	// Create another version file
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -573,22 +573,22 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
 
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
 
-	newCommit, err := transaction.PrepareCommit()
+	newCommit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
 
-	err = transaction.TryCommitLoop(&newCommit)
+	err = transaction.tryCommitLoop(&newCommit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -599,12 +599,12 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
 	transaction := setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
 	//commit_001.json
-	err = transaction.TryCommit(&commit)
+	err = transaction.tryCommit(&commit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -618,13 +618,13 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	os.WriteFile(fakeCommit3, []byte("temp commit data"), 0700)
 
 	//create the next commit, should be 004.json after trying 003.json
-	newCommit, err := transaction.PrepareCommit()
+	newCommit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
 
 	//Should exceed attempt retry count
-	err = transaction.TryCommitLoop(&newCommit)
+	err = transaction.tryCommitLoop(&newCommit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -654,12 +654,12 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	})
 
 	for i := 1; i < 10; i++ {
-		commit, err := transaction.PrepareCommit()
+		commit, err := transaction.prepareCommit()
 		if err != nil {
 			t.Error(err)
 		}
 		//commit_001.json
-		err = transaction.TryCommit(&commit)
+		err = transaction.tryCommit(&commit)
 		if err != nil {
 			t.Error(err)
 		}
@@ -672,13 +672,13 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table.State.Version = 0
 
 	//create the next commit, should be 010.json after finding that 000.json exists and loading the tabel state
-	newCommit, err := transaction.PrepareCommit()
+	newCommit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Error(err)
 	}
 
 	//Should exceed attempt retry count
-	err = transaction.TryCommitLoop(&newCommit)
+	err = transaction.tryCommitLoop(&newCommit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -700,7 +700,7 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 
 	commitState.Version = 2
 	table.StateStore.Put(commitState)
-	table.SyncStateStore()
+	table.syncStateStore()
 
 	commitState, _ = table.StateStore.Get()
 	if commitState.Version != 10 {
@@ -1244,11 +1244,11 @@ func TestLatestVersion(t *testing.T) {
 
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
-	commit, err := transaction.PrepareCommit()
+	commit, err := transaction.prepareCommit()
 	if err != nil {
 		t.Errorf("Failed to prepare commit: %v", err)
 	}
-	if err := transaction.TryCommit(&commit); err != nil {
+	if err := transaction.tryCommit(&commit); err != nil {
 		t.Errorf("Failed to try commit: %v", err)
 	}
 
