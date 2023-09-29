@@ -1238,18 +1238,22 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 			return ErrExceededCommitRetryAttempts
 		}
 
-		if err := transaction.TryCommit(commit); err != nil {
-			attempt++
-			log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attempt)
+		err := transaction.TryCommit(commit)
+		if err == nil {
+			return nil
+		}
 
-			// TODO: check if state is higher than current latest version of table by checking n-1
-			if attempt%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
-				// Every 100 attempts, sync the table's state store with its latest version.
-				if err := transaction.Table.SyncStateStore(); err != nil {
-					log.Debugf("delta-go: Table.SyncStateStore() failed with '%v'.", err)
-				}
+		attempt++
+		log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attempt)
+
+		// TODO: check if state is higher than current latest version of table by checking n-1
+		if attempt%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+			// Every 100 attempts, sync the table's state store with its latest version.
+			if err := transaction.Table.SyncStateStore(); err != nil {
+				log.Debugf("delta-go: Table.SyncStateStore() failed with '%v'.", err)
 			}
 		}
+
 	}
 }
 
