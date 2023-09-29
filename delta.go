@@ -831,7 +831,7 @@ func (t *transaction) ReadActions(path storage.Path) ([]Action, error) {
 	)
 	for {
 		if attempt >= int(t.options.MaxRetryReadAttempts) {
-			return nil, fmt.Errorf("failed to get actions after %d attempts: %v", t.options.MaxRetryReadAttempts, err)
+			return nil, errors.Join(fmt.Errorf("failed to get actions after %d attempts", t.options.MaxRetryReadAttempts), err)
 		}
 
 		entry, err = t.Table.Store.Get(path)
@@ -876,7 +876,7 @@ func (t *transaction) CommitLogStore() (int64, error) {
 	)
 	for {
 		if attempt >= int(t.options.MaxRetryWriteAttempts) {
-			return -1, fmt.Errorf("failed to commit with log store after %d attempts: %v", t.options.MaxRetryWriteAttempts, err)
+			return -1, errors.Join(fmt.Errorf("failed to commit with log store after %d attempts", t.options.MaxRetryWriteAttempts), err)
 		}
 
 		version, err = t.tryCommitLogStore()
@@ -939,10 +939,10 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	// N-1.json. Thus, there is no deadlock.
 	lock, err := t.Table.LockClient.NewLock(t.Table.Store.BaseURI().Join(currURI).Raw)
 	if err != nil {
-		return -1, fmt.Errorf("create lock: %v", err)
+		return -1, errors.Join(errors.New("create lock"), err)
 	}
 	if _, err = lock.TryLock(); err != nil {
-		return -1, fmt.Errorf("acquire lock: %v", err)
+		return -1, errors.Join(errors.New("acquire lock"), err)
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
@@ -1236,7 +1236,6 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 				log.Debugf("delta-go: Table.syncStateStore() failed with '%v'.", err)
 			}
 		}
-
 	}
 }
 
@@ -1277,7 +1276,7 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 		}
 		defer func() {
 			if putErr := t.Table.StateStore.Put(newState); putErr != nil {
-				log.Debugf("delta-go: StateStore Put() attempt failed. %v", putErr)
+				log.Debugf("delta-go: StateStore Put() attempt failed. %v", err)
 				err = putErr
 			}
 		}()
@@ -1286,7 +1285,14 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 		from := commit.URI
 		to := CommitURIFromVersion(version)
 		err = t.Table.Store.RenameIfNotExists(from, to)
-		if err != nil {
+		if errors.Is(err, storage.ErrCopyObject) {
+			version = max(priorState.Version, t.Table.State.Version)
+			t.Table.State.Version = version
+			newState = state.CommitState{
+				Version: version,
+			}
+		}
+		if err != nil && !errors.Is(err, storage.ErrDeleteObject) {
 			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
 			return err
 		}
