@@ -1217,8 +1217,8 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 			time.Sleep(t.options.RetryWaitDuration)
 		}
 		if attempt >= int(t.options.MaxRetryCommitAttempts) {
-			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond MaxRetryCommitAttempts of %d so failing.", t.options.MaxRetryCommitAttempts)
-			return errors.Join(ErrExceededCommitRetryAttempts, err)
+			return errors.Join(ErrExceededCommitRetryAttempts,
+				fmt.Errorf("failed to commit after %d attempts", t.options.MaxRetryCommitAttempts), err)
 		}
 
 		err = t.tryCommit(commit)
