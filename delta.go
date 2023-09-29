@@ -383,7 +383,7 @@ func (t *Table) syncStateStore() (err error) {
 
 // Load loads the table state using the given configuration
 func (t *Table) Load(config *OptimizeCheckpointConfiguration) error {
-	return t.loadVersionWithConfiguration(nil, config, true)
+	return t.LoadVersionWithConfiguration(nil, config)
 }
 
 // LoadVersion loads the table state at the specified version using default configuration options
@@ -392,6 +392,10 @@ func (t *Table) LoadVersion(version *int64) error {
 }
 
 // LoadVersionWithConfiguration loads the table state at the specified version using the given configuration
+func (t *Table) LoadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration) error {
+	return t.loadVersionWithConfiguration(version, config, true)
+}
+
 func (t *Table) loadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) error {
 	t.LastCheckPoint = nil
 	t.State = *NewTableState(-1)
@@ -1357,7 +1361,7 @@ func OpenTable(store storage.ObjectStore, lock lock.Locker, stateStore state.Sta
 // OpenTableWithConfiguration loads the latest version of the table, using the given configuration for optimization settings
 func OpenTableWithConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, config *OptimizeCheckpointConfiguration) (*Table, error) {
 	table := NewTable(store, lock, stateStore)
-	err := table.loadVersionWithConfiguration(nil, config, true)
+	err := table.LoadVersionWithConfiguration(nil, config)
 	if err != nil {
 		return nil, err
 	}
