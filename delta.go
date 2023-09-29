@@ -388,7 +388,7 @@ func (t *Table) Load(config *OptimizeCheckpointConfiguration) error {
 
 // LoadVersion loads the table state at the specified version using default configuration options
 func (t *Table) LoadVersion(version *int64) error {
-	return t.loadVersionWithConfiguration(version, nil, true)
+	return t.LoadVersionWithConfiguration(version, nil)
 }
 
 // LoadVersionWithConfiguration loads the table state at the specified version using the given configuration
