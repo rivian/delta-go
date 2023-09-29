@@ -269,7 +269,7 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 	transaction := setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
 
 	version, err := transaction.Commit()
-	if err == nil {
+	if !errors.Is(err, ErrExceededCommitRetryAttempts) {
 		t.Error(err)
 	}
 	if version != -1 {
@@ -323,7 +323,7 @@ func TestCommitUnlockFailure(t *testing.T) {
 
 	transaction := setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
 	_, err := transaction.Commit()
-	if err == nil {
+	if !errors.Is(err, lock.ErrUnableToUnlock) {
 		t.Error(err)
 	}
 }
