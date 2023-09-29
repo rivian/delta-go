@@ -101,8 +101,33 @@ func NewTableWithLogStore(store storage.ObjectStore, lock lock.Locker, logStore 
 // Creates a new Transaction for the Table.
 // The transaction holds a mutable reference to the Table, preventing other references
 // until the transaction is dropped.
-func (table *Table) CreateTransaction(options *TransactionOptions) *Transaction {
-	return NewTransaction(table, options)
+func (table *Table) CreateTransaction(opts TransactionOptions) *transaction {
+	opts.setOptionsDefaults()
+
+	transaction := new(transaction)
+	transaction.Table = table
+	transaction.options = opts
+
+	return transaction
+}
+
+// setOptionsDefaults sets the default transaction options.
+func (opts *TransactionOptions) setOptionsDefaults() {
+	if opts.MaxRetryCommitAttempts == 0 {
+		opts.MaxRetryCommitAttempts = defaultMaxRetryCommitAttempts
+	}
+	if opts.MaxRetryReadAttempts == 0 {
+		opts.MaxRetryReadAttempts = defaultMaxRetryCommitAttempts
+	}
+	if opts.MaxRetryWriteAttempts == 0 {
+		opts.MaxRetryWriteAttempts = defaultMaxWriteCommitAttempts
+	}
+	if opts.RetryCommitAttemptsBeforeLoadingTable == 0 {
+		opts.RetryCommitAttemptsBeforeLoadingTable = defaultRetryCommitAttemptsBeforeLoadingTable
+	}
+	if opts.MaxRetryLogFixAttempts == 0 {
+		opts.MaxRetryLogFixAttempts = defaultMaxRetryLogFixAttempts
+	}
 }
 
 // / Return the uri of commit version.
@@ -806,12 +831,12 @@ func (dtmd *TableMetaData) GetPartitionColDataTypes() map[string]SchemaDataType 
 // /
 // / Please not that in case of non-retryable error the temporary commit file such as
 // / `_delta_log/_commit_<uuid>.json` will orphaned in storage.
-type Transaction struct {
+type transaction struct {
 	Table       *Table
 	Actions     []Action
 	Operation   Operation
 	AppMetadata map[string]any
-	Options     *TransactionOptions
+	options     TransactionOptions
 }
 
 // ReadActions gets actions from a file.
@@ -821,11 +846,11 @@ type Transaction struct {
 // target N.json file more than once. Though data loss will *NOT* occur, readers of N.json
 // may receive an error from S3 as the ETag of N.json was changed. This is safe to
 // retry, so we do so here.
-func (transaction *Transaction) ReadActions(path storage.Path) ([]Action, error) {
+func (transaction *transaction) ReadActions(path storage.Path) ([]Action, error) {
 	attempt := 0
 	for {
-		if attempt >= int(transaction.Options.MaxRetryReadAttempts) {
-			return nil, fmt.Errorf("failed to get actions after %d attempts", transaction.Options.MaxRetryReadAttempts)
+		if attempt >= int(transaction.options.MaxRetryReadAttempts) {
+			return nil, fmt.Errorf("failed to get actions after %d attempts", transaction.options.MaxRetryReadAttempts)
 		}
 
 		entry, err := transaction.Table.Store.Get(path)
@@ -863,11 +888,11 @@ func (transaction *Transaction) ReadActions(path storage.Path) ([]Action, error)
 //
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite and complete commit entry E in the log store.
-func (transaction *Transaction) CommitLogStore() (int64, error) {
+func (transaction *transaction) CommitLogStore() (int64, error) {
 	attempt := 0
 	for {
-		if attempt >= int(transaction.Options.MaxRetryWriteAttempts) {
-			return -1, fmt.Errorf("failed to commit with log store after %d attempts", transaction.Options.MaxRetryWriteAttempts)
+		if attempt >= int(transaction.options.MaxRetryWriteAttempts) {
+			return -1, fmt.Errorf("failed to commit with log store after %d attempts", transaction.options.MaxRetryWriteAttempts)
 		}
 
 		version, err := transaction.tryCommitLogStore()
@@ -881,7 +906,7 @@ func (transaction *Transaction) CommitLogStore() (int64, error) {
 	}
 }
 
-func (t *Transaction) tryCommitLogStore() (version int64, err error) {
+func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	var currURI storage.Path
 	prevURI, err := t.Table.LogStore.Latest(t.Table.Store.BaseURI())
 
@@ -1014,7 +1039,7 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 	return currVersion, nil
 }
 
-func (t *Transaction) complete(entry *logstore.CommitEntry) error {
+func (t *transaction) complete(entry *logstore.CommitEntry) error {
 	seconds := t.Table.LogStore.ExpirationDelaySeconds()
 	entry, err := entry.Complete(seconds)
 	if err != nil {
@@ -1028,15 +1053,15 @@ func (t *Transaction) complete(entry *logstore.CommitEntry) error {
 	return nil
 }
 
-func (t *Transaction) copyTempFile(src storage.Path, dst storage.Path) error {
+func (t *transaction) copyTempFile(src storage.Path, dst storage.Path) error {
 	return t.Table.Store.RenameIfNotExists(src, dst)
 }
 
-func (t *Transaction) createTempPath(path storage.Path) (storage.Path, error) {
+func (t *transaction) createTempPath(path storage.Path) (storage.Path, error) {
 	return storage.NewPath(fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid.New().String())), nil
 }
 
-func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
+func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	if entry.IsComplete() {
 		return nil
 	}
@@ -1062,8 +1087,8 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 
 	attempt, copied := 0, false
 	for {
-		if attempt >= int(t.Options.MaxRetryLogFixAttempts) {
-			return fmt.Errorf("failed to fix Delta log after %d attempts", t.Options.MaxRetryLogFixAttempts)
+		if attempt >= int(t.options.MaxRetryLogFixAttempts) {
+			return fmt.Errorf("failed to fix Delta log after %d attempts", t.options.MaxRetryLogFixAttempts)
 		}
 
 		log.Infof("delta-go: Trying to fix %s.", entry.FileName().Raw)
@@ -1099,7 +1124,7 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	}
 }
 
-func (transaction *Transaction) writeActions(path storage.Path, actions []Action) error {
+func (transaction *transaction) writeActions(path storage.Path, actions []Action) error {
 	// Serialize all actions that are part of this log entry.
 	entry, err := LogEntryFromActions(actions)
 	if err != nil {
@@ -1109,28 +1134,18 @@ func (transaction *Transaction) writeActions(path storage.Path, actions []Action
 	return transaction.Table.Store.Put(path, entry)
 }
 
-// / Creates a new Delta transaction.
-// / Holds a mutable reference to the Delta table to prevent outside mutation while a transaction commit is in progress.
-// / Transaction behavior may be customized by passing an instance of `TransactionOptions`.
-func NewTransaction(table *Table, options *TransactionOptions) *Transaction {
-	transaction := new(Transaction)
-	transaction.Table = table
-	transaction.Options = options
-	return transaction
-}
-
 // / Add an arbitrary "action" to the actions associated with this transaction
-func (transaction *Transaction) AddAction(action Action) {
+func (transaction *transaction) AddAction(action Action) {
 	transaction.Actions = append(transaction.Actions, action)
 }
 
 // / Add an arbitrary number of actions to the actions associated with this transaction
-func (transaction *Transaction) AddActions(actions []Action) {
+func (transaction *transaction) AddActions(actions []Action) {
 	transaction.Actions = append(transaction.Actions, actions...)
 }
 
 // AddCommitInfo adds a `commitInfo` action to a transaction's actions if not already present.
-func (t *Transaction) AddCommitInfoIfNotPresent() {
+func (t *transaction) AddCommitInfoIfNotPresent() {
 	found := false
 	for _, action := range t.Actions {
 		switch action.(type) {
@@ -1156,18 +1171,18 @@ func (t *Transaction) AddCommitInfoIfNotPresent() {
 }
 
 // SetOperation sets the Delta operation for this transaction.
-func (transaction *Transaction) SetOperation(operation Operation) {
+func (transaction *transaction) SetOperation(operation Operation) {
 	transaction.Operation = operation
 }
 
 // SetAppMetadata sets the app metadata for this transaction.
-func (transaction *Transaction) SetAppMetadata(appMetadata map[string]any) {
+func (transaction *transaction) SetAppMetadata(appMetadata map[string]any) {
 	transaction.AppMetadata = appMetadata
 }
 
 // Commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
-func (transaction *Transaction) Commit() (int64, error) {
+func (transaction *transaction) Commit() (int64, error) {
 	PreparedCommit, err := transaction.PrepareCommit()
 	if err != nil {
 		log.Debugf("delta-go: PrepareCommit attempt failed. %v", err)
@@ -1181,7 +1196,7 @@ func (transaction *Transaction) Commit() (int64, error) {
 // / Low-level transaction API. Creates a temporary commit file. Once created,
 // / the transaction object could be dropped and the actual commit could be executed
 // / with `Table.try_commit_transaction`.
-func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
+func (transaction *transaction) PrepareCommit() (PreparedCommit, error) {
 	transaction.AddCommitInfoIfNotPresent()
 
 	// Serialize all actions that are part of this log entry.
@@ -1207,14 +1222,14 @@ func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
 }
 
 // TryCommitLoop loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
-func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
+func (transaction *transaction) TryCommitLoop(commit *PreparedCommit) error {
 	attemptNumber := 0
 	for {
 		if attemptNumber > 0 {
-			time.Sleep(transaction.Options.RetryWaitDuration)
+			time.Sleep(transaction.options.RetryWaitDuration)
 		}
-		if attemptNumber > int(transaction.Options.MaxRetryCommitAttempts)+1 {
-			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+		if attemptNumber > int(transaction.options.MaxRetryCommitAttempts)+1 {
+			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.options.MaxRetryCommitAttempts)
 			return ErrExceededCommitRetryAttempts
 		}
 
@@ -1222,12 +1237,11 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 		//Reset local state with the version tried in the commit
 		//The next attempt should use the max of the remote state and local state, enables local incrimination if the remote state is stuck
 		if errors.Is(err, storage.ErrObjectAlreadyExists) || errors.Is(err, lock.ErrLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
-			if attemptNumber <= int(transaction.Options.MaxRetryCommitAttempts)+1 {
+			if attemptNumber <= int(transaction.options.MaxRetryCommitAttempts)+1 {
 				attemptNumber += 1
 				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
 				// TODO: check if state is higher then current latest version of table by checking n-1
-				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
-					attemptNumber%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+				if attemptNumber%int(transaction.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 					// Every 100 attempts, sync the table's state store with its latest version.
 					err := transaction.Table.SyncStateStore()
 					if err != nil {
@@ -1235,7 +1249,7 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 					}
 				}
 			} else {
-				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.options.MaxRetryCommitAttempts)
 				return err
 			}
 		} else {
@@ -1247,7 +1261,7 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 }
 
 // TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
-func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
+func (transaction *transaction) TryCommit(commit *PreparedCommit) (err error) {
 	// Step 1) Acquire Lock
 	locked, err := transaction.Table.LockClient.TryLock()
 	// Step 5) Always Release Lock
@@ -1342,8 +1356,8 @@ type TransactionOptions struct {
 }
 
 // NewTransactionOptions sets the default transaction options.
-func NewTransactionOptions() *TransactionOptions {
-	return &TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteCommitAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
+func NewTransactionOptions() TransactionOptions {
+	return TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteCommitAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
 }
 
 // OpenTableWithVersion loads the table at this specific version
