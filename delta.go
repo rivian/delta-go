@@ -1278,13 +1278,15 @@ func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
 		// 3) Try to Rename the file
 		from := storage.NewPath(commit.URI.Raw)
 		to := CommitURIFromVersion(version)
-		if err := transaction.Table.Store.RenameIfNotExists(from, to); err != nil {
+		err = transaction.Table.Store.RenameIfNotExists(from, to)
+		if errors.Is(err, storage.ErrCopyObject) {
 			version = max(priorState.Version, transaction.Table.State.Version)
 			transaction.Table.State.Version = version
 			newState = state.CommitState{
 				Version: version,
 			}
-
+		}
+		if err != nil && !errors.Is(err, storage.ErrDeleteObject) {
 			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
 			return err
 		}
