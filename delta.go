@@ -1270,7 +1270,7 @@ func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
 		}
 		defer func() {
 			if putErr := transaction.Table.StateStore.Put(newState); putErr != nil {
-				log.Debugf("delta-go: StateStore Put() attempt failed. %v", err)
+				log.Debugf("delta-go: StateStore Put() attempt failed. %v", putErr)
 				err = putErr
 			}
 		}()
