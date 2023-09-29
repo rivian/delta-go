@@ -822,13 +822,17 @@ type Transaction struct {
 // may receive an error from S3 as the ETag of N.json was changed. This is safe to
 // retry, so we do so here.
 func (transaction *Transaction) ReadActions(path storage.Path) ([]Action, error) {
-	attempt := 0
+	var (
+		entry   []byte
+		err     error
+		attempt = 0
+	)
 	for {
 		if attempt >= int(transaction.Options.MaxRetryReadAttempts) {
-			return nil, fmt.Errorf("failed to get actions after %d attempts", transaction.Options.MaxRetryReadAttempts)
+			return nil, fmt.Errorf("failed to get actions after %d attempts: %v", transaction.Options.MaxRetryReadAttempts, err)
 		}
 
-		entry, err := transaction.Table.Store.Get(path)
+		entry, err = transaction.Table.Store.Get(path)
 		if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to get log entry. %v", attempt, err)
@@ -863,13 +867,17 @@ func (transaction *Transaction) ReadActions(path storage.Path) ([]Action, error)
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite and complete commit entry E in the log store.
 func (transaction *Transaction) CommitLogStore() (int64, error) {
-	attempt := 0
+	var (
+		version int64
+		err     error
+		attempt = 0
+	)
 	for {
 		if attempt >= int(transaction.Options.MaxRetryWriteAttempts) {
-			return -1, fmt.Errorf("failed to commit with log store after %d attempts", transaction.Options.MaxRetryWriteAttempts)
+			return -1, fmt.Errorf("failed to commit with log store after %d attempts: %v", transaction.Options.MaxRetryWriteAttempts, err)
 		}
 
-		version, err := transaction.tryCommitLogStore()
+		version, err = transaction.tryCommitLogStore()
 		if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to commit with log store. %v", attempt, err)
@@ -1059,10 +1067,13 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 		}
 	}()
 
-	attempt, copied := 0, false
+	var (
+		attempt = 0
+		copied  = false
+	)
 	for {
 		if attempt >= int(t.Options.MaxRetryLogFixAttempts) {
-			return fmt.Errorf("failed to fix Delta log after %d attempts", t.Options.MaxRetryLogFixAttempts)
+			return fmt.Errorf("failed to fix Delta log after %d attempts: %v", t.Options.MaxRetryLogFixAttempts, err)
 		}
 
 		log.Infof("delta-go: Trying to fix %s.", entry.FileName().Raw)
@@ -1226,17 +1237,20 @@ func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
 
 // TryCommitLoop loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
 func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
-	attempt := 0
+	var (
+		err     error
+		attempt = 0
+	)
 	for {
 		if attempt > 0 {
 			time.Sleep(transaction.Options.RetryWaitDuration)
 		}
 		if attempt >= int(transaction.Options.MaxRetryCommitAttempts) {
 			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond MaxRetryCommitAttempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
-			return ErrExceededCommitRetryAttempts
+			return errors.Join(ErrExceededCommitRetryAttempts, err)
 		}
 
-		err := transaction.TryCommit(commit)
+		err = transaction.TryCommit(commit)
 		if err == nil {
 			return nil
 		}
