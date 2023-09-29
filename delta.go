@@ -101,7 +101,7 @@ func NewTableWithLogStore(store storage.ObjectStore, lock lock.Locker, logStore 
 // Creates a new Transaction for the Table.
 // The transaction holds a mutable reference to the Table, preventing other references
 // until the transaction is dropped.
-func (table *Table) CreateTransaction(opts *TransactionOptions) *Transaction {
+func (table *Table) CreateTransaction(opts TransactionOptions) *Transaction {
 	return NewTransaction(table, opts)
 }
 
@@ -811,7 +811,7 @@ type Transaction struct {
 	Actions     []Action
 	Operation   Operation
 	AppMetadata map[string]any
-	Options     *TransactionOptions
+	Options     TransactionOptions
 }
 
 // ReadActions gets actions from a file.
@@ -1131,7 +1131,7 @@ func (opts *TransactionOptions) setOptionsDefaults() {
 // / Creates a new Delta transaction.
 // / Holds a mutable reference to the Delta table to prevent outside mutation while a transaction commit is in progress.
 // / Transaction behavior may be customized by passing an instance of `TransactionOptions`.
-func NewTransaction(table *Table, opts *TransactionOptions) *Transaction {
+func NewTransaction(table *Table, opts TransactionOptions) *Transaction {
 	opts.setOptionsDefaults()
 
 	transaction := new(Transaction)
@@ -1359,8 +1359,8 @@ type TransactionOptions struct {
 }
 
 // NewTransactionOptions sets the default transaction options.
-func NewTransactionOptions() *TransactionOptions {
-	return &TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteCommitAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
+func NewTransactionOptions() TransactionOptions {
+	return TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteCommitAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
 }
 
 // OpenTableWithVersion loads the table at this specific version
