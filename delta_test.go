@@ -671,7 +671,7 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table.StateStore.Put(commitState)
 	table.State.Version = 0
 
-	//create the next commit, should be 010.json after finding that 000.json exists and loading the tabel state
+	//create the next commit, should be 010.json after finding that 000.json exists and loading the table state
 	newCommit, err := transaction.PrepareCommit()
 	if err != nil {
 		t.Error(err)
@@ -1056,10 +1056,10 @@ func setupTest(t *testing.T) (table *Table, state *filestate.FileStateStore, tmp
 }
 
 // / Helper function to set up a basic transaction
-func setupTransaction(t *testing.T, table *Table, options *TransactionOptions) (transaction *Transaction) {
+func setupTransaction(t *testing.T, table *Table, opts *TransactionOptions) (transaction *Transaction) {
 	t.Helper()
 
-	transaction = table.CreateTransaction(options)
+	transaction = table.CreateTransaction(opts)
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
 		Size:             984,

@@ -101,8 +101,8 @@ func NewTableWithLogStore(store storage.ObjectStore, lock lock.Locker, logStore 
 // Creates a new Transaction for the Table.
 // The transaction holds a mutable reference to the Table, preventing other references
 // until the transaction is dropped.
-func (table *Table) CreateTransaction(options *TransactionOptions) *Transaction {
-	return NewTransaction(table, options)
+func (table *Table) CreateTransaction(opts *TransactionOptions) *Transaction {
+	return NewTransaction(table, opts)
 }
 
 // / Return the uri of commit version.
@@ -1109,13 +1109,34 @@ func (transaction *Transaction) writeActions(path storage.Path, actions []Action
 	return transaction.Table.Store.Put(path, entry)
 }
 
+// setOptionsDefaults sets the default transaction options.
+func (opts *TransactionOptions) setOptionsDefaults() {
+	if opts.MaxRetryCommitAttempts == 0 {
+		opts.MaxRetryCommitAttempts = defaultMaxRetryCommitAttempts
+	}
+	if opts.MaxRetryReadAttempts == 0 {
+		opts.MaxRetryReadAttempts = defaultMaxRetryCommitAttempts
+	}
+	if opts.MaxRetryWriteAttempts == 0 {
+		opts.MaxRetryWriteAttempts = defaultMaxWriteCommitAttempts
+	}
+	if opts.RetryCommitAttemptsBeforeLoadingTable == 0 {
+		opts.RetryCommitAttemptsBeforeLoadingTable = defaultRetryCommitAttemptsBeforeLoadingTable
+	}
+	if opts.MaxRetryLogFixAttempts == 0 {
+		opts.MaxRetryLogFixAttempts = defaultMaxRetryLogFixAttempts
+	}
+}
+
 // / Creates a new Delta transaction.
 // / Holds a mutable reference to the Delta table to prevent outside mutation while a transaction commit is in progress.
 // / Transaction behavior may be customized by passing an instance of `TransactionOptions`.
-func NewTransaction(table *Table, options *TransactionOptions) *Transaction {
+func NewTransaction(table *Table, opts *TransactionOptions) *Transaction {
+	opts.setOptionsDefaults()
+
 	transaction := new(Transaction)
 	transaction.Table = table
-	transaction.Options = options
+	transaction.Options = opts
 	return transaction
 }
 
@@ -1168,13 +1189,13 @@ func (transaction *Transaction) SetAppMetadata(appMetadata map[string]any) {
 // Commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
 func (transaction *Transaction) Commit() (int64, error) {
-	PreparedCommit, err := transaction.PrepareCommit()
+	commit, err := transaction.PrepareCommit()
 	if err != nil {
 		log.Debugf("delta-go: PrepareCommit attempt failed. %v", err)
 		return transaction.Table.State.Version, err
 	}
 
-	err = transaction.TryCommitLoop(&PreparedCommit)
+	err = transaction.TryCommitLoop(&commit)
 	return transaction.Table.State.Version, err
 }
 
@@ -1192,8 +1213,7 @@ func (transaction *Transaction) PrepareCommit() (PreparedCommit, error) {
 
 	// Write Delta log entry as temporary file to storage. For the actual commit,
 	// the temporary file is moved (atomic rename) to the Delta log folder within `commit` function.
-	token := uuid.New().String()
-	fileName := fmt.Sprintf("_commit_%s.json", token)
+	fileName := fmt.Sprintf("_commit_%s.json", uuid.NewString())
 	// TODO: Open question, should storagePath use the basePath for the transaction or just hard code the _delta_log path?
 	path := storage.Path{Raw: filepath.Join("_delta_log", ".tmp", fileName)}
 	commit := PreparedCommit{URI: path}
@@ -1276,7 +1296,7 @@ func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
 		}()
 
 		// 3) Try to Rename the file
-		from := storage.NewPath(commit.URI.Raw)
+		from := commit.URI
 		to := CommitURIFromVersion(version)
 		err = transaction.Table.Store.RenameIfNotExists(from, to)
 		if errors.Is(err, storage.ErrCopyObject) {
