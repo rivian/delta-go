@@ -1296,7 +1296,8 @@ type PreparedCommit struct {
 
 const (
 	defaultMaxRetryCommitAttempts                uint32 = 10000000
-	defaultMaxWriteCommitAttempts                uint32 = 10000000
+	defaultMaxReadAttempts                       uint16 = 3
+	defaultMaxWriteAttempts                      uint32 = 10000000
 	defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
 	defaultMaxRetryLogFixAttempts                uint16 = 3
 )
@@ -1308,7 +1309,7 @@ type TransactionOptions struct {
 	// RetryWaitDuration sets the amount of times between retry's on the transaction
 	RetryWaitDuration time.Duration
 	// Number of retry attempts allowed when reading actions from a log entry
-	MaxRetryReadAttempts uint32
+	MaxRetryReadAttempts uint16
 	// Number of retry attempts allowed when writing actions to a log entry
 	MaxRetryWriteAttempts uint32
 	// number of retry commit attempts before loading the latest version from the table rather
@@ -1320,7 +1321,7 @@ type TransactionOptions struct {
 
 // NewTransactionOptions sets the default transaction options.
 func NewTransactionOptions() *TransactionOptions {
-	return &TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteCommitAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
+	return &TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryReadAttempts: defaultMaxReadAttempts, MaxRetryWriteAttempts: defaultMaxWriteAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
 }
 
 // OpenTableWithVersion loads the table at this specific version
