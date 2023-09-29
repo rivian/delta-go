@@ -1241,8 +1241,7 @@ func (transaction *transaction) TryCommitLoop(commit *PreparedCommit) error {
 				attemptNumber += 1
 				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
 				// TODO: check if state is higher then current latest version of table by checking n-1
-				if transaction.options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
-					attemptNumber%int(transaction.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+				if attemptNumber%int(transaction.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 					// Every 100 attempts, sync the table's state store with its latest version.
 					err := transaction.Table.SyncStateStore()
 					if err != nil {
