@@ -1218,25 +1218,16 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 			return ErrExceededCommitRetryAttempts
 		}
 
-		err := transaction.TryCommit(commit)
-		// Reset the local state with the version tried in the commit.
-		// The next attempt should use the max of the remote state and local state, enabling local increments if the remote state is stuck.
-		if err != nil {
-			if attempt < int(transaction.Options.MaxRetryCommitAttempts) {
-				attempt += 1
-				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attempt)
-				// TODO: check if state is higher then current latest version of table by checking n-1
-				if transaction.Options.RetryCommitAttemptsBeforeLoadingTable > 0 &&
-					attempt%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
-					// Every 100 attempts, sync the table's state store with its latest version.
-					err := transaction.Table.SyncStateStore()
-					if err != nil {
-						log.Debugf("delta-go: Table.SyncStateStore() failed with '%v'.", err)
-					}
+		if err := transaction.TryCommit(commit); err != nil {
+			attempt++
+			log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attempt)
+
+			// TODO: check if state is higher than current latest version of table by checking n-1
+			if attempt%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+				// Every 100 attempts, sync the table's state store with its latest version.
+				if err := transaction.Table.SyncStateStore(); err != nil {
+					log.Debugf("delta-go: Table.SyncStateStore() failed with '%v'.", err)
 				}
-			} else {
-				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
-				return err
 			}
 		}
 	}
@@ -1277,17 +1268,24 @@ func (transaction *Transaction) TryCommit(commit *PreparedCommit) (err error) {
 		newState := state.CommitState{
 			Version: version,
 		}
+		defer func() {
+			if putErr := transaction.Table.StateStore.Put(newState); putErr != nil {
+				log.Debugf("delta-go: StateStore Put() attempt failed. %v", err)
+				err = putErr
+			}
+		}()
 
 		// 3) Try to Rename the file
 		from := storage.NewPath(commit.URI.Raw)
 		to := CommitURIFromVersion(version)
 		if err := transaction.Table.Store.RenameIfNotExists(from, to); err != nil {
-			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
-			return err
-		}
+			version = max(priorState.Version, transaction.Table.State.Version)
+			transaction.Table.State.Version = version
+			newState = state.CommitState{
+				Version: version,
+			}
 
-		if err := transaction.Table.StateStore.Put(newState); err != nil {
-			log.Debugf("delta-go: StateStore Put() attempt failed. %v", err)
+			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
 			return err
 		}
 	} else {
