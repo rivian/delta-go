@@ -831,15 +831,14 @@ func (transaction *Transaction) ReadActions(path storage.Path) ([]Action, error)
 		entry, err := transaction.Table.Store.Get(path)
 		if err != nil {
 			attempt++
-			log.Debugf("delta-go: Failed to get log entry. Incrementing attempt number to %d and retrying. %v", attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to get log entry. %v", attempt, err)
 			continue
 		}
 
 		actions, err := ActionsFromLogEntries(entry)
 		if err != nil {
 			attempt++
-			log.Debugf("delta-go: Failed to get actions from log entry. Incrementing attempt number to %d and retrying. %v",
-				attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to get actions from log entry. %v", attempt, err)
 			continue
 		}
 
@@ -873,7 +872,7 @@ func (transaction *Transaction) CommitLogStore() (int64, error) {
 		version, err := transaction.tryCommitLogStore()
 		if err != nil {
 			attempt++
-			log.Debugf("delta-go: Incrementing log store commit attempt number to %d and retrying: %v", attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to commit with log store. %v", attempt, err)
 			continue
 		}
 
@@ -1072,15 +1071,14 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			tempPath, err := entry.AbsoluteTempPath()
 			if err != nil {
 				attempt++
-				log.Debugf("delta-go: Failed to get absolute temp path. Incrementing attempt number to %d and retrying. %v",
-					attempt, err)
+				log.Debugf("delta-go: Attempt number %d: failed to get absolute temp path. %v", attempt, err)
 				continue
 			}
 
 			if err := t.copyTempFile(tempPath, filePath); err != nil {
 				attempt++
-				log.Debugf("delta-go: File %s already copied. Incrementing attempt number to %d and retrying. %v",
-					entry.FileName().Raw, attempt, err)
+				log.Debugf("delta-go: Attempt number %d: file %s already copied. %v",
+					attempt, entry.FileName().Raw, err)
 				copied = true
 				continue
 			}
@@ -1090,7 +1088,7 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 
 		if err := t.complete(entry); err != nil {
 			attempt++
-			log.Debugf("delta-go: Failed to complete commit entry. Incrementing attempt number to %d and retrying. %v", attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to complete commit entry. %v", attempt, err)
 			continue
 		}
 
@@ -1234,7 +1232,7 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 			time.Sleep(transaction.Options.RetryWaitDuration)
 		}
 		if attempt >= int(transaction.Options.MaxRetryCommitAttempts) {
-			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
+			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond MaxRetryCommitAttempts of %d so failing.", transaction.Options.MaxRetryCommitAttempts)
 			return ErrExceededCommitRetryAttempts
 		}
 
@@ -1244,7 +1242,7 @@ func (transaction *Transaction) TryCommitLoop(commit *PreparedCommit) error {
 		}
 
 		attempt++
-		log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attempt)
+		log.Debugf("delta-go: Attempt number %d: failed to commit. %v", attempt, err)
 
 		// TODO: check if state is higher than current latest version of table by checking n-1
 		if attempt%int(transaction.Options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
