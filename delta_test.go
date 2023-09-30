@@ -369,7 +369,6 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create S3 mock client: %v", err)
 	}
-	client.PreventObjectCopying = true
 
 	store, err := s3store.New(client, uri)
 	if err != nil {
@@ -383,9 +382,25 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 		state       = filestate.New(path, "_delta_log/_commit.state")
 		table       = NewTable(store, lock, state)
 		transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
+		metadata    = NewTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
 	)
 
-	if _, err := transaction.Commit(); !errors.Is(err, ErrExceededCommitRetryAttempts) {
+	if err := table.Create(*metadata, Protocol{}, make(map[string]any), nil); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
+	client.PreventObjectCopying = true
+
+	store, err = s3store.New(client, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 object store: %v", err)
+	}
+
+	table = NewTable(store, lock, state)
+	transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
+
+	if _, err := transaction.Commit(); !errors.Is(err, ErrExceededCommitRetryAttempts) ||
+		!errors.Is(err, storage.ErrCopyObject) {
 		t.Errorf("Expected: %v", ErrExceededCommitRetryAttempts)
 	}
 
@@ -397,7 +412,6 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 		t.Fatalf("Failed to create S3 object store: %v", err)
 	}
 
-	lock = filelock.New(path, "_delta_log/_second_commit.lock", filelock.Options{})
 	table = NewTable(store, lock, state)
 	transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
 
