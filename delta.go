@@ -1255,7 +1255,7 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 	// 2) Look up the prior state.
 	priorState, _ := t.Table.StateStore.Get()
 
-	// 3) Compute the maximum of the local and remote state's versions to find the table's current version.
+	// 3) Compute the maximum of the local and remote state's versions to find the table's latest version.
 	version := max(priorState.Version, t.Table.State.Version) + 1
 	t.Table.State.Version = version
 	newState := state.CommitState{
