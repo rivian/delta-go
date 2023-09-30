@@ -381,7 +381,7 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 		lock        = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
 		state       = filestate.New(path, "_delta_log/_commit.state")
 		table       = NewTable(store, lock, state)
-		transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
+		transaction = setupTransaction(t, table, NewTransactionOptions())
 		metadata    = NewTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
 	)
 
@@ -389,7 +389,16 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 		t.Errorf("Failed to create table: %v", err)
 	}
 
-	client.PreventObjectCopying = true
+	commitState, err := table.StateStore.Get()
+	if err != nil {
+		t.Fatalf("Failed to get state: %v", err)
+	}
+
+	if commitState.Version != 0 {
+		t.Errorf("After creating table: commitState.Version = %v, want %v", commitState.Version, 0)
+	}
+
+	client.DisableObjectCopying = true
 
 	store, err = s3store.New(client, uri)
 	if err != nil {
@@ -404,8 +413,18 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 		t.Errorf("Expected: %v", ErrExceededCommitRetryAttempts)
 	}
 
-	client.PreventObjectCopying = false
-	client.PreventObjectDeleting = true
+	commitState, err = table.StateStore.Get()
+	if err != nil {
+		t.Fatalf("Failed to get state: %v", err)
+	}
+
+	if commitState.Version != 0 {
+		t.Errorf("After attempting to commit with object copying disabled: commitState.Version = %v, want %v",
+			commitState.Version, 0)
+	}
+
+	client.DisableObjectCopying = false
+	client.DisableObjectDeleting = true
 
 	store, err = s3store.New(client, uri)
 	if err != nil {
@@ -413,10 +432,20 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 	}
 
 	table = NewTable(store, lock, state)
-	transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
+	transaction = setupTransaction(t, table, NewTransactionOptions())
 
 	if _, err := transaction.Commit(); err != nil {
 		t.Errorf("Failed to commit version: %v", err)
+	}
+
+	commitState, err = table.StateStore.Get()
+	if err != nil {
+		t.Fatalf("Failed to get state: %v", err)
+	}
+
+	if commitState.Version != 1 {
+		t.Errorf("After attempting to commit with object deleting disabled: commitState.Version = %v, want %v",
+			commitState.Version, 1)
 	}
 }
 
