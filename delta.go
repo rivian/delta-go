@@ -1230,8 +1230,8 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 		attempt++
 		log.Debugf("delta-go: Attempt number %d: failed to commit. %v", attempt, err)
 
-		// TODO: Decrement the state store version and check if that version exists. If it doesn't,
-		// the state store needs to be synced with the table's latest version before calling tryCommit().
+		// TODO: Check if the state store version exists. If it doesn't, the state store needs to be
+		// synced with the table's latest version before attempting to commit.
 		if attempt%int(t.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 			// Sync the table's state store with its latest version.
 			_ = t.Table.syncStateStore()
@@ -1243,7 +1243,7 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 	// Step 1) Acquire the lock.
 	locked, err := t.Table.LockClient.TryLock()
 	defer func() {
-		// Defer the unlock and overwrite any errors if unlock fails.
+		// Defer the unlock and overwrite any errors if the unlock fails.
 		if unlockErr := t.Table.LockClient.Unlock(); unlockErr != nil {
 			err = errors.Join(errors.New("release lock"), unlockErr)
 		}
@@ -1252,10 +1252,10 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 		return errors.Join(lock.ErrLockNotObtained, err)
 	}
 
-	// 2) Look up the latest prior state.
+	// 2) Look up the prior state.
 	priorState, _ := t.Table.StateStore.Get()
 
-	// 3) Compute the maximum of the local and remote state's version to find the table's current version.
+	// 3) Compute the maximum of the local and remote state's versions to find the table's current version.
 	version := max(priorState.Version, t.Table.State.Version) + 1
 	t.Table.State.Version = version
 	newState := state.CommitState{
