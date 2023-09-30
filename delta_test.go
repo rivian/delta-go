@@ -397,6 +397,7 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 		t.Fatalf("Failed to create S3 object store: %v", err)
 	}
 
+	lock = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
 	table = NewTable(store, lock, state)
 	transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
 
