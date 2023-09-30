@@ -1214,9 +1214,6 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 		attempt = 0
 	)
 	for {
-		if attempt > 0 {
-			time.Sleep(t.options.RetryWaitDuration)
-		}
 		if attempt >= int(t.options.MaxRetryCommitAttempts) {
 			return errors.Join(ErrExceededCommitRetryAttempts,
 				fmt.Errorf("failed to commit after %d attempts", t.options.MaxRetryCommitAttempts), err)
@@ -1236,6 +1233,8 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 			// Sync the table's state store with its latest version.
 			_ = t.Table.syncStateStore()
 		}
+
+		time.Sleep(t.options.RetryWaitDuration)
 	}
 }
 
