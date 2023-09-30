@@ -388,6 +388,21 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 	if _, err := transaction.Commit(); !errors.Is(err, ErrExceededCommitRetryAttempts) {
 		t.Errorf("Expected: %v", ErrExceededCommitRetryAttempts)
 	}
+
+	client.PreventObjectCopying = false
+	client.PreventObjectDeleting = true
+
+	store, err = s3store.New(client, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 object store: %v", err)
+	}
+
+	table = NewTable(store, lock, state)
+	transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
+
+	if _, err := transaction.Commit(); err != nil {
+		t.Errorf("Failed to commit version: %v", err)
+	}
 }
 
 func TestDeltaTableCreate(t *testing.T) {
