@@ -391,7 +391,7 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 
 	commitState, err := table.StateStore.Get()
 	if err != nil {
-		t.Fatalf("Failed to get state: %v", err)
+		t.Fatalf("Failed to get commit state: %v", err)
 	}
 
 	if commitState.Version != 0 {
@@ -415,7 +415,7 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 
 	commitState, err = table.StateStore.Get()
 	if err != nil {
-		t.Fatalf("Failed to get state: %v", err)
+		t.Fatalf("Failed to get commit state: %v", err)
 	}
 
 	if commitState.Version != 0 {
@@ -440,7 +440,7 @@ func TestCommit_CopyObjectFailure(t *testing.T) {
 
 	commitState, err = table.StateStore.Get()
 	if err != nil {
-		t.Fatalf("Failed to get state: %v", err)
+		t.Fatalf("Failed to get commit state: %v", err)
 	}
 
 	if commitState.Version != 1 {
