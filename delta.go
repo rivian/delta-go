@@ -1244,7 +1244,7 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
 		if unlockErr := t.Table.LockClient.Unlock(); unlockErr != nil {
-			err = errors.Join(errors.New("release lock"), unlockErr)
+			err = errors.Join(lock.ErrUnableToUnlock, unlockErr)
 		}
 	}()
 	if err != nil || !locked {
