@@ -1230,7 +1230,7 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 		attempt++
 		log.Debugf("delta-go: Attempt number %d: failed to commit. %v", attempt, err)
 
-		// TODO: Decrementing the state store version and check if that version exists. If it doesn't,
+		// TODO: Decrement the state store version and check if that version exists. If it doesn't,
 		// the state store needs to be synced with the table's latest version before calling tryCommit().
 		if attempt%int(t.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
 			// Sync the table's state store with its latest version.

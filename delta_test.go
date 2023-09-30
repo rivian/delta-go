@@ -362,6 +362,34 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	}
 }
 
+func TestCommit_CopyObjectFailure(t *testing.T) {
+	uri := storage.NewPath("s3://test-bucket/test-delta-table")
+
+	client, err := s3utils.NewMockClient(t, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 mock client: %v", err)
+	}
+	client.PreventObjectCopying = true
+
+	store, err := s3store.New(client, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 object store: %v", err)
+	}
+
+	var (
+		dir         = os.TempDir()
+		path        = storage.NewPath(dir)
+		lock        = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
+		state       = filestate.New(path, "_delta_log/_commit.state")
+		table       = NewTable(store, lock, state)
+		transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
+	)
+
+	if _, err := transaction.Commit(); !errors.Is(err, ErrExceededCommitRetryAttempts) {
+		t.Errorf("Expected: %v", ErrExceededCommitRetryAttempts)
+	}
+}
+
 func TestDeltaTableCreate(t *testing.T) {
 	table, state, _ := setupTest(t)
 	//schema
