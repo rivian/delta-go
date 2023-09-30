@@ -1264,7 +1264,7 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 	defer func() {
 		if incrementVersion {
 			if putErr := t.Table.StateStore.Put(newState); putErr != nil {
-				err = errors.Join(errors.New("increment state store version"), putErr)
+				err = errors.Join(errors.New("failed to increment state store version"), putErr)
 			}
 		}
 	}()
@@ -1276,10 +1276,10 @@ func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
 		// The temp file wasn't successfully copied into the commit URI, so the current version still
 		// needs to be committed.
 		incrementVersion = false
-		return errors.Join(errors.New("copy temp file into commit URI"), err)
+		return errors.Join(errors.New("failed to copy temp file into commit URI"), err)
 	} else if errors.Is(err, storage.ErrObjectAlreadyExists) {
 		// The state store version will be incremented since the current version has been committed.
-		return errors.Join(errors.New("copy temp file into commit URI"), err)
+		return errors.Join(errors.New("failed to copy temp file into commit URI"), err)
 	}
 
 	// The current version has still been committed even if the temp file isn't successfully deleted.
