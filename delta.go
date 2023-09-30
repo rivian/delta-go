@@ -1240,7 +1240,7 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 }
 
 func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
-	// Step 1) Acquire the lock.
+	// 1) Acquire the lock.
 	locked, err := t.Table.LockClient.TryLock()
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
