@@ -230,7 +230,7 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 
 	//try again with the same version
 	err = transaction.tryCommit(&commit)
-	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrCopyObject) {
 		t.Error(err)
 	}
 	if transaction.Table.State.Version != 2 {

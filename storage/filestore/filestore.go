@@ -100,7 +100,7 @@ func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 	t := s.baseURI.Join(to)
 	err := os.Rename(f.Raw, t.Raw)
 	if err != nil {
-		return errors.Join(storage.ErrObjectDoesNotExist, err)
+		return errors.Join(storage.ErrCopyObject, err)
 	}
 	return nil
 }
