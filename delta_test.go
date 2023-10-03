@@ -230,7 +230,7 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 
 	//try again with the same version
 	err = transaction.tryCommit(&commit)
-	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+	if !errors.Is(err, storage.ErrCopyObject) {
 		t.Error(err)
 	}
 	if transaction.Table.State.Version != 2 {
@@ -359,6 +359,93 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	}
 	if transaction.Table.State.Version != 2 {
 		t.Errorf("want version %d, has version = %d", 2, transaction.Table.State.Version)
+	}
+}
+
+func TestCommit_CopyObjectFailure(t *testing.T) {
+	uri := storage.NewPath("s3://test-bucket/test-delta-table")
+
+	client, err := s3utils.NewMockClient(t, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 mock client: %v", err)
+	}
+
+	store, err := s3store.New(client, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 object store: %v", err)
+	}
+
+	var (
+		dir         = os.TempDir()
+		path        = storage.NewPath(dir)
+		lock        = filelock.New(path, "_delta_log/_commit.lock", filelock.Options{})
+		state       = filestate.New(path, "_delta_log/_commit.state")
+		table       = NewTable(store, lock, state)
+		transaction = setupTransaction(t, table, NewTransactionOptions())
+		metadata    = NewTableMetaData("test", "", new(Format).Default(), SchemaTypeStruct{}, nil, make(map[string]string))
+	)
+
+	if err := table.Create(*metadata, Protocol{}, make(map[string]any), nil); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
+	commitState, err := table.StateStore.Get()
+	if err != nil {
+		t.Fatalf("Failed to get commit state: %v", err)
+	}
+
+	if commitState.Version != 0 {
+		t.Errorf("After creating table: commitState.Version = %v, want %v", commitState.Version, 0)
+	}
+
+	client.DisableObjectCopying = true
+
+	store, err = s3store.New(client, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 object store: %v", err)
+	}
+
+	table = NewTable(store, lock, state)
+	transaction = setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 3})
+
+	if _, err := transaction.Commit(); !errors.Is(err, ErrExceededCommitRetryAttempts) ||
+		!errors.Is(err, storage.ErrCopyObject) {
+		t.Errorf("Expected: %v", ErrExceededCommitRetryAttempts)
+	}
+
+	commitState, err = table.StateStore.Get()
+	if err != nil {
+		t.Fatalf("Failed to get commit state: %v", err)
+	}
+
+	if commitState.Version != 0 {
+		t.Errorf("After attempting to commit with object copying disabled: commitState.Version = %v, want %v",
+			commitState.Version, 0)
+	}
+
+	client.DisableObjectCopying = false
+	client.DisableObjectDeleting = true
+
+	store, err = s3store.New(client, uri)
+	if err != nil {
+		t.Fatalf("Failed to create S3 object store: %v", err)
+	}
+
+	table = NewTable(store, lock, state)
+	transaction = setupTransaction(t, table, NewTransactionOptions())
+
+	if _, err := transaction.Commit(); err != nil {
+		t.Errorf("Failed to commit version: %v", err)
+	}
+
+	commitState, err = table.StateStore.Get()
+	if err != nil {
+		t.Fatalf("Failed to get commit state: %v", err)
+	}
+
+	if commitState.Version != 1 {
+		t.Errorf("After attempting to commit with object deleting disabled: commitState.Version = %v, want %v",
+			commitState.Version, 1)
 	}
 }
 

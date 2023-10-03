@@ -824,24 +824,27 @@ type transaction struct {
 // may receive an error from S3 as the ETag of N.json was changed. This is safe to
 // retry, so we do so here.
 func (t *transaction) ReadActions(path storage.Path) ([]Action, error) {
-	attempt := 0
+	var (
+		entry   []byte
+		err     error
+		attempt = 0
+	)
 	for {
 		if attempt >= int(t.options.MaxRetryReadAttempts) {
-			return nil, fmt.Errorf("failed to get actions after %d attempts", t.options.MaxRetryReadAttempts)
+			return nil, errors.Join(fmt.Errorf("failed to get actions after %d attempts", t.options.MaxRetryReadAttempts), err)
 		}
 
-		entry, err := t.Table.Store.Get(path)
+		entry, err = t.Table.Store.Get(path)
 		if err != nil {
 			attempt++
-			log.Debugf("delta-go: Failed to get log entry. Incrementing attempt number to %d and retrying. %v", attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to get log entry. %v", attempt, err)
 			continue
 		}
 
 		actions, err := ActionsFromLogEntries(entry)
 		if err != nil {
 			attempt++
-			log.Debugf("delta-go: Failed to get actions from log entry. Incrementing attempt number to %d and retrying. %v",
-				attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to get actions from log entry. %v", attempt, err)
 			continue
 		}
 
@@ -866,16 +869,20 @@ func (t *transaction) ReadActions(path storage.Path) ([]Action, error) {
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite and complete commit entry E in the log store.
 func (t *transaction) CommitLogStore() (int64, error) {
-	attempt := 0
+	var (
+		version int64
+		err     error
+		attempt = 0
+	)
 	for {
 		if attempt >= int(t.options.MaxRetryWriteAttempts) {
-			return -1, fmt.Errorf("failed to commit with log store after %d attempts", t.options.MaxRetryWriteAttempts)
+			return -1, errors.Join(fmt.Errorf("failed to commit with log store after %d attempts", t.options.MaxRetryWriteAttempts), err)
 		}
 
-		version, err := t.tryCommitLogStore()
+		version, err = t.tryCommitLogStore()
 		if err != nil {
 			attempt++
-			log.Debugf("delta-go: Incrementing log store commit attempt number to %d and retrying: %v", attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to commit with log store. %v", attempt, err)
 			continue
 		}
 
@@ -932,10 +939,10 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	// N-1.json. Thus, there is no deadlock.
 	lock, err := t.Table.LockClient.NewLock(t.Table.Store.BaseURI().Join(currURI).Raw)
 	if err != nil {
-		return -1, fmt.Errorf("create lock: %v", err)
+		return -1, errors.Join(errors.New("create lock"), err)
 	}
 	if _, err = lock.TryLock(); err != nil {
-		return -1, fmt.Errorf("acquire lock: %v", err)
+		return -1, errors.Join(errors.New("acquire lock"), err)
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
@@ -1062,10 +1069,13 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 		}
 	}()
 
-	attempt, copied := 0, false
+	var (
+		attempt = 0
+		copied  = false
+	)
 	for {
 		if attempt >= int(t.options.MaxRetryLogFixAttempts) {
-			return fmt.Errorf("failed to fix Delta log after %d attempts", t.options.MaxRetryLogFixAttempts)
+			return fmt.Errorf("failed to fix Delta log after %d attempts: %v", t.options.MaxRetryLogFixAttempts, err)
 		}
 
 		log.Infof("delta-go: Trying to fix %s.", entry.FileName().Raw)
@@ -1074,15 +1084,14 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			tempPath, err := entry.AbsoluteTempPath()
 			if err != nil {
 				attempt++
-				log.Debugf("delta-go: Failed to get absolute temp path. Incrementing attempt number to %d and retrying. %v",
-					attempt, err)
+				log.Debugf("delta-go: Attempt number %d: failed to get absolute temp path. %v", attempt, err)
 				continue
 			}
 
 			if err := t.copyTempFile(tempPath, filePath); err != nil {
 				attempt++
-				log.Debugf("delta-go: File %s already copied. Incrementing attempt number to %d and retrying. %v",
-					entry.FileName().Raw, attempt, err)
+				log.Debugf("delta-go: Attempt number %d: file %s already copied. %v",
+					attempt, entry.FileName().Raw, err)
 				copied = true
 				continue
 			}
@@ -1092,7 +1101,7 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 
 		if err := t.complete(entry); err != nil {
 			attempt++
-			log.Debugf("delta-go: Failed to complete commit entry. Incrementing attempt number to %d and retrying. %v", attempt, err)
+			log.Debugf("delta-go: Attempt number %d: failed to complete commit entry. %v", attempt, err)
 			continue
 		}
 
@@ -1184,8 +1193,7 @@ func (t *transaction) prepareCommit() (PreparedCommit, error) {
 
 	// Write Delta log entry as temporary file to storage. For the actual commit,
 	// the temporary file is moved (atomic rename) to the Delta log folder within `commit` function.
-	token := uuid.New().String()
-	fileName := fmt.Sprintf("_commit_%s.json", token)
+	fileName := fmt.Sprintf("_commit_%s.json", uuid.NewString())
 	// TODO: Open question, should storagePath use the basePath for the transaction or just hard code the _delta_log path?
 	path := storage.Path{Raw: filepath.Join("_delta_log", ".tmp", fileName)}
 	commit := PreparedCommit{URI: path}
@@ -1198,100 +1206,83 @@ func (t *transaction) prepareCommit() (PreparedCommit, error) {
 	return commit, nil
 }
 
-// TryCommitLoop loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
+// tryCommitLoop continues to iterate until a temp file is successfully copied into a commit URI or the
+// maximum number of attempts have been exhausted.
 func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
-	attemptNumber := 0
+	var (
+		err     error
+		attempt = 0
+	)
 	for {
-		if attemptNumber > 0 {
-			time.Sleep(t.options.RetryWaitDuration)
-		}
-		if attemptNumber > int(t.options.MaxRetryCommitAttempts)+1 {
-			log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", t.options.MaxRetryCommitAttempts)
-			return ErrExceededCommitRetryAttempts
+		if attempt >= int(t.options.MaxRetryCommitAttempts) {
+			return errors.Join(ErrExceededCommitRetryAttempts,
+				fmt.Errorf("failed to commit after %d attempts", t.options.MaxRetryCommitAttempts), err)
 		}
 
-		err := t.tryCommit(commit)
-		//Reset local state with the version tried in the commit
-		//The next attempt should use the max of the remote state and local state, enables local incrimination if the remote state is stuck
-		if errors.Is(err, storage.ErrObjectAlreadyExists) || errors.Is(err, lock.ErrLockNotObtained) { //|| errors.Is(err, state.ErrorStateIsEmpty) || errors.Is(err, state.ErrorCanNotReadState) || errors.Is(err, state.ErrorCanNotWriteState) {
-			if attemptNumber <= int(t.options.MaxRetryCommitAttempts)+1 {
-				attemptNumber += 1
-				log.Debugf("delta-go: Transaction attempt failed with '%v'. Incrementing attempt number to %d and retrying.", err, attemptNumber)
-				// TODO: check if state is higher then current latest version of table by checking n-1
-				if attemptNumber%int(t.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
-					// Every 100 attempts, sync the table's state store with its latest version.
-					err := t.Table.syncStateStore()
-					if err != nil {
-						log.Debugf("delta-go: Table.SyncStateStore() failed with '%v'.", err)
-					}
-				}
-			} else {
-				log.Debugf("delta-go: Transaction attempt failed. Attempts exhausted beyond max_retry_commit_attempts of %d so failing.", t.options.MaxRetryCommitAttempts)
-				return err
-			}
-		} else {
-			// Everything went smooth... exit
-			log.Debugf("delta-go: Transaction succeeded on attempt number to %d", attemptNumber)
-			return err
+		err = t.tryCommit(commit)
+		if err == nil {
+			return nil
 		}
+
+		attempt++
+		log.Debugf("delta-go: Attempt number %d: failed to commit. %v", attempt, err)
+
+		// TODO: Check if the state store version exists. If it doesn't, the state store needs to be
+		// synced with the table's latest version before attempting to commit.
+		if attempt%int(t.options.RetryCommitAttemptsBeforeLoadingTable) == 0 {
+			// Sync the table's state store with its latest version.
+			_ = t.Table.syncStateStore()
+		}
+
+		time.Sleep(t.options.RetryWaitDuration)
 	}
 }
 
-// TryCommitLoop: Loads metadata from lock containing the latest locked version and tries to obtain the lock and commit for the version + 1 in a loop
 func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
-	// Step 1) Acquire Lock
+	// 1) Acquire the lock.
 	locked, err := t.Table.LockClient.TryLock()
-	// Step 5) Always Release Lock
-	// defer transaction.Table.LockClient.Unlock()
 	defer func() {
-		// Defer the unlock and overwrite any errors if unlock fails
+		// Defer the unlock and overwrite any errors if the unlock fails.
 		if unlockErr := t.Table.LockClient.Unlock(); unlockErr != nil {
-			log.Debugf("delta-go: Unlock attempt failed. %v", unlockErr)
-			err = unlockErr
+			err = errors.Join(lock.ErrUnableToUnlock, unlockErr)
 		}
 	}()
-	if err != nil {
-		log.Debugf("delta-go: Lock attempt failed. %v", err)
+	if err != nil || !locked {
 		return errors.Join(lock.ErrLockNotObtained, err)
 	}
 
-	if locked {
-		// 2) Lookup the latest prior state
-		priorState, err := t.Table.StateStore.Get()
-		if err != nil {
-			// Failed on state store get, fallback to using the local version
-			log.Debugf("delta-go: StateStore Get() attempt failed. %v", err)
-			// return max(remoteVersion, version), err
-		}
+	// 2) Look up the prior state.
+	priorState, _ := t.Table.StateStore.Get()
 
-		// 4) Update the state with the latest tried, even in the case that the
-		// RenameNotExists was unsuccessful, this ensures that the next try increments the version
-		// Take the max of the local state and remote state version in the case that the remote state is not accessible.
-		version := max(priorState.Version, t.Table.State.Version) + 1
-		t.Table.State.Version = version
-		newState := state.CommitState{
-			Version: version,
-		}
-		defer func() {
+	// 3) Compute the maximum of the local and remote state's versions to find the table's latest version.
+	version := max(priorState.Version, t.Table.State.Version) + 1
+	t.Table.State.Version = version
+	newState := state.CommitState{
+		Version: version,
+	}
+	incrementVersion := true
+	defer func() {
+		if incrementVersion {
 			if putErr := t.Table.StateStore.Put(newState); putErr != nil {
-				log.Debugf("delta-go: StateStore Put() attempt failed. %v", putErr)
-				err = putErr
+				err = errors.Join(errors.New("failed to increment state store version"), putErr)
 			}
-		}()
-
-		// 3) Try to Rename the file
-		from := storage.NewPath(commit.URI.Raw)
-		to := CommitURIFromVersion(version)
-		err = t.Table.Store.RenameIfNotExists(from, to)
-		if err != nil {
-			log.Debugf("delta-go: RenameIfNotExists(from=%s, to=%s) attempt failed. %v", from.Raw, to.Raw, err)
-			return err
 		}
+	}()
 
-	} else {
-		log.Debug("delta-go: Lock not obtained")
-		return errors.Join(lock.ErrLockNotObtained, err)
+	// 4) Try to copy the temp file into the commit URI.
+	from := commit.URI
+	to := CommitURIFromVersion(version)
+	if err := t.Table.Store.RenameIfNotExists(from, to); errors.Is(err, storage.ErrCopyObject) {
+		// The temp file wasn't successfully copied into the commit URI, so the current version still
+		// needs to be committed.
+		incrementVersion = false
+		return errors.Join(errors.New("failed to copy temp file into commit URI"), err)
+	} else if errors.Is(err, storage.ErrObjectAlreadyExists) {
+		// The state store version will be incremented since the current version has been committed.
+		return errors.Join(errors.New("failed to copy temp file into commit URI"), err)
 	}
+
+	// The current version has still been committed even if the temp file isn't successfully deleted.
 	return nil
 }
 

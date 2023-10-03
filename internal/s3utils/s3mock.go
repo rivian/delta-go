@@ -38,6 +38,10 @@ type MockClient struct {
 	MockError error
 	// For testing: enable pagination
 	PaginateListResults bool
+	// For testing: disable object copying
+	DisableObjectCopying bool
+	// For testing: disable object deleting
+	DisableObjectDeleting bool
 }
 
 // Compile time check that MockS3Client implements S3Client
@@ -152,6 +156,10 @@ func (m *MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, op
 }
 
 func (m *MockClient) CopyObject(ctx context.Context, input *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+	if m.DisableObjectCopying {
+		return nil, storage.ErrCopyObject
+	}
+
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
@@ -177,6 +185,10 @@ func (m *MockClient) CopyObject(ctx context.Context, input *s3.CopyObjectInput, 
 }
 
 func (m *MockClient) DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
+	if m.DisableObjectDeleting {
+		return nil, storage.ErrDeleteObject
+	}
+
 	if m.MockError != nil {
 		return nil, m.MockError
 	}
