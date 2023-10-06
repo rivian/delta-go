@@ -435,6 +435,8 @@ func newRecordForAddsAndRemoves(newAdds map[string]Add, newRemoves map[string]Re
 		if err != nil {
 			return nil, err
 		}
+		// SetColumn returns a new record
+		defer newRecord.Release()
 		newRecord, err = newRecord.SetColumn(addFieldIndex, newAddsArray)
 		if err != nil {
 			return nil, err
@@ -452,6 +454,8 @@ func newRecordForAddsAndRemoves(newAdds map[string]Add, newRemoves map[string]Re
 		if err != nil {
 			return nil, err
 		}
+		// SetColumn returns a new record
+		defer newRecord.Release()
 		newRecord, err = newRecord.SetColumn(removeFieldIndex, newRemovesArray)
 		if err != nil {
 			return nil, err
