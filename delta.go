@@ -302,11 +302,16 @@ func (t *Table) LatestVersion() (int64, error) {
 	)
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		for {
-			o, err := t.Store.List(storage.NewPath("_delta_log"), objects)
-			if err != nil {
-				return -1, fmt.Errorf("list Delta log: %w", err)
+			for {
+				o, listErr := t.Store.List(storage.NewPath("_delta_log"), objects)
+				if listErr == nil {
+					objects = &o
+					break
+				} else if errors.Is(listErr, storage.ErrListObjects) {
+					continue
+				}
+				return -1, fmt.Errorf("list Delta log: %w", listErr)
 			}
-			objects = &o
 
 			found, v := findValidCommitOrCheckpointURI(objects.Objects)
 			if !found {
@@ -903,6 +908,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 		currURI = CommitURIFromVersion(prevVersion + 1)
 	} else {
 		if version, err := t.Table.LatestVersion(); err != nil {
+			log.Error(err)
 			currURI = CommitURIFromVersion(0)
 		} else {
 			uri := CommitURIFromVersion(version).Raw

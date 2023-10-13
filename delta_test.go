@@ -1567,7 +1567,7 @@ func TestLoadVersion(t *testing.T) {
 }
 
 // Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
-func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, table *Table, transaction *transaction) {
+func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, table *Table, actions []Action, operation Write, appMetaData map[string]any) {
 	t.Helper()
 
 	logStoreTableName = "version_log_store"
@@ -1613,7 +1613,7 @@ func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, tab
 		t.Errorf("Failed to create table: %v", err)
 	}
 
-	actions := []Action{Add{
+	actions = []Action{Add{
 		Path:             "part-00000-b08cb562-b392-441d-a090-494a47da752b-c000.snappy.parquet",
 		Size:             807,
 		ModificationTime: time.Now().UnixMilli(),
@@ -1624,28 +1624,35 @@ func setUpSingleClusterLogStoreTest(t *testing.T) (logStoreTableName string, tab
 			ModificationTime: time.Now().UnixMilli(),
 		}}
 
-	operation := Write{Mode: Append}
-	appMetaData := make(map[string]any)
+	operation = Write{Mode: Append}
+	appMetaData = make(map[string]any)
 	appMetaData["isBlindAppend"] = true
-
-	transaction = table.CreateTransaction(NewTransactionOptions())
-	transaction.AddActions(actions)
-	transaction.SetOperation(operation)
-	transaction.SetAppMetadata(appMetaData)
 
 	return
 }
 
 func TestCommitLogStore_Sequential(t *testing.T) {
-	logStoreTableName, table, transaction := setUpSingleClusterLogStoreTest(t)
+	logStoreTableName, table, actions, operation, appMetaData := setUpSingleClusterLogStoreTest(t)
 
-	transactions := 101
+	var (
+		transactions     = 101
+		tableTransaction *transaction
+	)
 	for i := 1; i < transactions; i++ {
+		transaction := table.CreateTransaction(NewTransactionOptions())
+		transaction.AddActions(actions)
+		transaction.SetOperation(operation)
+		transaction.SetAppMetadata(appMetaData)
+
 		version, err := transaction.CommitLogStore()
 		if err != nil {
 			t.Errorf("Failed to commit with log store: %v", err)
 		}
 		t.Logf("Committed version %d", version)
+
+		if i == transactions-1 {
+			tableTransaction = transaction
+		}
 	}
 
 	items, ok := table.LogStore.Client().(*dynamodbutils.MockClient).TablesToItems().Get(logStoreTableName)
@@ -1719,17 +1726,17 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 			continue
 		}
 
-		if len(actions) != len(transaction.Actions) {
-			t.Errorf("len(actions) = %v, want %v", len(actions), len(transaction.Actions))
+		if len(actions) != len(tableTransaction.Actions) {
+			t.Errorf("len(actions) = %v, want %v", len(actions), len(tableTransaction.Actions))
 		}
 
-		for action := 0; action < len(transaction.Actions)-1; action++ {
+		for action := 0; action < len(tableTransaction.Actions)-1; action++ {
 			parsed, ok := actions[action].(*Add)
 			if !ok {
 				t.Error("Failed to get parsed add action")
 			}
 
-			expected, ok := transaction.Actions[action].(Add)
+			expected, ok := tableTransaction.Actions[action].(Add)
 			if !ok {
 				t.Error("Failed to get expected add action")
 			}
@@ -1767,24 +1774,35 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 }
 
 func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
-	logStoreTableName, table, transaction := setUpSingleClusterLogStoreTest(t)
+	logStoreTableName, table, actions, operation, appMetaData := setUpSingleClusterLogStoreTest(t)
 
 	var (
-		wg            sync.WaitGroup
-		maxGoroutines = 5
-		guard         = make(chan struct{}, maxGoroutines)
-		transactions  = 101
+		wg               sync.WaitGroup
+		maxGoroutines    = 5
+		guard            = make(chan struct{}, maxGoroutines)
+		transactions     = 101
+		tableTransaction *transaction
 	)
-	for entry := 1; entry < transactions; entry++ {
+	for i := 1; i < transactions; i++ {
+		i := i
 		guard <- struct{}{}
 		wg.Add(1)
 
 		go func() {
+			transaction := table.CreateTransaction(NewTransactionOptions())
+			transaction.AddActions(actions)
+			transaction.SetOperation(operation)
+			transaction.SetAppMetadata(appMetaData)
+
 			version, err := transaction.CommitLogStore()
 			if err != nil {
 				t.Errorf("Failed to commit with log store: %v", err)
 			}
 			t.Logf("Committed version %d", version)
+
+			if i == transactions-1 {
+				tableTransaction = transaction
+			}
 
 			<-guard
 			wg.Done()
@@ -1859,17 +1877,17 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 			continue
 		}
 
-		if len(actions) != len(transaction.Actions) {
-			t.Errorf("len(actions) = %v, want %v", len(actions), len(transaction.Actions))
+		if len(actions) != len(tableTransaction.Actions) {
+			t.Errorf("len(actions) = %v, want %v", len(actions), len(tableTransaction.Actions))
 		}
 
-		for action := 0; action < len(transaction.Actions)-1; action++ {
+		for action := 0; action < len(tableTransaction.Actions)-1; action++ {
 			parsed, ok := actions[action].(*Add)
 			if !ok {
 				t.Error("Failed to get parsed add action")
 			}
 
-			expected, ok := transaction.Actions[action].(Add)
+			expected, ok := tableTransaction.Actions[action].(Add)
 			if !ok {
 				t.Error("Failed to get expected add action")
 			}
@@ -1907,21 +1925,32 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 }
 
 func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
-	logStoreTableName, table, transaction := setUpSingleClusterLogStoreTest(t)
+	logStoreTableName, table, actions, operation, appMetaData := setUpSingleClusterLogStoreTest(t)
 
 	var (
-		wg           sync.WaitGroup
-		transactions = 101
+		wg               sync.WaitGroup
+		transactions     = 101
+		tableTransaction *transaction
 	)
 	for i := 1; i < transactions; i++ {
+		i := i
 		wg.Add(1)
 
 		go func() {
+			transaction := table.CreateTransaction(NewTransactionOptions())
+			transaction.AddActions(actions)
+			transaction.SetOperation(operation)
+			transaction.SetAppMetadata(appMetaData)
+
 			version, err := transaction.CommitLogStore()
 			if err != nil {
 				t.Errorf("Failed to commit with log store: %v", err)
 			}
 			t.Logf("Committed version %d", version)
+
+			if i == transactions-1 {
+				tableTransaction = transaction
+			}
 
 			wg.Done()
 		}()
@@ -1995,17 +2024,17 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 			continue
 		}
 
-		if len(actions) != len(transaction.Actions) {
-			t.Errorf("len(actions) = %v, want %v", len(actions), len(transaction.Actions))
+		if len(actions) != len(tableTransaction.Actions) {
+			t.Errorf("len(actions) = %v, want %v", len(actions), len(tableTransaction.Actions))
 		}
 
-		for action := 0; action < len(transaction.Actions)-1; action++ {
+		for action := 0; action < len(tableTransaction.Actions)-1; action++ {
 			parsed, ok := actions[action].(*Add)
 			if !ok {
 				t.Error("Failed to get parsed add action")
 			}
 
-			expected, ok := transaction.Actions[action].(Add)
+			expected, ok := tableTransaction.Actions[action].(Add)
 			if !ok {
 				t.Error("Failed to get expected add action")
 			}
@@ -2043,7 +2072,7 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 }
 
 // Performs common setup for the log store tests, creating a Delta table backed by mock DynamoDB and S3 clients
-func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *Table, secondTable *Table, actions []Action, operation Write, appMetadata map[string]any) {
+func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *Table, secondTable *Table, actions []Action, operation Write, appMetaData map[string]any) {
 	t.Helper()
 
 	logStoreTableName = "version_log_store"
@@ -2080,29 +2109,30 @@ func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firs
 		}}
 
 	operation = Write{Mode: Append, PartitionBy: []string{"date"}}
-	appMetadata = make(map[string]any)
-	appMetadata["isBlindAppend"] = true
+	appMetaData = make(map[string]any)
+	appMetaData["isBlindAppend"] = true
 
 	return
 }
 
 func TestCommitLogStore_DifferentClients(t *testing.T) {
-	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiClusterLogStoreTest(t)
+	logStoreTableName, firstTable, secondTable, actions, operation, appMetaData := setUpMultiClusterLogStoreTest(t)
 
 	var (
-		wg                sync.WaitGroup
-		transactions      = 100
-		firstTransaction  *transaction
-		secondTransaction *transaction
+		wg                     sync.WaitGroup
+		transactions           = 100
+		firstTableTransaction  *transaction
+		secondTableTransaction *transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
+		i := i
 		wg.Add(1)
 
 		go func() {
-			firstTransaction = firstTable.CreateTransaction(NewTransactionOptions())
+			firstTransaction := firstTable.CreateTransaction(NewTransactionOptions())
 			firstTransaction.AddActions(actions)
 			firstTransaction.SetOperation(operation)
-			firstTransaction.SetAppMetadata(appMetadata)
+			firstTransaction.SetAppMetadata(appMetaData)
 
 			version, err := firstTransaction.CommitLogStore()
 			if err != nil {
@@ -2110,16 +2140,21 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 			}
 			t.Logf("Committed version %d", version)
 
-			secondTransaction = secondTable.CreateTransaction(NewTransactionOptions())
+			secondTransaction := secondTable.CreateTransaction(NewTransactionOptions())
 			secondTransaction.AddActions(actions)
 			secondTransaction.SetOperation(operation)
-			secondTransaction.SetAppMetadata(appMetadata)
+			secondTransaction.SetAppMetadata(appMetaData)
 
 			version, err = secondTransaction.CommitLogStore()
 			if err != nil {
 				t.Errorf("Failed to commit second transaction with log store: %v", err)
 			}
 			t.Logf("Committed version %d", version)
+
+			if i == transactions/2 {
+				firstTableTransaction = firstTransaction
+				secondTableTransaction = secondTransaction
+			}
 
 			wg.Done()
 		}()
@@ -2193,17 +2228,17 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 			continue
 		}
 
-		if len(actions) != len(firstTransaction.Actions) {
-			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(firstTransaction.Actions))
+		if len(actions) != len(firstTableTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(firstTableTransaction.Actions))
 		}
 
-		for action := 0; action < len(firstTransaction.Actions)-1; action++ {
+		for action := 0; action < len(firstTableTransaction.Actions)-1; action++ {
 			parsed, ok := actions[action].(*Add)
 			if !ok {
 				t.Error("Failed to get parsed add action")
 			}
 
-			expected, ok := firstTransaction.Actions[action].(Add)
+			expected, ok := firstTableTransaction.Actions[action].(Add)
 			if !ok {
 				t.Error("Failed to get expected add action")
 			}
@@ -2315,17 +2350,17 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 			continue
 		}
 
-		if len(actions) != len(secondTransaction.Actions) {
-			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(secondTransaction.Actions))
+		if len(actions) != len(secondTableTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(secondTableTransaction.Actions))
 		}
 
-		for action := 0; action < len(secondTransaction.Actions)-1; action++ {
+		for action := 0; action < len(secondTableTransaction.Actions)-1; action++ {
 			parsed, ok := actions[action].(*Add)
 			if !ok {
 				t.Error("Failed to get parsed add action")
 			}
 
-			expected, ok := secondTransaction.Actions[action].(Add)
+			expected, ok := secondTableTransaction.Actions[action].(Add)
 			if !ok {
 				t.Error("Failed to get expected add action")
 			}
@@ -2364,7 +2399,7 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 }
 
 func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
-	logStoreTableName, firstTable, secondTable, actions, operation, appMetadata := setUpMultiClusterLogStoreTest(t)
+	logStoreTableName, firstTable, secondTable, actions, operation, appMetaData := setUpMultiClusterLogStoreTest(t)
 
 	versions := 1000
 	for version := 1; version < versions; version++ {
@@ -2377,19 +2412,20 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	}
 
 	var (
-		wg                sync.WaitGroup
-		transactions      = 100
-		firstTransaction  *transaction
-		secondTransaction *transaction
+		wg                     sync.WaitGroup
+		transactions           = 100
+		firstTableTransaction  *transaction
+		secondTableTransaction *transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
+		i := i
 		wg.Add(1)
 
 		go func() {
-			firstTransaction = firstTable.CreateTransaction(NewTransactionOptions())
+			firstTransaction := firstTable.CreateTransaction(NewTransactionOptions())
 			firstTransaction.AddActions(actions)
 			firstTransaction.SetOperation(operation)
-			firstTransaction.SetAppMetadata(appMetadata)
+			firstTransaction.SetAppMetadata(appMetaData)
 
 			version, err := firstTransaction.CommitLogStore()
 			if err != nil {
@@ -2397,16 +2433,21 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 			}
 			t.Logf("Committed version %d", version)
 
-			secondTransaction = secondTable.CreateTransaction(NewTransactionOptions())
+			secondTransaction := secondTable.CreateTransaction(NewTransactionOptions())
 			secondTransaction.AddActions(actions)
 			secondTransaction.SetOperation(operation)
-			secondTransaction.SetAppMetadata(appMetadata)
+			secondTransaction.SetAppMetadata(appMetaData)
 
 			version, err = secondTransaction.CommitLogStore()
 			if err != nil {
 				t.Errorf("Failed to commit second transaction with log store: %v", err)
 			}
 			t.Logf("Committed version %d", version)
+
+			if i == transactions/2 {
+				firstTableTransaction = firstTransaction
+				secondTableTransaction = secondTransaction
+			}
 
 			wg.Done()
 		}()
@@ -2480,17 +2521,17 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 			continue
 		}
 
-		if len(actions) != len(firstTransaction.Actions) {
-			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(firstTransaction.Actions))
+		if len(actions) != len(firstTableTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(firstTableTransaction.Actions))
 		}
 
-		for action := 0; action < len(firstTransaction.Actions)-1; action++ {
+		for action := 0; action < len(firstTableTransaction.Actions)-1; action++ {
 			parsed, ok := actions[action].(*Add)
 			if !ok {
 				t.Error("First table: failed to get parsed add action")
 			}
 
-			expected, ok := firstTransaction.Actions[action].(Add)
+			expected, ok := firstTableTransaction.Actions[action].(Add)
 			if !ok {
 				t.Error("First table: failed to get expected add action")
 			}
@@ -2602,17 +2643,17 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 			continue
 		}
 
-		if len(actions) != len(secondTransaction.Actions) {
-			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(secondTransaction.Actions))
+		if len(actions) != len(secondTableTransaction.Actions) {
+			t.Errorf("First table: len(actions) = %v, want %v", len(actions), len(secondTableTransaction.Actions))
 		}
 
-		for action := 0; action < len(secondTransaction.Actions)-1; action++ {
+		for action := 0; action < len(secondTableTransaction.Actions)-1; action++ {
 			parsed, ok := actions[action].(*Add)
 			if !ok {
 				t.Error("Second table: failed to get parsed add action")
 			}
 
-			expected, ok := secondTransaction.Actions[action].(Add)
+			expected, ok := secondTableTransaction.Actions[action].(Add)
 			if !ok {
 				t.Error("Second table: failed to get expected add action")
 			}
