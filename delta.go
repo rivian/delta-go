@@ -302,16 +302,11 @@ func (t *Table) LatestVersion() (int64, error) {
 	)
 	if errors.Is(err, storage.ErrObjectDoesNotExist) {
 		for {
-			for {
-				o, listErr := t.Store.List(storage.NewPath("_delta_log"), objects)
-				if listErr == nil {
-					objects = &o
-					break
-				} else if errors.Is(listErr, storage.ErrListObjects) {
-					continue
-				}
-				return -1, fmt.Errorf("list Delta log: %w", listErr)
+			o, err := t.Store.List(storage.NewPath("_delta_log"), objects)
+			if err != nil {
+				return -1, fmt.Errorf("list Delta log: %w", err)
 			}
+			objects = &o
 
 			found, v := findValidCommitOrCheckpointURI(objects.Objects)
 			if !found {
@@ -907,10 +902,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 
 		currURI = CommitURIFromVersion(prevVersion + 1)
 	} else {
-		if version, err := t.Table.LatestVersion(); err != nil {
-			log.Error(err)
-			currURI = CommitURIFromVersion(0)
-		} else {
+		if version, err := t.Table.LatestVersion(); err == nil {
 			uri := CommitURIFromVersion(version).Raw
 			fileName := storage.NewPath(strings.Split(uri, "_delta_log/")[1])
 			seconds := t.Table.LogStore.ExpirationDelaySeconds()
@@ -928,6 +920,10 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 				t.Table.Store.BaseURI(), fileName)
 
 			currURI = CommitURIFromVersion(version + 1)
+		} else if err != nil && !errors.Is(err, ErrNotATable) {
+			return -1, errors.Join(errors.New("failed to determine if table exists"), err)
+		} else {
+			currURI = CommitURIFromVersion(0)
 		}
 	}
 
