@@ -902,9 +902,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 
 		currURI = CommitURIFromVersion(prevVersion + 1)
 	} else {
-		if version, err := t.Table.LatestVersion(); err != nil {
-			currURI = CommitURIFromVersion(0)
-		} else {
+		if version, err := t.Table.LatestVersion(); err == nil {
 			uri := CommitURIFromVersion(version).Raw
 			fileName := storage.NewPath(strings.Split(uri, "_delta_log/")[1])
 			seconds := t.Table.LogStore.ExpirationDelaySeconds()
@@ -922,6 +920,10 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 				t.Table.Store.BaseURI(), fileName)
 
 			currURI = CommitURIFromVersion(version + 1)
+		} else if err != nil && !errors.Is(err, ErrNotATable) {
+			return -1, errors.Join(errors.New("failed to determine if table exists"), err)
+		} else {
+			currURI = CommitURIFromVersion(0)
 		}
 	}
 
