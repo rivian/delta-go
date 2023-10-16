@@ -46,8 +46,9 @@ type OnDiskTableState struct {
 	onDiskTempFiles []storage.Path
 	// Mutexes for concurrent table state updates
 	concurrentUpdateMutex *sync.Mutex
-	// Count of adds and removes
-	onDiskFileCount      int
+	// Count of adds
+	onDiskFileCount int
+	// Count of removes
 	onDiskTombstoneCount int
 	// And per-part counts of adds and removes, needed for checkpoint generation
 	onDiskFileCountsPerPart      []int
@@ -708,7 +709,7 @@ func onDiskRows(
 	for part, f := range tableState.onDiskTempFiles {
 		currentPartRows := partRowCountArray[part]
 		// We want to skip past "initialOffset" rows
-		if initialOffset <= partRowsProcessed+currentPartRows && currentPartRows > 0 {
+		if initialOffset < partRowsProcessed+currentPartRows && currentPartRows > 0 {
 			// Retrieve rows from this part
 
 			// Use a function to make per-file defer cleanup simpler
@@ -751,18 +752,23 @@ func onDiskRows(
 				for tableReader.Next() && entryCount < expectedRows {
 					record := tableReader.Record()
 					requiredStructArray := record.Column(columnIdx).(*array.Struct)
-					for row := partRowOffset; row < int(record.NumRows()) && entryCount < expectedRows; row++ {
+					skippedRows := 0
+					for row := 0; row < int(record.NumRows()) && entryCount < expectedRows; row++ {
 						// Is there a required action in this row
 						if requiredStructArray.IsValid(row) {
-							// Convert the action to a Go checkpoint entry
-							// TODO - as a further optimization, skip converting to Go and back again.
-							// However, the incoming checkpoint schema doesn't necessarily match our schema, so this will require
-							// schema conversion inside Arrow.
-							err = rfarrow.SetGoStructsFromArrowArrays([]reflect.Value{reflect.ValueOf(entries[entryCount])}, record.Columns(), schemaIndexMappings, row)
-							if err != nil {
-								return nil
+							if skippedRows >= partRowOffset {
+								// Convert the action to a Go checkpoint entry
+								// TODO - as a further optimization, skip converting to Go and back again.
+								// However, the incoming checkpoint schema doesn't necessarily match our schema, so this will require
+								// schema conversion inside Arrow.
+								err = rfarrow.SetGoStructsFromArrowArrays([]reflect.Value{reflect.ValueOf(entries[entryCount])}, record.Columns(), schemaIndexMappings, row)
+								if err != nil {
+									return err
+								}
+								entryCount++
+							} else {
+								skippedRows++
 							}
-							entryCount++
 						}
 					}
 				}
