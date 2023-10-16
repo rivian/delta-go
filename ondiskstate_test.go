@@ -15,6 +15,7 @@ package delta
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -25,7 +26,9 @@ import (
 	"github.com/apache/arrow/go/v13/parquet/file"
 	"github.com/apache/arrow/go/v13/parquet/pqarrow"
 	"github.com/chelseajonesr/rfarrow"
+	"github.com/google/uuid"
 	"github.com/rivian/delta-go/storage"
+	"github.com/rivian/delta-go/storage/filestore"
 )
 
 // Return a test struct array: [{‘joe’, 1}, {null, 2}, null, {‘mark’, 4}]
@@ -270,5 +273,193 @@ func TestSetupOnDiskOptimization(t *testing.T) {
 	}
 	if tableState.onDiskOptimization {
 		t.Error("optimization should be disabled")
+	}
+}
+
+func TestOnDiskTombstoneCheckpointRows(t *testing.T) {
+	rootDir := "testdata/checkpoints/ondiskstate"
+	store := filestore.New(storage.NewPath(rootDir))
+	ts := NewTableState(2)
+	ts.onDiskTempFiles = []storage.Path{storage.NewPath("intermediate.1.parquet"), storage.NewPath("intermediate.2.parquet")}
+	ts.onDiskFileCountsPerPart = []int{3, 5}
+	ts.onDiskTombstoneCountsPerPart = []int{11, 10}
+	ts.onDiskFileCount = 8
+	ts.onDiskTombstoneCount = 21
+	ts.onDiskOptimization = true
+
+	config := NewCheckpointConfiguration()
+	config.MaxRowsPerPart = 10
+
+	optimizeConfig, err := NewOptimizeCheckpointConfiguration(store, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optimizeConfig.WorkingFolder = storage.NewPath("")
+	config.ReadWriteConfiguration = *optimizeConfig
+
+	checkpointRows := make([]CheckpointEntry, 0, 10)
+	checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &MetaData{Id: uuid.New()}})
+	checkpointRows = append(checkpointRows, CheckpointEntry{Protocol: &Protocol{MinReaderVersion: 1, MinWriterVersion: 1}})
+
+	err = onDiskTombstoneCheckpointRows(ts, 0, &checkpointRows, config)
+
+	// Test: fill in remainder after the first 2 rows, and all removes are in intermediate.1
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 10 {
+		t.Errorf("expected 10 rows, got %d", len(checkpointRows))
+	} else {
+		// Expected results
+		if checkpointRows[0].MetaData == nil {
+			t.Error("expected metadata in row 0")
+		}
+		if checkpointRows[1].Protocol == nil {
+			t.Error("expected protocol in row 1")
+		}
+		for i := 0; i < 8; i++ {
+			if checkpointRows[i+2].Remove == nil || (checkpointRows[i+2].Remove.Path != fmt.Sprintf("r%d", i+1)) {
+				t.Errorf("expected remove r%d in row %d, got %v", i+1, i+2, checkpointRows[i+2].Remove.Path)
+			}
+		}
+	}
+
+	// Test: fill in 10 rows from across both files, with an initial offset
+	checkpointRows = make([]CheckpointEntry, 0, 10)
+	err = onDiskTombstoneCheckpointRows(ts, 8, &checkpointRows, config)
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 10 {
+		t.Errorf("expected 10 rows, got %d", len(checkpointRows))
+	} else {
+		for i := 0; i < 10; i++ {
+			if checkpointRows[i].Remove == nil || (checkpointRows[i].Remove.Path != fmt.Sprintf("r%d", i+9)) {
+				t.Errorf("expected remove r%d in row %d, got %v", i+9, i, checkpointRows[i].Remove.Path)
+			}
+		}
+	}
+
+	// Test: fill in 3 rows from second file, with an initial offset
+	checkpointRows = make([]CheckpointEntry, 0, 10)
+	err = onDiskTombstoneCheckpointRows(ts, 18, &checkpointRows, config)
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 3 {
+		t.Errorf("expected 3 rows, got %d", len(checkpointRows))
+	} else {
+		for i := 0; i < 3; i++ {
+			if checkpointRows[i].Remove == nil || (checkpointRows[i].Remove.Path != fmt.Sprintf("r%d", i+19)) {
+				t.Errorf("expected remove r%d in row %d, got %v", i+19, i, checkpointRows[i].Remove.Path)
+			}
+		}
+	}
+
+	// Test: start reading rows at the beginning of the second file
+	checkpointRows = make([]CheckpointEntry, 0, 10)
+	err = onDiskTombstoneCheckpointRows(ts, 11, &checkpointRows, config)
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 10 {
+		t.Errorf("expected 10 rows, got %d", len(checkpointRows))
+	} else {
+		for i := 0; i < 10; i++ {
+			if checkpointRows[i].Remove == nil || (checkpointRows[i].Remove.Path != fmt.Sprintf("r%d", i+12)) {
+				t.Errorf("expected remove r%d in row %d, got %v", i+12, i, checkpointRows[i].Remove.Path)
+			}
+		}
+	}
+}
+
+func TestOnDiskAddCheckpointRows(t *testing.T) {
+	rootDir := "testdata/checkpoints/ondiskstate"
+	store := filestore.New(storage.NewPath(rootDir))
+	ts := NewTableState(2)
+	ts.onDiskTempFiles = []storage.Path{storage.NewPath("intermediate.2.parquet"), storage.NewPath("intermediate.1.parquet")}
+	ts.onDiskFileCountsPerPart = []int{5, 2}
+	ts.onDiskTombstoneCountsPerPart = []int{10, 11}
+	ts.onDiskFileCount = 7
+	ts.onDiskTombstoneCount = 21
+	ts.onDiskOptimization = true
+
+	config := NewCheckpointConfiguration()
+	config.MaxRowsPerPart = 5
+
+	optimizeConfig, err := NewOptimizeCheckpointConfiguration(store, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optimizeConfig.WorkingFolder = storage.NewPath("")
+	config.ReadWriteConfiguration = *optimizeConfig
+
+	checkpointRows := make([]CheckpointEntry, 0, 10)
+	checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &MetaData{Id: uuid.New()}})
+	checkpointRows = append(checkpointRows, CheckpointEntry{Protocol: &Protocol{MinReaderVersion: 1, MinWriterVersion: 1}})
+
+	err = onDiskAddCheckpointRows(ts, 0, &checkpointRows, config)
+
+	// Test: fill in remainder after the first 2 rows, and all adds are in intermediate.2 (first file)
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 5 {
+		t.Errorf("expected 5 rows, got %d", len(checkpointRows))
+	} else {
+		// Expected results
+		if checkpointRows[0].MetaData == nil {
+			t.Error("expected metadata in row 0")
+		}
+		if checkpointRows[1].Protocol == nil {
+			t.Error("expected protocol in row 1")
+		}
+		for i := 0; i < 3; i++ {
+			if checkpointRows[i+2].Add == nil || (checkpointRows[i+2].Add.Path != fmt.Sprintf("a%d", i+1)) {
+				t.Errorf("expected add a%d in row %d, got %v", i+1, i+2, checkpointRows[i+2].Add.Path)
+			}
+		}
+	}
+
+	// Test: fill in 5 rows, and all adds are in intermediate.2 (first file)
+	checkpointRows = make([]CheckpointEntry, 0, 10)
+	err = onDiskAddCheckpointRows(ts, 0, &checkpointRows, config)
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 5 {
+		t.Errorf("expected 5 rows, got %d", len(checkpointRows))
+	} else {
+		// Expected results
+		for i := 0; i < 5; i++ {
+			if checkpointRows[i].Add == nil || (checkpointRows[i].Add.Path != fmt.Sprintf("a%d", i+1)) {
+				t.Errorf("expected add a%d in row %d, got %v", i+1, i, checkpointRows[i].Add.Path)
+			}
+		}
+	}
+
+	// Test: fill in all rows from across both files
+	checkpointRows = make([]CheckpointEntry, 0, 5)
+	config.MaxRowsPerPart = 10
+	err = onDiskAddCheckpointRows(ts, 0, &checkpointRows, config)
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 7 {
+		t.Errorf("expected 7 rows, got %d", len(checkpointRows))
+	} else {
+		for i := 0; i < 7; i++ {
+			if checkpointRows[i].Add == nil || (checkpointRows[i].Add.Path != fmt.Sprintf("a%d", i+1)) {
+				t.Errorf("expected add a%d in row %d, got %v", i+1, i, checkpointRows[i].Add.Path)
+			}
+		}
+	}
+
+	// Test: fill in 2 rows from second file, with an initial offset
+	checkpointRows = make([]CheckpointEntry, 0, 10)
+	err = onDiskAddCheckpointRows(ts, 5, &checkpointRows, config)
+	if err != nil {
+		t.Error(err)
+	} else if len(checkpointRows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(checkpointRows))
+	} else {
+		for i := 0; i < 2; i++ {
+			if checkpointRows[i].Add == nil || (checkpointRows[i].Add.Path != fmt.Sprintf("a%d", i+6)) {
+				t.Errorf("expected add a%d in row %d, got %v", i+6, i, checkpointRows[i].Add.Path)
+			}
+		}
 	}
 }
