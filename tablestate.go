@@ -467,7 +467,11 @@ func (tableState *TableState) processCheckpointBytes(checkpointBytes []byte, par
 		// Instead we just write out the entire file.
 		onDiskFile := storage.PathFromIter([]string{config.WorkingFolder.Raw, fmt.Sprintf("intermediate.%d.parquet", part)})
 		config.WorkingStore.Put(onDiskFile, checkpointBytes)
-		tableState.onDiskTempFiles = append(tableState.onDiskTempFiles, onDiskFile)
+		func() {
+			tableState.concurrentUpdateMutex.Lock()
+			defer tableState.concurrentUpdateMutex.Unlock()
+			tableState.onDiskTempFiles = append(tableState.onDiskTempFiles, onDiskFile)
+		}()
 
 		// Store the number of add and remove records locally
 		// These counts are required later for generating new checkpoints
