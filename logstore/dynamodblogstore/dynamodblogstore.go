@@ -205,6 +205,13 @@ func (ls *LogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
 		return fmt.Errorf("create put item request: %v", err)
 	}
 
+	if entry.IsComplete() {
+		if _, err := ls.client.PutItem(context.TODO(), pir); err != nil {
+			return fmt.Errorf("put item: %v", err)
+		}
+		return nil
+	}
+
 	if _, err := ls.client.PutItem(context.TODO(), pir); err != nil {
 		return fmt.Errorf("put item: %v", err)
 	}
@@ -236,8 +243,11 @@ func (ls *LogStore) Latest(tablePath storage.Path) (*logstore.CommitEntry, error
 		ExpressionAttributeValues: map[string]types.AttributeValue{":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw}},
 		KeyConditionExpression:    aws.String(fmt.Sprintf("%s = :partitionKey", TablePath))}
 	qo, err := ls.client.Query(context.TODO(), &qi)
-	if err != nil || len(qo.Items) == 0 {
+	if err != nil {
 		return nil, fmt.Errorf("query: %v", err)
+	}
+	if len(qo.Items) == 0 {
+		return nil, logstore.ErrLatestDoesNotExist
 	}
 
 	ce, err := ls.mapItemToEntry(qo.Items[0])
