@@ -205,13 +205,6 @@ func (ls *LogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
 		return fmt.Errorf("create put item request: %v", err)
 	}
 
-	if entry.IsComplete() {
-		if _, err := ls.client.PutItem(context.TODO(), pir); err != nil {
-			return fmt.Errorf("put item: %v", err)
-		}
-		return nil
-	}
-
 	if _, err := ls.client.PutItem(context.TODO(), pir); err != nil {
 		return fmt.Errorf("put item: %v", err)
 	}

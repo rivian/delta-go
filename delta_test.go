@@ -14,7 +14,6 @@ package delta
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -31,13 +30,7 @@ import (
 
 	"github.com/apache/arrow/go/v13/parquet"
 	"github.com/apache/arrow/go/v13/parquet/compress"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/ratelimit"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go/internal/dynamodbutils"
@@ -2082,26 +2075,18 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 func setUpMultiClusterLogStoreTest(t *testing.T) (logStoreTableName string, firstTable *Table, secondTable *Table, actions []Action, operation Write, appMetaData map[string]any) {
 	t.Helper()
 
-	cfg, _ := config.LoadDefaultConfig(context.TODO(), config.WithRetryer(func() aws.Retryer {
-		return retry.AddWithErrorCodes(retry.AddWithMaxAttempts(retry.NewStandard(func(so *retry.StandardOptions) {
-			so.RateLimiter = ratelimit.NewTokenRateLimit(1000000)
-		}), 1000000), (*types.ProvisionedThroughputExceededException)(nil).ErrorCode())
-	}))
-
-	client := dynamodb.NewFromConfig(cfg)
-
 	logStoreTableName = "version_log_store"
-	logStore, err := dynamodblogstore.New(dynamodblogstore.Options{Client: client, TableName: logStoreTableName})
+	logStore, err := dynamodblogstore.New(dynamodblogstore.Options{Client: dynamodbutils.NewMockClient(), TableName: logStoreTableName})
 	if err != nil {
 		t.Errorf("Failed to create log store: %v", err)
 	}
 
-	path := storage.NewPath("s3://vehicle-telemetry-rivian-dev/tables/test/test_dynamo_different_clients")
-	c := s3.NewFromConfig(cfg)
+	path := storage.NewPath("s3://test-bucket/test-delta-table/")
+	client, err := s3utils.NewMockClient(t, path)
 	if err != nil {
 		t.Errorf("Failed to create client: %v", err)
 	}
-	store, err := s3store.New(c, path)
+	store, err := s3store.New(client, path)
 	if err != nil {
 		t.Errorf("Failed to create store: %v", err)
 	}
