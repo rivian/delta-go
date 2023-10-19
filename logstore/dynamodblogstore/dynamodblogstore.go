@@ -236,7 +236,7 @@ func (ls *LogStore) Latest(tablePath storage.Path) (*logstore.CommitEntry, error
 		ExpressionAttributeValues: map[string]types.AttributeValue{":partitionKey": &types.AttributeValueMemberS{Value: tablePath.Raw}},
 		KeyConditionExpression:    aws.String(fmt.Sprintf("%s = :partitionKey", TablePath))}
 	qo, err := ls.client.Query(context.TODO(), &qi)
-	if err != nil {
+	if err != nil || len(qo.Items) == 0 {
 		return nil, fmt.Errorf("query: %v", err)
 	}
 

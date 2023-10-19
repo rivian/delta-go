@@ -1026,17 +1026,31 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 }
 
 func (t *transaction) complete(entry *logstore.CommitEntry) error {
-	seconds := t.Table.LogStore.ExpirationDelaySeconds()
-	entry, err := entry.Complete(seconds)
-	if err != nil {
-		return fmt.Errorf("complete commit entry: %v", err)
-	}
+	var (
+		err     error
+		attempt = 0
+	)
+	for {
+		if attempt >= int(t.options.MaxRetryWriteAttempts) {
+			return errors.Join(fmt.Errorf("failed to acknowledge commit after %d attempts", t.options.MaxRetryWriteAttempts), err)
+		}
 
-	if err := t.Table.LogStore.Put(entry, true); err != nil {
-		return fmt.Errorf("put completed commit entry: %v", err)
-	}
+		seconds := t.Table.LogStore.ExpirationDelaySeconds()
+		entry, err := entry.Complete(seconds)
+		if err != nil {
+			attempt++
+			log.Debugf("delta-go: Attempt number %d: failed to complete commit entry. %v", attempt, err)
+			continue
+		}
 
-	return nil
+		if err := t.Table.LogStore.Put(entry, true); err != nil {
+			attempt++
+			log.Debugf("delta-go: Attempt number %d: failed to put completed commit entry. %v", attempt, err)
+			continue
+		}
+
+		return nil
+	}
 }
 
 func (t *transaction) copyTempFile(src storage.Path, dst storage.Path) error {
