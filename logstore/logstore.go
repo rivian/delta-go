@@ -13,7 +13,14 @@
 package logstore
 
 import (
+	"errors"
+
 	"github.com/rivian/delta-go/storage"
+)
+
+var (
+	// ErrLatestDoesNotExist is returned when the latest item in a log store does not exist.
+	ErrLatestDoesNotExist error = errors.New("the latest item does not exist")
 )
 
 type LogStore interface {

@@ -239,6 +239,9 @@ func (ls *LogStore) Latest(tablePath storage.Path) (*logstore.CommitEntry, error
 	if err != nil {
 		return nil, fmt.Errorf("query: %v", err)
 	}
+	if len(qo.Items) == 0 {
+		return nil, logstore.ErrLatestDoesNotExist
+	}
 
 	ce, err := ls.mapItemToEntry(qo.Items[0])
 	if err != nil {

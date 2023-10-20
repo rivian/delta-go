@@ -248,7 +248,7 @@ func (m *MockClient) Query(_ context.Context, input *dynamodb.QueryInput, optFns
 		return &dynamodb.QueryOutput{Items: matchingItems}, nil
 	}
 
-	return &dynamodb.QueryOutput{}, errors.New("cannot find items")
+	return &dynamodb.QueryOutput{}, nil
 }
 
 // isMatch checks if an item possesses a certain primary key.

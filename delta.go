@@ -893,15 +893,7 @@ func (t *transaction) CommitLogStore() (int64, error) {
 func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	var currURI storage.Path
 	prevURI, err := t.Table.LogStore.Latest(t.Table.Store.BaseURI())
-
-	if prevURI != nil {
-		parsed, prevVersion := CommitVersionFromURI(prevURI.FileName())
-		if !parsed {
-			return -1, fmt.Errorf("failed to parse previous version from %s", prevURI.FileName().Raw)
-		}
-
-		currURI = CommitURIFromVersion(prevVersion + 1)
-	} else {
+	if errors.Is(err, logstore.ErrLatestDoesNotExist) {
 		if version, err := t.Table.LatestVersion(); err == nil {
 			uri := CommitURIFromVersion(version).Raw
 			fileName := storage.NewPath(strings.Split(uri, "_delta_log/")[1])
@@ -925,6 +917,15 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 		} else {
 			currURI = CommitURIFromVersion(0)
 		}
+	} else if err != nil {
+		return -1, errors.Join(errors.New("failed to get latest log store entry"), err)
+	} else {
+		parsed, prevVersion := CommitVersionFromURI(prevURI.FileName())
+		if !parsed {
+			return -1, fmt.Errorf("failed to parse previous version from %s", prevURI.FileName().Raw)
+		}
+
+		currURI = CommitURIFromVersion(prevVersion + 1)
 	}
 
 	t.addCommitInfoIfNotPresent()
