@@ -883,6 +883,9 @@ func (t *transaction) CommitLogStore() (int64, error) {
 		if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to commit with log store. %v", attempt, err)
+
+			time.Sleep(t.options.RetryWaitDuration)
+
 			continue
 		}
 
