@@ -1306,11 +1306,12 @@ type PreparedCommit struct {
 }
 
 const (
-	defaultMaxRetryCommitAttempts                uint32 = 10000000
-	defaultMaxReadAttempts                       uint16 = 3
-	defaultMaxWriteAttempts                      uint32 = 10000000
-	defaultRetryCommitAttemptsBeforeLoadingTable uint32 = 100
-	defaultMaxRetryLogFixAttempts                uint16 = 3
+	defaultMaxRetryCommitAttempts                uint32        = 10000000
+	defaultRetryWaitDuration                     time.Duration = 500 * time.Millisecond
+	defaultMaxReadAttempts                       uint16        = 3
+	defaultMaxWriteAttempts                      uint32        = 10000000
+	defaultRetryCommitAttemptsBeforeLoadingTable uint32        = 100
+	defaultMaxRetryLogFixAttempts                uint16        = 3
 )
 
 // Options for customizing behavior of a `Transaction`
@@ -1332,7 +1333,12 @@ type TransactionOptions struct {
 
 // NewTransactionOptions sets the default transaction options.
 func NewTransactionOptions() TransactionOptions {
-	return TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts, MaxRetryWriteAttempts: defaultMaxWriteAttempts, MaxRetryLogFixAttempts: defaultMaxRetryLogFixAttempts, RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable}
+	return TransactionOptions{MaxRetryCommitAttempts: defaultMaxRetryCommitAttempts,
+		RetryWaitDuration:                     defaultRetryWaitDuration,
+		MaxRetryReadAttempts:                  defaultMaxReadAttempts,
+		MaxRetryWriteAttempts:                 defaultMaxWriteAttempts,
+		RetryCommitAttemptsBeforeLoadingTable: defaultRetryCommitAttemptsBeforeLoadingTable,
+		MaxRetryLogFixAttempts:                defaultMaxRetryLogFixAttempts}
 }
 
 // OpenTableWithVersion loads the table at this specific version
