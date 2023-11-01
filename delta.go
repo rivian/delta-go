@@ -880,7 +880,7 @@ func (t *transaction) CommitLogStore() (int64, error) {
 
 		version, err = t.tryCommitLogStore()
 		if errors.Is(err, ErrFailedToAcknowledgeCommit) {
-			return -1, err
+			return version, err
 		} else if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to commit with log store. %v", attempt, err)
@@ -1013,7 +1013,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 
 	// Step 4: ACKNOWLEDGE the commit.
 	if err := t.complete(entry); err != nil {
-		return -1, errors.Join(ErrFailedToAcknowledgeCommit, err)
+		return currVersion, errors.Join(ErrFailedToAcknowledgeCommit, err)
 	}
 
 	return currVersion, nil
