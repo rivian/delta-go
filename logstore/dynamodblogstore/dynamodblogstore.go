@@ -161,8 +161,8 @@ func New(o Options) (*LogStore, error) {
 
 	ls.client = o.Client
 
-	log.Infof("delta-go: Using table name %s", ls.tableName)
-	log.Infof("delta-go: Using TTL (seconds) %d", ls.expirationDelaySeconds)
+	log.Debugf("delta-go: Using table name %s", ls.tableName)
+	log.Debugf("delta-go: Using TTL (seconds) %d", ls.expirationDelaySeconds)
 
 	cti := dynamodb.CreateTableInput{
 		AttributeDefinitions: []types.AttributeDefinition{

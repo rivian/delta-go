@@ -259,8 +259,3 @@ func (s *FileObjectStore) BaseURI() storage.Path {
 func (s *FileObjectStore) SetBaseURI(baseURI storage.Path) {
 	s.baseURI = baseURI
 }
-
-// SupportsAtomicPutIfAbsent returns false because local file storage does not provide a "put-if-absent" API.
-func (s *FileObjectStore) SupportsAtomicPutIfAbsent() bool {
-	return false
-}

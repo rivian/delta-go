@@ -247,10 +247,6 @@ type ObjectStore interface {
 
 	// BaseURI gets a store's base URI.
 	BaseURI() Path
-
-	// SupportsAtomicPutIfAbsent returns true if a store provides a "put-if-absent" API.
-	// Otherwise, it returns false.
-	SupportsAtomicPutIfAbsent() bool
 }
 
 // / Wrapper around List that will perform paging if required
