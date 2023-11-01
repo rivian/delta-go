@@ -3,7 +3,7 @@ module github.com/rivian/delta-go
 go 1.20
 
 require (
-	cirello.io/dynamolock/v2 v2.0.2
+	cirello.io/dynamolock/v2 v2.0.3
 	github.com/apache/arrow/go/v13 v13.0.0
 	github.com/aws/aws-sdk-go-v2 v1.22.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.24.0
@@ -24,13 +24,12 @@ require (
 	github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c // indirect
 	github.com/apache/thrift v0.18.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.4.14 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.13.43 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.10.19 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.4.46 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.10.43 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.4.71 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.2.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.1.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.14.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.15.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.10.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.1.38 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.8.0 // indirect
