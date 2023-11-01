@@ -48,6 +48,7 @@ var (
 	ErrNotImplemented              error = errors.New("not implemented")
 	ErrUnsupportedReaderVersion    error = errors.New("reader version is unsupported")
 	ErrUnsupportedWriterVersion    error = errors.New("writer version is unsupported")
+	ErrFailedToAcknowledgeCommit   error = errors.New("failed to acknowledge commit")
 )
 
 var (
@@ -304,7 +305,7 @@ func (t *Table) LatestVersion() (int64, error) {
 		for {
 			o, err := t.Store.List(storage.NewPath("_delta_log"), objects)
 			if err != nil {
-				return -1, fmt.Errorf("list Delta log: %w", err)
+				return -1, errors.Join(errors.New("failed to list Delta log"), err)
 			}
 			objects = &o
 
@@ -380,26 +381,26 @@ func findValidCommitOrCheckpointURI(metadata []storage.ObjectMeta) (bool, int64)
 func (t *Table) syncStateStore() (err error) {
 	locked, err := t.LockClient.TryLock()
 	if err != nil {
-		return fmt.Errorf("acquire lock: %w", err)
+		return errors.Join(errors.New("failed to acquire lock"), err)
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
 		if unlockErr := t.LockClient.Unlock(); unlockErr != nil {
-			err = fmt.Errorf("release lock: %w", unlockErr)
+			err = errors.Join(errors.New("failed to release lock"), err)
 		}
 	}()
 
 	if locked {
 		version, err := t.LatestVersion()
 		if err != nil {
-			return fmt.Errorf("get latest version: %w", err)
+			return errors.Join(errors.New("failed to get latest version"), err)
 		}
 
 		state := state.CommitState{
 			Version: version,
 		}
 		if err := t.StateStore.Put(state); err != nil {
-			return fmt.Errorf("put state: %w", err)
+			return errors.Join(errors.New("failed to put state"), err)
 		}
 	}
 
@@ -852,11 +853,9 @@ func (t *transaction) ReadActions(path storage.Path) ([]Action, error) {
 	}
 }
 
-// CommitLogStore writes actions to a file with or without overwrite as indicated.
-// An error is thrown if the file already exists and overwriting is disabled.
+// CommitLogStore writes actions to a file.
 //
-// If overwriting is enabled, then write normally without any interaction with a log store.
-// Otherwise, to commit for Delta version N:
+// To commit for Delta version N:
 // - Step 0: Fail if N.json already exists in the file system.
 // - Step 1: Ensure that N-1.json exists. If not, perform a recovery.
 // - Step 2: PREPARE the commit.
@@ -880,7 +879,9 @@ func (t *transaction) CommitLogStore() (int64, error) {
 		}
 
 		version, err = t.tryCommitLogStore()
-		if err != nil {
+		if errors.Is(err, ErrFailedToAcknowledgeCommit) {
+			return -1, err
+		} else if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to commit with log store. %v", attempt, err)
 
@@ -908,7 +909,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 				return -1, fmt.Errorf("create first commit entry: %v", err)
 			}
 
-			if err := t.Table.LogStore.Put(entry, t.Table.Store.SupportsAtomicPutIfAbsent()); err != nil {
+			if err := t.Table.LogStore.Put(entry, false); err != nil {
 				return -1, fmt.Errorf("put first commit entry: %v", err)
 			}
 			log.Debugf("delta-go: Put completed commit entry for table path %s and file name %s in the empty log store.",
@@ -933,22 +934,17 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 
 	t.addCommitInfoIfNotPresent()
 
-	// Prevent concurrent writers from either
-	// a) concurrently overwriting N.json if overwriting is enabled
-	// b) both checking if N-1.json exists and performing a recovery where they both
-	// copy T(N-1) into N-1.json
-	//
-	// Note that the mutual exclusion on writing into N.json with overwriting disabled from
-	// different machines is provided by the log store, not by this lock.
-	//
+	// Prevent concurrent writers from checking if N-1.json exists and performing a recovery 
+	// where they all copy T(N-1) into N-1.json. Note that the mutual exclusion on writing 
+	// into N.json from different machines is provided by the log store, not by this lock.
 	// Also note that this lock is for N.json, while the lock used during a recovery is for
 	// N-1.json. Thus, there is no deadlock.
 	lock, err := t.Table.LockClient.NewLock(t.Table.Store.BaseURI().Join(currURI).Raw)
 	if err != nil {
-		return -1, errors.Join(errors.New("create lock"), err)
+		return -1, errors.Join(errors.New("failed to create lock"), err)
 	}
 	if _, err = lock.TryLock(); err != nil {
-		return -1, errors.Join(errors.New("acquire lock"), err)
+		return -1, errors.Join(errors.New("failed to acquire lock"), err)
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
@@ -964,15 +960,9 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 		return -1, fmt.Errorf("failed to parse previous version from %s", currURI.Raw)
 	}
 
-	if t.Table.Store.SupportsAtomicPutIfAbsent() {
-		t.writeActions(currURI, t.Actions)
-
-		return currVersion, nil
-	} else {
-		// Step 0: Fail if N.json already exists in the file system and overwriting is disabled.
-		if _, err = t.Table.Store.Head(currURI); err == nil {
-			return -1, errors.New("current version already exists")
-		}
+	// Step 0: Fail if N.json already exists in the file system.
+	if _, err = t.Table.Store.Head(currURI); err == nil {
+		return -1, errors.New("current version already exists")
 	}
 
 	// Step 1: Ensure that N-1.json exists.
@@ -1011,19 +1001,19 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	}
 
 	// Step 2.2: Create uncompleted commit entry E(N, T(N)).
-	if err := t.Table.LogStore.Put(entry, t.Table.Store.SupportsAtomicPutIfAbsent()); err != nil {
+	if err := t.Table.LogStore.Put(entry, false); err != nil {
 		return -1, fmt.Errorf("put uncompleted commit entry: %v", err)
 	}
 
 	// Step 3: COMMIT the commit to the Delta log.
-	//         Copy T(N) -> N.json with overwriting disabled.
+	//         Copy T(N) -> N.json.
 	if err := t.copyTempFile(relativeTempPath, currURI); err != nil {
 		return -1, fmt.Errorf("copy temp file to N.json: %v", err)
 	}
 
 	// Step 4: ACKNOWLEDGE the commit.
 	if err := t.complete(entry); err != nil {
-		return -1, fmt.Errorf("acknowledge commit: %v", err)
+		return -1, errors.Join(ErrFailedToAcknowledgeCommit, err)
 	}
 
 	return currVersion, nil

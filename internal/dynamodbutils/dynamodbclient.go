@@ -71,7 +71,7 @@ func CreateTableIfNotExists(c Client, name string, cti dynamodb.CreateTableInput
 			if created {
 				log.Infof("delta-go: Successfully created DynamoDB table %s", name)
 			} else {
-				log.Infof("delta-go: Table %s already exists", name)
+				log.Debugf("delta-go: Table %s already exists", name)
 			}
 		} else if status == "CREATING" {
 			attemptNumber++

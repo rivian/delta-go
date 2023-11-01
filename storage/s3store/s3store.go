@@ -320,8 +320,3 @@ func (s *S3ObjectStore) DeleteFolder(location storage.Path) error {
 func (s *S3ObjectStore) BaseURI() storage.Path {
 	return s.baseURI
 }
-
-// SupportsAtomicPutIfAbsent returns false because S3 does not provide a "put-if-absent" API.
-func (s *S3ObjectStore) SupportsAtomicPutIfAbsent() bool {
-	return false
-}
