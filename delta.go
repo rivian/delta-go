@@ -934,8 +934,8 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 
 	t.addCommitInfoIfNotPresent()
 
-	// Prevent concurrent writers from checking if N-1.json exists and performing a recovery 
-	// where they all copy T(N-1) into N-1.json. Note that the mutual exclusion on writing 
+	// Prevent concurrent writers from checking if N-1.json exists and performing a recovery
+	// where they all copy T(N-1) into N-1.json. Note that the mutual exclusion on writing
 	// into N.json from different machines is provided by the log store, not by this lock.
 	// Also note that this lock is for N.json, while the lock used during a recovery is for
 	// N-1.json. Thus, there is no deadlock.
