@@ -911,7 +911,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 				return -1, fmt.Errorf("put first commit entry: %v", err)
 			}
 			log.WithFields(log.Fields{"tablePath": t.Table.Store.BaseURI().Raw, "fileName": fileName.Raw}).
-				Infof("delta-go: Put completed commit entry in empty log store.")
+				Infof("delta-go: Put completed commit entry in empty log store")
 
 			currURI = CommitURIFromVersion(version + 1)
 		} else if errors.Is(err, ErrNotATable) {
@@ -1067,7 +1067,7 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			return fmt.Errorf("failed to fix Delta log after %d attempts: %v", t.options.MaxRetryLogFixAttempts, err)
 		}
 
-		log.Infof("delta-go: Trying to fix %s.", entry.FileName().Raw)
+		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Trying to fix %s", entry.FileName().Raw)
 
 		if _, err = t.Table.Store.Head(filePath); !copied && err != nil {
 			tempPath, err := entry.AbsoluteTempPath()
@@ -1094,7 +1094,7 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			continue
 		}
 
-		log.Infof("delta-go: Fixed file %s.", entry.FileName().Raw)
+		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Fixed file %s", entry.FileName().Raw)
 		return nil
 	}
 }

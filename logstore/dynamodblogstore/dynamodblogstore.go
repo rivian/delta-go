@@ -191,14 +191,15 @@ func New(o Options) (*LogStore, error) {
 		},
 		TableName: aws.String(ls.tableName),
 	}
-	dynamodbutils.CreateTableIfNotExists(ls.client, ls.tableName, cti, ls.maxTableCreateAttempts)
+	err := dynamodbutils.CreateTableIfNotExists(ls.client, ls.tableName, cti, ls.maxTableCreateAttempts)
 
-	return ls, nil
+	return ls, err
 }
 
 // Put puts a commit entry into a log store in an exclusive way.
 func (ls *LogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
-	log.Debugf("delta-go: PutItem (tablePath %s, fileName %s, tempPath %s, complete %t, expireTime %d, overwrite %t)", entry.TablePath(), entry.FileName(), entry.TempPath(), entry.IsComplete(), entry.ExpirationTime(), overwrite)
+	log.Debugf("delta-go: PutItem (tablePath %s, fileName %s, tempPath %s, complete %t, expireTime %d, overwrite %t)",
+		entry.TablePath(), entry.FileName(), entry.TempPath(), entry.IsComplete(), entry.ExpirationTime(), overwrite)
 
 	pir, err := ls.createPutItemRequest(entry, overwrite)
 	if err != nil {
