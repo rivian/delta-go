@@ -33,7 +33,7 @@ type CommitEntry struct {
 }
 
 // New creates a new CommitEntry instance.
-func New(tablePath storage.Path, fileName storage.Path, tempPath storage.Path, isComplete bool, expirationTime uint64) (*CommitEntry, error) {
+func New(tablePath storage.Path, fileName storage.Path, tempPath storage.Path, isComplete bool, expirationTime uint64) *CommitEntry {
 	ce := new(CommitEntry)
 	ce.tablePath = tablePath
 	ce.fileName = fileName
@@ -41,7 +41,7 @@ func New(tablePath storage.Path, fileName storage.Path, tempPath storage.Path, i
 	ce.isComplete = isComplete
 	ce.expirationTime = expirationTime
 
-	return ce, nil
+	return ce
 }
 
 // TablePath gets the table path for a commit entry.
@@ -70,7 +70,7 @@ func (ce *CommitEntry) ExpirationTime() uint64 {
 }
 
 // Complete completes a commit entry.
-func (ce *CommitEntry) Complete(expirationDelaySeconds uint64) (*CommitEntry, error) {
+func (ce *CommitEntry) Complete(expirationDelaySeconds uint64) *CommitEntry {
 	return New(ce.tablePath, ce.fileName, ce.tempPath, true, uint64(time.Now().Unix())+expirationDelaySeconds)
 }
 

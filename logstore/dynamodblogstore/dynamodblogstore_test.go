@@ -27,7 +27,7 @@ func TestPut(t *testing.T) {
 		t.Error("Failed to create DynamoDB log store")
 	}
 
-	ce, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	ce := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("Failed to create commit entry")
 	}
@@ -35,7 +35,7 @@ func TestPut(t *testing.T) {
 		t.Error("Failed to put commit entry")
 	}
 
-	ce, err = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), true, uint64(0))
+	ce = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), true, uint64(0))
 	if err != nil {
 		t.Error("Failed to create commit entry")
 	}
@@ -67,7 +67,7 @@ func TestGet(t *testing.T) {
 		t.Error("Failed to create new DynamoDB log store")
 	}
 
-	ce, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	ce := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("Failed to create commit entry")
 	}
@@ -75,7 +75,7 @@ func TestGet(t *testing.T) {
 		t.Error("Failed to put commit entry")
 	}
 
-	ce, err = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	ce = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("Failed to create commit entry")
 	}
@@ -106,7 +106,7 @@ func TestLatest(t *testing.T) {
 		t.Error("Failed to create DynamoDB log store")
 	}
 
-	firstEntry, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
+	firstEntry := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("Failed to create commit entry")
 	}
@@ -114,7 +114,7 @@ func TestLatest(t *testing.T) {
 		t.Error("Failed to put commit entry")
 	}
 
-	secondEntry, err := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("02.json"), storage.NewPath("02.tmp"), false, uint64(0))
+	secondEntry := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("02.json"), storage.NewPath("02.tmp"), false, uint64(0))
 	if err != nil {
 		t.Error("Failed to create commit entry")
 	}

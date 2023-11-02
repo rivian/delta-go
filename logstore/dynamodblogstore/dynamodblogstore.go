@@ -271,7 +271,7 @@ func (ls *LogStore) mapItemToEntry(item map[string]types.AttributeValue) (*logst
 		storage.NewPath(item[string(TempPath)].(*types.AttributeValueMemberS).Value),
 		item[string(Complete)].(*types.AttributeValueMemberS).Value == "true",
 		time,
-	)
+	), nil
 }
 
 // createPutItemRequest creates a put item request.
