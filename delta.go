@@ -48,6 +48,7 @@ var (
 	ErrNotImplemented              error = errors.New("not implemented")
 	ErrUnsupportedReaderVersion    error = errors.New("reader version is unsupported")
 	ErrUnsupportedWriterVersion    error = errors.New("writer version is unsupported")
+	ErrFailedToCopyTempFile        error = errors.New("failed to copy temp file")
 	ErrFailedToAcknowledgeCommit   error = errors.New("failed to acknowledge commit")
 )
 
@@ -879,7 +880,7 @@ func (t *transaction) CommitLogStore() (int64, error) {
 		}
 
 		version, err = t.tryCommitLogStore()
-		if errors.Is(err, ErrFailedToAcknowledgeCommit) {
+		if errors.Is(err, ErrFailedToCopyTempFile) || errors.Is(err, ErrFailedToAcknowledgeCommit) {
 			return version, err
 		} else if err != nil {
 			attempt++
@@ -903,23 +904,20 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 			fileName := storage.NewPath(strings.Split(uri, "_delta_log/")[1])
 			seconds := t.Table.LogStore.ExpirationDelaySeconds()
 
-			entry, err := logstore.New(t.Table.Store.BaseURI(), fileName,
+			entry := logstore.New(t.Table.Store.BaseURI(), fileName,
 				storage.NewPath("") /* tempPath */, true /* isComplete */, uint64(time.Now().Unix())+seconds)
-			if err != nil {
-				return -1, fmt.Errorf("create first commit entry: %v", err)
-			}
 
 			if err := t.Table.LogStore.Put(entry, false); err != nil {
 				return -1, fmt.Errorf("put first commit entry: %v", err)
 			}
-			log.Debugf("delta-go: Put completed commit entry for table path %s and file name %s in the empty log store.",
-				t.Table.Store.BaseURI(), fileName)
+			log.WithFields(log.Fields{"tablePath": t.Table.Store.BaseURI().Raw, "fileName": fileName.Raw}).
+				Infof("delta-go: Put completed commit entry in empty log store")
 
 			currURI = CommitURIFromVersion(version + 1)
-		} else if err != nil && !errors.Is(err, ErrNotATable) {
-			return -1, errors.Join(errors.New("failed to determine if table exists"), err)
-		} else {
+		} else if errors.Is(err, ErrNotATable) {
 			currURI = CommitURIFromVersion(0)
+		} else {
+			return -1, errors.Join(fmt.Errorf("failed to determine if table %s exists", t.Table.Store.BaseURI().Raw), err)
 		}
 	} else if err != nil {
 		return -1, errors.Join(errors.New("failed to get latest log store entry"), err)
@@ -979,7 +977,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	} else {
 		if entry, err := t.Table.LogStore.Get(t.Table.Store.BaseURI(), fileName); err == nil {
 			if _, err := t.Table.Store.Head(currURI); entry.IsComplete() && err != nil {
-				return -1, fmt.Errorf("old entries for table %s still in log store", t.Table.Store.BaseURI())
+				return -1, fmt.Errorf("old entries for table %s still in log store", t.Table.Store.BaseURI().Raw)
 			}
 		}
 	}
@@ -991,10 +989,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	}
 	relativeTempPath := storage.NewPath("_delta_log").Join(tempPath)
 
-	entry, err := logstore.New(t.Table.Store.BaseURI(), fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
-	if err != nil {
-		return -1, fmt.Errorf("create commit entry: %v", err)
-	}
+	entry := logstore.New(t.Table.Store.BaseURI(), fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
 
 	if err := t.writeActions(relativeTempPath, t.Actions); err != nil {
 		return -1, fmt.Errorf("write actions: %v", err)
@@ -1008,7 +1003,8 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	// Step 3: COMMIT the commit to the Delta log.
 	//         Copy T(N) -> N.json.
 	if err := t.copyTempFile(relativeTempPath, currURI); err != nil {
-		return -1, fmt.Errorf("copy temp file to N.json: %v", err)
+		return -1, errors.Join(ErrFailedToCopyTempFile,
+			fmt.Errorf("copy temp file %s to %s: %v", relativeTempPath.Raw, currURI.Raw, err))
 	}
 
 	// Step 4: ACKNOWLEDGE the commit.
@@ -1021,10 +1017,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 
 func (t *transaction) complete(entry *logstore.CommitEntry) error {
 	seconds := t.Table.LogStore.ExpirationDelaySeconds()
-	entry, err := entry.Complete(seconds)
-	if err != nil {
-		return fmt.Errorf("complete commit entry: %v", err)
-	}
+	entry = entry.Complete(seconds)
 
 	if err := t.Table.LogStore.Put(entry, true); err != nil {
 		return fmt.Errorf("put completed commit entry: %v", err)
@@ -1074,7 +1067,7 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			return fmt.Errorf("failed to fix Delta log after %d attempts: %v", t.options.MaxRetryLogFixAttempts, err)
 		}
 
-		log.Infof("delta-go: Trying to fix %s.", entry.FileName().Raw)
+		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Trying to fix %s", entry.FileName().Raw)
 
 		if _, err = t.Table.Store.Head(filePath); !copied && err != nil {
 			tempPath, err := entry.AbsoluteTempPath()
@@ -1101,7 +1094,7 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			continue
 		}
 
-		log.Infof("delta-go: Fixed file %s.", entry.FileName().Raw)
+		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Fixed file %s", entry.FileName().Raw)
 		return nil
 	}
 }
