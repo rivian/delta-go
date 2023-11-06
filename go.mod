@@ -17,7 +17,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stvp/tempredis v0.0.0-20181119212430-b82af8480203
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
-	golang.org/x/sync v0.4.0
+	golang.org/x/sync v0.5.0
 )
 
 require (
