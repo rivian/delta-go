@@ -413,39 +413,127 @@ func TestActionsFromLogEntries(t *testing.T) {
 }
 
 func TestMetadataGetSchema(t *testing.T) {
-	// Simple
-	schemaString := "{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}},{\"name\":\"date\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"
-	md := new(MetaData)
-	md.SchemaString = schemaString
-	schema, err := md.GetSchema()
-	if err != nil {
-		t.Error(err)
+	tests := []struct {
+		name         string
+		schemaString string
+		want         Schema
+		wantErr      error
+	}{
+		{
+			name:         "simple",
+			schemaString: `{"type":"struct","fields":[{"name":"value","type":"string","nullable":true,"metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			want: Schema{Type: Struct, Fields: []SchemaField{
+				{Name: "value", Type: String, Nullable: true, Metadata: map[string]any{}},
+				{Name: "ts", Type: Timestamp, Nullable: true, Metadata: map[string]any{}},
+				{Name: "date", Type: String, Nullable: false, Metadata: map[string]any{}},
+			}}},
+		{
+			name:         "struct",
+			schemaString: `{"type":"struct","fields":[{"name":"some_struct","type":{"type":"struct","fields":[{"name":"some_struct_member","type":"string","nullable":true,"metadata":{}},{"name":"some_struct_timestamp","type":"timestamp","nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}`,
+			want: Schema{Type: Struct, Fields: []SchemaField{
+				{Name: "some_struct", Type: SchemaTypeStruct{
+					Type: Struct,
+					Fields: []SchemaField{
+						{Name: "some_struct_member", Type: String, Nullable: true, Metadata: map[string]any{}},
+						{Name: "some_struct_timestamp", Type: Timestamp, Nullable: true, Metadata: map[string]any{}},
+					},
+				}, Nullable: true, Metadata: map[string]any{}},
+			}},
+		},
+		{
+			name:         "array",
+			schemaString: `{"type":"struct","fields":[{"name":"type","type":"string","nullable":true,"metadata":{}},{"name":"names","type":{"type":"array","elementType":"string","containsNull":true},"nullable":true,"metadata":{}}]}`,
+			want: Schema{Type: Struct, Fields: []SchemaField{
+				{Name: "type", Type: String, Nullable: true, Metadata: map[string]any{}},
+				{Name: "names", Type: SchemaTypeArray{
+					Type:         Array,
+					ElementType:  String,
+					ContainsNull: true,
+				}, Nullable: true, Metadata: map[string]any{}},
+			}},
+		},
+		{
+			name:         "map",
+			schemaString: `{"type":"struct","fields":[{"name":"key","type":"string","nullable":true,"metadata":{}},{"name":"metric","type":{"type":"map","keyType":"string","valueType":"float","valueContainsNull":true},"nullable":false,"metadata":{}}]}`,
+			want: Schema{Type: Struct, Fields: []SchemaField{
+				{Name: "key", Type: String, Nullable: true, Metadata: map[string]any{}},
+				{Name: "metric", Type: SchemaTypeMap{
+					Type:              Map,
+					KeyType:           String,
+					ValueType:         Float,
+					ValueContainsNull: true,
+				}, Nullable: false, Metadata: map[string]any{}},
+			}},
+		},
+		{
+			name:         "empty type",
+			schemaString: `{"type":"struct","fields":[{"name":"value","type":"","nullable":true,"metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "missing type",
+			schemaString: `{"type":"struct","fields":[{"name":"value","nullable":true,"metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "invalid type",
+			schemaString: `{"type":"struct","fields":[{"name":"value","type":123,"nullable":true,"metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "empty name",
+			schemaString: `{"type":"struct","fields":[{"name":"","type":"string","nullable":true,"metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "missing name",
+			schemaString: `{"type":"struct","fields":[{"type":"string","nullable":true,"metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "invalid name",
+			schemaString: `{"type":"struct","fields":[{"name":123,"type":"string","nullable":true,"metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "missing metadata",
+			schemaString: `{"type":"struct","fields":[{"name":"value","type":"string","nullable":true},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "invalid metadata",
+			schemaString: `{"type":"struct","fields":[{"name":"value","type":"string","nullable":true,"metadata":[1,2,3]},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "missing nullable",
+			schemaString: `{"type":"struct","fields":[{"name":"value","type":"string","metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
+		{
+			name:         "invalid nullable",
+			schemaString: `{"type":"struct","fields":[{"name":"value","type":"string","nullable":"hello","metadata":{}},{"name":"ts","type":"timestamp","nullable":true,"metadata":{}},{"name":"date","type":"string","nullable":false,"metadata":{}}]}`,
+			wantErr:      ErrParseSchema,
+		},
 	}
-	if len(schema.Fields) != 3 {
-		t.Errorf("Expected 3 fields in schema, found %d", len(schema.Fields))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			md := new(MetaData)
+			md.SchemaString = tt.schemaString
+			schema, err := md.GetSchema()
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("expected error %v got %v", tt.wantErr, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("did not expect error, got %v", err)
+				} else {
+					if !reflect.DeepEqual(schema, tt.want) {
+						t.Errorf("expected schema:\n%v got:\n%v", schema, tt.want)
+					}
+				}
+			}
+		})
 	}
-
-	// TODO nested struct
-	// schemaString = `{"type":"struct","fields":[{"name":"some_struct","type":{"type":"struct","fields":[{"name":"some_struct_member","type":"string","nullable":true,"metadata":{}},{"name":"some_struct_timestamp","type":"timestamp","nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}`
-	// md.SchemaString = schemaString
-	// schema, err = md.GetSchema()
-	// if err != nil {
-	// 	t.Error(err)
-	// }
-
-	// TODO array
-	// schemaString = `{"type":"struct","fields":[{"name":"type","type":"string","nullable":true,"metadata":{}},{"name":"names","type":{"type":"array","elementType":"string","containsNull":true},"nullable":true,"metadata":{}}]}`
-	// md.SchemaString = schemaString
-	// schema, err = md.GetSchema()
-	// if err != nil {
-	// 	t.Error(err)
-	// }
-
-	// TODO map
-	// schemaString = `{"type":"struct","fields":[{"name":"key","type":"string","nullable":true,"metadata":{}},{"name":"metric","type":{"type":"map","keyType":"string","valueType":"float","valueContainsNull":true},"nullable":true,"metadata":{}}]}`
-	// md.SchemaString = schemaString
-	// schema, err = md.GetSchema()
-	// if err != nil {
-	// 	t.Error(err)
-	// }
 }

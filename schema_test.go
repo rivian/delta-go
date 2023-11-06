@@ -14,6 +14,7 @@ package delta
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -30,41 +31,27 @@ func TestGetSchema(t *testing.T) {
 	}
 
 	schema := GetSchema(new(RowType))
-	if schema.Fields[0].Name != "id" {
-		t.Error("does not contain id field")
+	expectedSchema := Schema{
+		Type: Struct,
+		Fields: []SchemaField{
+			{Name: "id", Type: Integer, Nullable: false, Metadata: map[string]any{}},
+			{Name: "label", Type: String, Nullable: true, Metadata: map[string]any{}},
+			{Name: "value", Type: Double, Nullable: true, Metadata: map[string]any{}},
+			{Name: "sub_struct", Type: SchemaTypeStruct{
+				Type: Struct, Fields: []SchemaField{
+					{Name: "data", Type: String, Nullable: true, Metadata: map[string]any{}},
+				},
+			}, Nullable: true, Metadata: map[string]any{}},
+		},
 	}
-	if schema.Fields[0].Type != "integer" {
-		t.Error("does not contain id field")
-	}
-	if schema.Fields[0].Nullable != false {
-		t.Error("does not contain id field")
-	}
-
-	if schema.Fields[3].Name != "sub_struct" {
-		t.Error("does not contain sub_struct field")
-	}
-
-	if schema.Fields[3].Type != "struct" {
-		t.Error("does not contain sub_struct field")
-	}
-
-	if len(schema.Fields[3].Fields) != 1 {
-		t.Error("does not contain sub_struct field")
-	}
-
-	if schema.Fields[3].Fields[0].Name != "data" {
-		t.Error("does not contain sub_struct.data field")
-	}
-	if schema.Fields[3].Fields[0].Type != "string" {
-		t.Error("does not contain sub_struct.data field")
+	if !reflect.DeepEqual(schema, expectedSchema) {
+		t.Errorf("expected %v got %v", expectedSchema, schema)
 	}
 
 	b := schema.Json()
 	schemaString := string(b)
 	fmt.Println(schemaString)
-	// TODO this is incorrect
-	// Nested struct should be formatted like this: "type":{"type":"struct","fields":[...]}
-	expectedStr := `{"type":"struct","fields":[{"name":"id","type":"integer","nullable":false,"metadata":{}},{"name":"label","type":"string","nullable":true,"metadata":{}},{"name":"value","type":"double","nullable":true,"metadata":{}},{"name":"sub_struct","type":"struct","nullable":false,"metadata":{},"fields":[{"name":"data","type":"string","nullable":true,"metadata":{}}]}]}`
+	expectedStr := `{"type":"struct","fields":[{"name":"id","type":"integer","nullable":false,"metadata":{}},{"name":"label","type":"string","nullable":true,"metadata":{}},{"name":"value","type":"double","nullable":true,"metadata":{}},{"name":"sub_struct","type":{"type":"struct","fields":[{"name":"data","type":"string","nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}`
 	if schemaString != expectedStr {
 		t.Errorf("has:\n%s\nwant:\n%s", schemaString, expectedStr)
 	}
@@ -81,7 +68,7 @@ func TestGetSchemaWithWeirdTypes(t *testing.T) {
 	if schema.Fields[0].Name != "bin" {
 		t.Error("does not contain id field")
 	}
-	if schema.Fields[0].Type != "binary" {
+	if schema.Fields[0].Type != Binary {
 		t.Error("does not contain id field")
 	}
 
@@ -89,7 +76,7 @@ func TestGetSchemaWithWeirdTypes(t *testing.T) {
 		t.Error("does not contain timestamp field")
 	}
 
-	if schema.Fields[1].Type != "timestamp" {
+	if schema.Fields[1].Type != Timestamp {
 		t.Error("does not contain timestamp field")
 	}
 

@@ -135,9 +135,9 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	firstFieldMetaData := make(map[string]any)
 	firstFieldMetaData["hasMetaData"] = true
 	fields := []SchemaField{
-		{Name: "first_column", Nullable: true, Metadata: firstFieldMetaData},
-		{Name: "second_column", Nullable: false},
-		{Name: "third_field", Nullable: true},
+		{Name: "first_column", Type: Integer, Nullable: true, Metadata: firstFieldMetaData},
+		{Name: "second_column", Type: String, Nullable: false, Metadata: map[string]any{}},
+		{Name: "third_field", Type: Boolean, Nullable: true, Metadata: map[string]any{}},
 	}
 	schema := SchemaTypeStruct{Fields: fields}
 	format := new(Format).Default()
@@ -455,9 +455,9 @@ func TestDeltaTableCreate(t *testing.T) {
 	firstFieldMetaData := make(map[string]any)
 	firstFieldMetaData["hasMetaData"] = true
 	fields := []SchemaField{
-		{Name: "first_column", Nullable: true, Metadata: firstFieldMetaData},
-		{Name: "second_column", Nullable: false},
-		{Name: "third_field", Nullable: true},
+		{Name: "first_column", Type: Integer, Nullable: true, Metadata: firstFieldMetaData},
+		{Name: "second_column", Type: String, Nullable: false, Metadata: map[string]any{}},
+		{Name: "third_field", Type: Boolean, Nullable: true, Metadata: map[string]any{}},
 	}
 	schema := SchemaTypeStruct{Fields: fields}
 	format := new(Format).Default()
@@ -1533,6 +1533,7 @@ func TestLoadVersion(t *testing.T) {
 	add.Stats = stats2
 	expectedState.Files[add.Path] = *add
 	var schema SchemaTypeStruct = SchemaTypeStruct{
+		Type: Struct,
 		Fields: []SchemaField{
 			{Name: "value", Type: String, Nullable: true, Metadata: make(map[string]any)},
 			{Name: "ts", Type: Timestamp, Nullable: true, Metadata: make(map[string]any)},

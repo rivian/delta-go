@@ -15,41 +15,36 @@ package delta
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 )
 
+var (
+	// ErrParseSchema is returned when parsing the schema from JSON fails
+	ErrParseSchema error = errors.New("unable to parse schema")
+)
+
 // / Type alias for a string expected to match a GUID/UUID format
 type Guid string
 
-// Represents the schema of the Delta table.
+// Schema represents the schema of the Delta table.
 type Schema = SchemaTypeStruct
 
-// Represents the schema of the Delta table.
+// SchemaDataType is one of: 	SchemaDataTypeName | SchemaTypeArray | SchemaTypeMap | SchemaTypeStruct
+// We can't use a union constraint because the type is recursive
+type SchemaDataType interface{}
+
+// SchemaTypeStruct represents a struct in the schema
 type SchemaTypeStruct struct {
-	Fields []SchemaField //`json:"fields"`
+	Type   SchemaDataTypeName `json:"type"` // Has to be "struct"
+	Fields []SchemaField      `json:"fields"`
 }
 
-// TODO this does not handle nested maps, arrays, or structs correctly
-// See TestMetadataGetSchema in action_test.go for example outputs for those cases
-func (s *SchemaTypeStruct) Json() []byte {
-	type constructorSchemaField struct {
-		// will always be struct
-		Type SchemaDataType `json:"type"`
-		// When Type=Struct, SchemaField will contain an StructType with recursive fields
-		Fields []SchemaField `json:"fields"`
-	}
-	containerStruct := constructorSchemaField{
-		Type:   Struct,
-		Fields: s.Fields,
-	}
-	b, _ := json.Marshal(containerStruct)
-	return b
-}
-
-// Describes a specific field of the Delta table schema.
+// SchemaField describes a specific field of the Delta table schema.
 type SchemaField struct {
 	// Name of this (possibly nested) column
 	Name string         `json:"name"`
@@ -59,31 +54,253 @@ type SchemaField struct {
 	// A JSON map containing information about this column. Keys prefixed with Delta are reserved
 	// for the implementation.
 	Metadata map[string]any `json:"metadata"`
-
-	// When Type=Struct, SchemaField will contain an StructType with recursive fields
-	Fields []SchemaField `json:"fields,omitempty"`
 }
 
-// / Enum with variants for each top level schema data type.
-// / Variant representing non-array, non-map, non-struct fields. Wrapped value will contain the
-// / the string name of the primitive type.
-type SchemaDataType string
+// SchemaTypeArray represents an array field
+type SchemaTypeArray struct {
+	Type         SchemaDataTypeName `json:"type"` // Has to be "array"
+	ElementType  SchemaDataType     `json:"elementType"`
+	ContainsNull bool               `json:"containsNull"`
+}
+
+// SchemaTypeMap represents a map field
+type SchemaTypeMap struct {
+	Type              SchemaDataTypeName `json:"type"` // Has to be "map"
+	KeyType           SchemaDataType     `json:"keyType"`
+	ValueType         SchemaDataType     `json:"valueType"`
+	ValueContainsNull bool               `json:"valueContainsNull"`
+}
+
+// SchemaDataTypeName contains the string .
+type SchemaDataTypeName string
 
 const (
-	String    SchemaDataType = "string"    //  * string: utf8
-	Long      SchemaDataType = "long"      //  * long  // undocumented, i64?
-	Integer   SchemaDataType = "integer"   //  * integer: i32
-	Short     SchemaDataType = "short"     //  * short: i16
-	Byte      SchemaDataType = "byte"      //  * byte: i8
-	Float     SchemaDataType = "float"     //  * float: f32
-	Double    SchemaDataType = "double"    //  * double: f64
-	Boolean   SchemaDataType = "boolean"   //  * boolean: bool
-	Binary    SchemaDataType = "binary"    //  * binary: a sequence of binary data
-	Date      SchemaDataType = "date"      //  * date: A calendar date, represented as a year-month-day triple without a timezone
-	Timestamp SchemaDataType = "timestamp" //  * timestamp: Microsecond precision timestamp without a timezone
-	Struct    SchemaDataType = "struct"    //  * struct:
-	Unknown   SchemaDataType = "unknown"
+	String    SchemaDataTypeName = "string"    //  * string: utf8
+	Long      SchemaDataTypeName = "long"      //  * long  // undocumented, i64?
+	Integer   SchemaDataTypeName = "integer"   //  * integer: i32
+	Short     SchemaDataTypeName = "short"     //  * short: i16
+	Byte      SchemaDataTypeName = "byte"      //  * byte: i8
+	Float     SchemaDataTypeName = "float"     //  * float: f32
+	Double    SchemaDataTypeName = "double"    //  * double: f64
+	Boolean   SchemaDataTypeName = "boolean"   //  * boolean: bool
+	Binary    SchemaDataTypeName = "binary"    //  * binary: a sequence of binary data
+	Date      SchemaDataTypeName = "date"      //  * date: A calendar date, represented as a year-month-day triple without a timezone
+	Timestamp SchemaDataTypeName = "timestamp" //  * timestamp: Microsecond precision timestamp without a timezone
+	Struct    SchemaDataTypeName = "struct"    //  * struct:
+	Array     SchemaDataTypeName = "array"     //  * array:
+	Map       SchemaDataTypeName = "map"       //  * map:
+	Unknown   SchemaDataTypeName = "unknown"
 )
+
+func (s *SchemaTypeStruct) Json() []byte {
+	containerStruct := SchemaTypeStruct{
+		Type:   Struct,
+		Fields: s.Fields,
+	}
+	b, _ := json.Marshal(containerStruct)
+	return b
+}
+
+func (s *SchemaField) UnmarshalJSON(b []byte) error {
+	data := make(map[string]interface{})
+	if err := json.Unmarshal(b, &data); err != nil {
+		return err
+	}
+	if err := s.unmarshalSchemaField(data); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *SchemaField) unmarshalSchemaField(data map[string]interface{}) error {
+	name, ok := data["name"]
+	if !ok || reflect.TypeOf(name) == nil {
+		return errors.Join(ErrParseSchema, errors.New("missing name"))
+	}
+	switch reflect.TypeOf(name).Kind() {
+	case reflect.String:
+		s.Name = name.(string)
+		if len(s.Name) == 0 {
+			return errors.Join(ErrParseSchema, errors.New("name is empty"))
+		}
+	default:
+		return errors.Join(ErrParseSchema, errors.New("name must be a string"))
+	}
+
+	t, ok := data["type"]
+	if !ok || reflect.TypeOf(t) == nil {
+		return errors.Join(ErrParseSchema, errors.New("missing type"))
+	}
+	schemaType, err := unmarshalSchemaType(t)
+	if err != nil {
+		return err
+	}
+	s.Type = schemaType
+
+	nullable, ok := data["nullable"]
+	if !ok || reflect.TypeOf(nullable) == nil {
+		return errors.Join(ErrParseSchema, errors.New("missing nullable"))
+	}
+	switch reflect.TypeOf(nullable).Kind() {
+	case reflect.Bool:
+		s.Nullable = nullable.(bool)
+	default:
+		return errors.Join(ErrParseSchema, errors.New("nullable must be a bool"))
+	}
+
+	metadata, ok := data["metadata"]
+	if !ok || reflect.TypeOf(metadata) == nil {
+		return errors.Join(ErrParseSchema, errors.New("missing metadata"))
+	}
+	switch reflect.TypeOf(metadata).Kind() {
+	case reflect.Map:
+		if reflect.TypeOf(metadata).Key().Kind() != reflect.String {
+			return errors.Join(ErrParseSchema, errors.New("metadata map key type must be string"))
+		}
+		s.Metadata = metadata.(map[string]interface{})
+	default:
+		return errors.Join(ErrParseSchema, errors.New("metadata must be a map"))
+	}
+
+	return nil
+}
+
+func unmarshalSchemaType(v interface{}) (SchemaDataType, error) {
+	if v == nil {
+		return nil, errors.Join(ErrParseSchema, errors.New("nil type"))
+	}
+	switch reflect.TypeOf(v).Kind() {
+	case reflect.String:
+		t := SchemaDataTypeName(v.(string))
+		switch t {
+		case String, Long, Integer, Short, Byte, Float, Double, Boolean, Binary, Date, Timestamp, Struct, Array, Map:
+			return t, nil
+		}
+		return nil, errors.Join(ErrParseSchema, fmt.Errorf("unknown type %s", t))
+	case reflect.Map:
+		m := v.(map[string]interface{})
+		t, ok := m["type"]
+		if !ok {
+			return nil, errors.Join(ErrParseSchema, errors.New("missing type"))
+		}
+		switch typedType := t.(type) {
+		case string:
+			switch typedType {
+			case string(Array):
+				a := SchemaTypeArray{Type: Array}
+
+				containsNull, ok := m["containsNull"]
+				if !ok {
+					return nil, errors.Join(ErrParseSchema, errors.New("missing containsNull"))
+				}
+				elementType, ok := m["elementType"]
+				if !ok {
+					return nil, errors.Join(ErrParseSchema, errors.New("missing elementType"))
+				}
+
+				switch typedContainsNull := containsNull.(type) {
+				case bool:
+					a.ContainsNull = typedContainsNull
+				case string:
+					c, err := strconv.ParseBool(typedContainsNull)
+					if err != nil {
+						return nil, errors.Join(ErrParseSchema, errors.New("invalid containsNull"))
+					}
+					a.ContainsNull = c
+				default:
+					return nil, errors.Join(ErrParseSchema, errors.New("invalid containsNull"))
+				}
+
+				elementSchemaType, err := unmarshalSchemaType(elementType)
+				if err != nil {
+					return nil, err
+				}
+				a.ElementType = elementSchemaType
+
+				return a, nil
+			case string(Struct):
+				s := SchemaTypeStruct{Type: Struct}
+
+				fields, ok := m["fields"]
+				if !ok {
+					return nil, errors.Join(ErrParseSchema, errors.New("missing fields"))
+				}
+				switch reflect.TypeOf(fields).Kind() {
+				case reflect.Slice:
+					f := reflect.ValueOf(fields)
+					s.Fields = make([]SchemaField, f.Len())
+					for i := 0; i < f.Len(); i++ {
+						entry := f.Index(i).Interface()
+						switch reflect.TypeOf(entry).Kind() {
+						case reflect.Map:
+							if reflect.TypeOf(entry).Key().Kind() != reflect.String {
+								return nil, errors.Join(ErrParseSchema, fmt.Errorf("invalid field definition %v", entry))
+							}
+							err := s.Fields[i].unmarshalSchemaField(entry.(map[string]interface{}))
+							if err != nil {
+								return nil, err
+							}
+						default:
+							return nil, errors.Join(ErrParseSchema, fmt.Errorf("invalid field %v", entry))
+						}
+					}
+				default:
+					return nil, errors.Join(ErrParseSchema, fmt.Errorf("fields is not a slice %v", fields))
+				}
+
+				return s, nil
+			case string(Map):
+				s := SchemaTypeMap{Type: Map}
+
+				valueContainsNull, ok := m["valueContainsNull"]
+				if !ok {
+					return nil, errors.Join(ErrParseSchema, errors.New("missing valueContainsNull"))
+				}
+				valueType, ok := m["valueType"]
+				if !ok {
+					return nil, errors.Join(ErrParseSchema, errors.New("missing valueType"))
+				}
+				keyType, ok := m["keyType"]
+				if !ok {
+					return nil, errors.Join(ErrParseSchema, errors.New("missing keyType"))
+				}
+
+				switch typedValueContainsNull := valueContainsNull.(type) {
+				case bool:
+					s.ValueContainsNull = typedValueContainsNull
+				case string:
+					c, err := strconv.ParseBool(typedValueContainsNull)
+					if err != nil {
+						return nil, errors.Join(ErrParseSchema, errors.New("invalid valueContainsNull"))
+					}
+					s.ValueContainsNull = c
+				default:
+					return nil, errors.Join(ErrParseSchema, errors.New("invalid valueContainsNull"))
+				}
+
+				valueSchemaType, err := unmarshalSchemaType(valueType)
+				if err != nil {
+					return nil, err
+				}
+				s.ValueType = valueSchemaType
+
+				keySchemaType, err := unmarshalSchemaType(keyType)
+				if err != nil {
+					return nil, err
+				}
+				s.KeyType = keySchemaType
+
+				return s, nil
+			default:
+				return nil, errors.Join(ErrParseSchema, fmt.Errorf("unknown type %s", typedType))
+			}
+		default:
+			return nil, errors.Join(ErrParseSchema, fmt.Errorf("type is not a string %v", t))
+		}
+	default:
+		return nil, errors.Join(ErrParseSchema, fmt.Errorf("invalid type %v", v))
+	}
+}
 
 // GetSchema recursively walks over the given struct interface i and extracts SchemaTypeStruct StructFields using reflect
 // TODO: Handle error cases where types are not compatible with spark types.
@@ -161,7 +378,7 @@ func GetSchema(i any) SchemaTypeStruct {
 				fieldPointer := reflect.New(structField.Type)
 				fieldInterface := fieldPointer.Interface()
 				recursiveStruct := GetSchema(fieldInterface)
-				field = SchemaField{Name: name, Fields: recursiveStruct.Fields, Type: Struct, Metadata: emptyMetaData}
+				field = SchemaField{Name: name, Type: SchemaTypeStruct{Type: Struct, Fields: recursiveStruct.Fields}, Nullable: nullable, Metadata: emptyMetaData}
 
 			default:
 				fieldPointer := reflect.New(structField.Type)
@@ -174,10 +391,10 @@ func GetSchema(i any) SchemaTypeStruct {
 		fields = append(fields, field)
 
 	}
-	return SchemaTypeStruct{Fields: fields}
+	return SchemaTypeStruct{Type: Struct, Fields: fields}
 }
 
-func getFieldDataType(t any) SchemaDataType {
+func getFieldDataType(t any) SchemaDataTypeName {
 	switch t.(type) {
 	case string:
 		return String
