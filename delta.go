@@ -550,7 +550,7 @@ func (t *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints []C
 			isCompleteCheckpoint := true
 			if checkpoint.Parts != nil {
 				isCompleteCheckpoint, err = DoesCheckpointVersionExist(t.Store, checkpoint.Version, true)
-				if err != nil {
+				if err != nil && !errors.Is(err, ErrCheckpointIncomplete) && !errors.Is(err, ErrCheckpointInvalidMultipartFileName) {
 					return nil, false, err
 				}
 			}
