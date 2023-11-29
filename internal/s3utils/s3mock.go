@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/rivian/delta-go/storage"
@@ -114,7 +115,7 @@ func (m *MockClient) HeadObject(ctx context.Context, input *s3.HeadObjectInput, 
 
 	headObjectOutput := new(s3.HeadObjectOutput)
 	headObjectOutput.LastModified = &meta.LastModified
-	headObjectOutput.ContentLength = meta.Size
+	headObjectOutput.ContentLength = aws.Int64(meta.Size)
 	return headObjectOutput, nil
 }
 
@@ -151,7 +152,7 @@ func (m *MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, op
 
 	getObjectOutput := new(s3.GetObjectOutput)
 	getObjectOutput.Body = io.NopCloser(bytes.NewReader(data))
-	getObjectOutput.ContentLength = int64(len(data))
+	getObjectOutput.ContentLength = aws.Int64(int64(len(data)))
 	return getObjectOutput, nil
 }
 
@@ -227,8 +228,8 @@ func (m *MockClient) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2I
 	var offset int
 	if m.PaginateListResults {
 		page := 1000
-		if input.MaxKeys != 0 {
-			page = int(input.MaxKeys)
+		if aws.ToInt32(input.MaxKeys) != 0 {
+			page = int(aws.ToInt32(input.MaxKeys))
 		}
 		outputCount = page
 		remaining := len(output.Objects)
@@ -260,11 +261,11 @@ func (m *MockClient) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2I
 			lastModified := r.LastModified
 			listObjectsOutput.Contents = append(listObjectsOutput.Contents, types.Object{
 				Key:          &key,
-				Size:         r.Size,
+				Size:         aws.Int64(r.Size),
 				LastModified: &lastModified})
 		}
 	}
-	listObjectsOutput.KeyCount = int32(len(listObjectsOutput.Contents))
+	listObjectsOutput.KeyCount = aws.Int32(int32(len(listObjectsOutput.Contents)))
 	return listObjectsOutput, nil
 }
 

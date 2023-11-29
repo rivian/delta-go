@@ -187,7 +187,7 @@ func (s *S3ObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) 
 
 	m.Location = location
 	m.LastModified = *result.LastModified
-	m.Size = result.ContentLength
+	m.Size = aws.ToInt64(result.ContentLength)
 
 	return m, nil
 }
@@ -238,14 +238,14 @@ func (s *S3ObjectStore) List(prefix storage.Path, previousResult *storage.ListRe
 		return storage.ListResult{}, errors.Join(storage.ErrListObjects, err)
 	}
 
-	listResult := storage.ListResult{Objects: make([]storage.ObjectMeta, 0, results.KeyCount)}
+	listResult := storage.ListResult{Objects: make([]storage.ObjectMeta, 0, aws.ToInt32(results.KeyCount))}
 
 	for _, result := range results.Contents {
 		location := strings.TrimPrefix(*result.Key, resultsTrimPrefix)
 		listResult.Objects = append(listResult.Objects, storage.ObjectMeta{
 			Location:     storage.NewPath(location),
 			LastModified: *result.LastModified,
-			Size:         result.Size,
+			Size:         aws.ToInt64(result.Size),
 		})
 	}
 	if results.NextContinuationToken != nil {
@@ -273,7 +273,7 @@ func (s *S3ObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error)
 			listResult.Objects = append(listResult.Objects, storage.ObjectMeta{
 				Location:     storage.NewPath(location),
 				LastModified: *result.LastModified,
-				Size:         result.Size,
+				Size:         aws.ToInt64(result.Size),
 			})
 		}
 	}
