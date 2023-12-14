@@ -190,7 +190,7 @@ func DoesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 	// List all files starting with the version prefix.  This will also find commit logs and possible crc files
 	str := fmt.Sprintf("%020d", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
-	possibleCheckpointFiles, err := store.List(path, nil)
+	possibleCheckpointFiles, err := store.ListAll(path)
 	if err != nil {
 		return false, err
 	}
