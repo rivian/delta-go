@@ -259,3 +259,12 @@ func (s *FileObjectStore) BaseURI() storage.Path {
 func (s *FileObjectStore) SetBaseURI(baseURI storage.Path) {
 	s.baseURI = baseURI
 }
+
+func (s *FileObjectStore) ReadAt(location storage.Path, p []byte, off int64, max int64) (n int, err error) {
+	path := s.baseURI.Join(location)
+	f, err := os.Open(path.Raw)
+	if err != nil {
+		return 0, err
+	}
+	return f.ReadAt(p, off)
+}

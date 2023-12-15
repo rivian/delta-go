@@ -21,13 +21,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iancoleman/strcase"
-	"golang.org/x/exp/constraints"
+	"github.com/rivian/delta-go/storage"
 )
 
 var (
+	// ErrActionJSONFormat is returned when there is an error reading actions from a commit log
 	ErrActionJSONFormat error = errors.New("invalid format for action JSON")
-	ErrActionUnknown    error = errors.New("unknown action")
-	ErrActionConversion error = errors.New("error reading action")
+	// ErrActionUnknown is returned when there is an unknown action in a commit log
+	ErrActionUnknown error = errors.New("unknown action")
+	// ErrAddZeroSize is returned when an add action has zero size
+	ErrAddZeroSize error = errors.New("add size must not be zero to prevent optimize failures")
 )
 
 // Delta log action that describes a parquet data file that is part of the table.
@@ -79,6 +82,48 @@ type Add struct {
 	//
 	// This field is only available in add action records read from / written to checkpoints
 	// StatsParsed *GenericStats `json:"-" parquet:"name=stats_parsed, repetition=OPTIONAL"`
+}
+
+// NewAdd returns a new Add action, using the given location and partition values
+// The modification time will be set to now
+// The size and stats will be retrieved from the parquet file at the given location
+// It also returns a list of columns that did not have stats set in the parquet file
+func NewAdd(store storage.ObjectStore, location storage.Path, partitionValues map[string]string) (*Add, []string, error) {
+	add := new(Add)
+	add.Path = location.Raw
+	add.ModificationTime = time.Now().UnixMilli()
+	add.PartitionValues = partitionValues
+	add.DataChange = true
+
+	// We have seen one instance where the call to Head returned a size of zero.
+	// Add a single retry for transient failure
+	var parquetHead storage.ObjectMeta
+	var err error
+	retry := false
+	for {
+		parquetHead, err = store.Head(location)
+		if errors.Is(storage.ErrObjectDoesNotExist, err) {
+			return nil, nil, err
+		}
+		if parquetHead.Size > 0 || retry {
+			break
+		}
+		retry = true
+	}
+
+	if parquetHead.Size == 0 {
+		// Do not create add actions with size 0; they break Optimize calls
+		return add, nil, ErrAddZeroSize
+	}
+	add.Size = parquetHead.Size
+
+	stats, missingColumns, err := StatsFromParquet(store, add)
+	if err != nil {
+		return nil, missingColumns, err
+	}
+	add.Stats = string(stats.Json())
+
+	return add, missingColumns, nil
 }
 
 // / Represents a tombstone (deleted file) in the Delta log.
@@ -458,69 +503,3 @@ const (
 	/// Only rows with updates will be written when new or changed data is available.
 	Update OutputMode = "Update"
 )
-
-type Stats struct {
-	NumRecords  int64            `json:"numRecords" parquet:"name=numRecords, repetition=OPTIONAL"`
-	TightBounds bool             `json:"tightBounds" parquet:"name=tightBounds, repetition=OPTIONAL"`
-	MinValues   map[string]any   `json:"minValues" parquet:"name=minValues, repetition=OPTIONAL, keyconverted=UTF8"`
-	MaxValues   map[string]any   `json:"maxValues" parquet:"name=maxValues, repetition=OPTIONAL, keyconverted=UTF8"`
-	NullCount   map[string]int64 `json:"nullCount" parquet:"name=nullCount, repetition=OPTIONAL, keyconverted=UTF8, valuetype=INT64"`
-}
-
-func (s *Stats) Json() []byte {
-	b, _ := json.Marshal(s)
-	return b
-}
-
-func StatsFromJson(b []byte) (*Stats, error) {
-	s := new(Stats)
-	var err error
-	if len(b) > 0 {
-		err = json.Unmarshal(b, s)
-	}
-	return s, err
-}
-
-// UpdateStats computes Stats.NullCount, Stats.MinValues, Stats.MaxValues for a given k,v struct property
-// the struct property is passed in as a pointer to ensure that it can be evaluated as nil[NULL]
-// TODO Handle struct types
-func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
-	var v T
-	if s.NullCount == nil {
-		s.NullCount = make(map[string]int64)
-	}
-	if _, hasPriorNullCount := s.NullCount[k]; !hasPriorNullCount {
-		s.NullCount[k] = 0
-	}
-
-	if vpt == nil {
-		s.NullCount[k]++
-		//Value is nil, skip applying MinValues, MaxValues
-		return
-	} else {
-		v = *vpt
-	}
-	if priorMin, hasPriorMin := s.MinValues[k]; hasPriorMin {
-		if v < priorMin.(T) {
-			s.MinValues[k] = v
-		}
-	} else {
-		if s.MinValues == nil {
-			s.MinValues = make(map[string]any)
-		}
-		s.MinValues[k] = v
-	}
-
-	if priorMax, hasPriorMax := s.MaxValues[k]; hasPriorMax {
-		if v > priorMax.(T) {
-			s.MaxValues[k] = v
-		}
-	} else {
-		if s.MaxValues == nil {
-			s.MaxValues = make(map[string]any)
-
-		}
-		s.MaxValues[k] = v
-
-	}
-}

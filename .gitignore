@@ -26,3 +26,5 @@ dump.rdb
 .DS_Store
 .vscode
 coverage.txt
+
+local_test.go

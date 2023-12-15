@@ -35,6 +35,9 @@ var (
 	ErrListObjects           error = errors.New("error while listing objects")
 	ErrOperationNotSupported error = errors.New("the object store does not support this operation")
 	ErrWriter                error = errors.New("error while getting writer")
+	ErrSeekOffset            error = errors.New("invalid seek offset")
+	ErrSeekWhence            error = errors.New("invalid seek whence")
+	ErrReadAt                error = errors.New("error while reading the object")
 )
 
 type DeltaStorageResult struct {
@@ -237,6 +240,18 @@ type ObjectStore interface {
 	// Will return an error if the destination already has an object.
 	RenameIfNotExists(from Path, to Path) error
 
+	/// Allow ObjectReaderAtSeeker to support the ReaderAt io interface
+	/// Excerpt from the ReaderAt comments:
+	//
+	// ReadAt reads len(p) bytes into p starting at offset off in the
+	// underlying input source. It returns the number of bytes
+	// read (0 <= n <= len(p)) and any error encountered.
+	// ...
+	// If ReadAt is reading from an input source with a seek offset,
+	// ReadAt should not affect nor be affected by the underlying
+	// seek offset.
+	ReadAt(location Path, p []byte, off int64, max int64) (n int, err error)
+
 	// Whether or not this store can be used as an io.Writer
 	SupportsWriter() bool
 
@@ -285,4 +300,65 @@ func (listIterator *ListIterator) Next() (*ObjectMeta, error) {
 	result := listIterator.listResult.Objects[listIterator.nextIndex]
 	listIterator.nextIndex++
 	return &result, nil
+}
+
+// Compile time check that ObjectReaderAtSeeker implements io.ReaderAt and io.Seeker
+var _ io.ReaderAt = (*ObjectReaderAtSeeker)(nil)
+var _ io.Seeker = (*ObjectReaderAtSeeker)(nil)
+
+// / Support io interfaces Seeker, Reader, and ReaderAt
+type ObjectReaderAtSeeker struct {
+	store    ObjectStore
+	location Path
+	offset   int64
+	size     int64
+}
+
+func NewObjectReaderAtSeeker(location Path, store ObjectStore) (*ObjectReaderAtSeeker, error) {
+	reader := new(ObjectReaderAtSeeker)
+	reader.store = store
+	reader.location = location
+	meta, err := store.Head(location)
+	if err != nil {
+		return nil, err
+	}
+	reader.size = meta.Size
+	return reader, nil
+}
+
+func (reader *ObjectReaderAtSeeker) ReadAt(p []byte, off int64) (n int, err error) {
+	if off < 0 || off >= reader.size {
+		return 0, io.EOF
+	}
+
+	max := off + int64(len(p))
+	if max > reader.size {
+		max = reader.size
+	}
+	return reader.store.ReadAt(reader.location, p, off, max)
+}
+
+func (reader *ObjectReaderAtSeeker) Read(p []byte) (n int, err error) {
+	max := reader.size - reader.offset
+	if max > int64(len(p)) {
+		max = int64(len(p))
+	}
+	return reader.store.ReadAt(reader.location, p, reader.offset, max)
+}
+
+func (reader *ObjectReaderAtSeeker) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+	case io.SeekCurrent:
+		offset += reader.offset
+	case io.SeekEnd:
+		offset += reader.size
+	default:
+		return 0, ErrSeekWhence
+	}
+	if offset < 0 {
+		return 0, ErrSeekOffset
+	}
+	reader.offset = offset
+	return offset, nil
 }

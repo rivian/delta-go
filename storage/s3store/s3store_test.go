@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"testing"
@@ -633,5 +634,62 @@ func TestListErrorHandling(t *testing.T) {
 	_, err = store.ListAll(path)
 	if !errors.Is(err, storage.ErrListObjects) {
 		t.Errorf("Delete did not return an expected error")
+	}
+}
+
+func TestReadAt(t *testing.T) {
+	baseURI, mockClient, store := setupTest(t)
+
+	putPath := storage.NewPath("test_file.json")
+	err := mockClient.PutFile(baseURI, putPath, []byte("01234567890123456789"))
+	if err != nil {
+		t.Error(err)
+	}
+
+	type args struct {
+		location storage.Path
+		offset   int64
+		max      int64
+	}
+	tests := []struct {
+		name        string
+		args        args
+		want        string
+		wantN       int
+		wantErr     error
+		optionalErr error
+	}{
+		{name: "Everything", args: args{location: putPath, offset: 0, max: 19}, want: "01234567890123456789", wantN: 20, wantErr: nil, optionalErr: io.EOF},
+		{name: "Start", args: args{location: putPath, offset: 0, max: 9}, want: "0123456789", wantN: 10, wantErr: nil, optionalErr: io.EOF},
+		{name: "End", args: args{location: putPath, offset: 17, max: 19}, want: "789", wantN: 3, wantErr: nil, optionalErr: io.EOF},
+		{name: "Middle", args: args{location: putPath, offset: 3, max: 5}, want: "345", wantN: 3, wantErr: nil, optionalErr: io.EOF},
+		{name: "Negative", args: args{location: putPath, offset: -3, max: 5}, want: "\000\000\000\000\000\000\000\000\000", wantN: 0, wantErr: storage.ErrReadAt},
+		{name: "Off the End", args: args{location: putPath, offset: 15, max: 24}, want: "\000\000\000\000\000\000\000\000\000\000", wantN: 0, wantErr: io.EOF},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := make([]byte, tt.args.max-tt.args.offset+1)
+			n, err := store.ReadAt(tt.args.location, p, tt.args.offset, tt.args.max)
+			if tt.wantErr != nil && err == nil {
+				t.Errorf("FileObjectStore.ReadAt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Errorf("FileObjectStore.ReadAt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr == nil && err != nil && !errors.Is(err, tt.optionalErr) {
+				t.Errorf("FileObjectStore.ReadAt() error = %v, optionalErr %v", err, tt.optionalErr)
+				return
+			}
+			if n != tt.wantN {
+				t.Errorf("FileObjectStore.ReadAt() n = %d, want %d", n, tt.wantN)
+				return
+			}
+			if !bytes.Equal(p, []byte(tt.want)) {
+				t.Errorf("FileObjectStore.ReadAt() result = %v, want %v", p, []byte(tt.want))
+				return
+			}
+		})
 	}
 }

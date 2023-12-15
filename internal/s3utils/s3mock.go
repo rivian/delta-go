@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -148,6 +149,28 @@ func (m *MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, op
 	data, err := m.fileStore.Get(filePath)
 	if err != nil {
 		return nil, err
+	}
+
+	if input.Range != nil && len(*input.Range) > 0 {
+		rangeRegexp := regexp.MustCompile(`^bytes=(\d+)-(\d+)$`)
+		groups := rangeRegexp.FindStringSubmatch(*input.Range)
+		if groups == nil {
+			return nil, errors.New("invalid range")
+		}
+		if groups != nil {
+			off, err := strconv.ParseInt(groups[1], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			max, err := strconv.ParseInt(groups[2], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			if max > int64(len(data)) {
+				return nil, errors.Join(io.EOF, errors.New("invalid max"))
+			}
+			data = data[off : max+1]
+		}
 	}
 
 	getObjectOutput := new(s3.GetObjectOutput)
