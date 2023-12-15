@@ -1,14 +1,14 @@
 module github.com/rivian/delta-go
 
-go 1.20
+go 1.21
 
 require (
 	cirello.io/dynamolock/v2 v2.0.3
-	github.com/apache/arrow/go/v13 v13.0.0
+	github.com/apache/arrow/go/v14 v14.0.1
 	github.com/aws/aws-sdk-go-v2 v1.24.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.26.6
 	github.com/aws/smithy-go v1.19.0
-	github.com/chelseajonesr/rfarrow v0.0.0-20230907213802-44b0b8cb409d
+	github.com/chelseajonesr/rfarrow v0.0.0-20231215213447-d2f3e7b72c3b
 	github.com/go-redsync/redsync/v4 v4.11.0
 	github.com/gofrs/flock v0.8.1
 	github.com/google/uuid v1.5.0
@@ -46,7 +46,6 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/minio/asm2plan9s v0.0.0-20200509001527-cdd76441f9d8 // indirect
 	github.com/minio/c2goasm v0.0.0-20190812172519-36a3d3bbc4f3 // indirect
-	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/mod v0.13.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
@@ -71,5 +70,3 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.18 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
-
-replace github.com/apache/arrow/go/v13 => github.com/chelseajonesr/arrow/go/v13 v13.0.0-20230907215144-7528f6e45184

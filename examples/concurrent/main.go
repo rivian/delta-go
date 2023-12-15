@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/arrow/go/v13/parquet"
-	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/apache/arrow/go/v14/parquet"
+	"github.com/apache/arrow/go/v14/parquet/compress"
 	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
 	"github.com/rivian/delta-go"

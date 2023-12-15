@@ -28,8 +28,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/arrow/go/v13/parquet"
-	"github.com/apache/arrow/go/v13/parquet/compress"
+	"github.com/apache/arrow/go/v14/parquet"
+	"github.com/apache/arrow/go/v14/parquet/compress"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/chelseajonesr/rfarrow"
 	"github.com/google/uuid"
