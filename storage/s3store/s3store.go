@@ -344,19 +344,15 @@ func (s *S3ObjectStore) ReadAt(location storage.Path, p []byte, off int64, max i
 	if err != nil {
 		return 0, errors.Join(storage.ErrReadAt, err)
 	}
-	n, err = resp.Body.Read(p)
-	if err != nil {
-		return n, err
-	}
-	// If we read less than len(p) due to EOF, make sure that we capture and return the EOF
-	if n < len(p) {
-		testEOFData := make([]byte, 1)
-		n2, err2 := resp.Body.Read(testEOFData)
-		if n2 != 0 || !errors.Is(err2, io.EOF) {
-			// We did not see the expected 0, EOF
-			return n, errors.Join(storage.ErrReadAt, err, err2, errors.New("reading response body read < len(p) but EOF not seen"))
+
+	var m int
+	for len(p) > 0 {
+		m, err = resp.Body.Read(p)
+		n += m
+		if err != nil {
+			break
 		}
-		err = err2
+		p = p[m:]
 	}
 	return n, err
 }
