@@ -11,7 +11,7 @@ require (
 	github.com/chelseajonesr/rfarrow v0.0.0-20231215213447-d2f3e7b72c3b
 	github.com/go-redsync/redsync/v4 v4.11.0
 	github.com/gofrs/flock v0.8.1
-	github.com/google/uuid v1.5.0
+	github.com/google/uuid v1.6.0
 	github.com/iancoleman/strcase v0.3.0
 	github.com/redis/go-redis/v9 v9.3.1
 	github.com/sirupsen/logrus v1.9.3
