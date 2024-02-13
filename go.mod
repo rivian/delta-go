@@ -7,7 +7,7 @@ require (
 	github.com/apache/arrow/go/v14 v14.0.2
 	github.com/aws/aws-sdk-go-v2 v1.24.1
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.27.1
-	github.com/aws/smithy-go v1.19.0
+	github.com/aws/smithy-go v1.20.0
 	github.com/chelseajonesr/rfarrow v0.0.0-20231215213447-d2f3e7b72c3b
 	github.com/go-redsync/redsync/v4 v4.11.0
 	github.com/gofrs/flock v0.8.1
