@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.29.1
 	github.com/aws/smithy-go v1.20.0
 	github.com/chelseajonesr/rfarrow v0.0.0-20231215213447-d2f3e7b72c3b
-	github.com/go-redsync/redsync/v4 v4.12.0
+	github.com/go-redsync/redsync/v4 v4.12.1
 	github.com/gofrs/flock v0.8.1
 	github.com/google/uuid v1.6.0
 	github.com/iancoleman/strcase v0.3.0
