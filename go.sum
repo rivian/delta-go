@@ -69,8 +69,8 @@ github.com/go-redis/redis/v7 v7.4.0 h1:7obg6wUoj05T0EpY0o8B59S9w5yeMWql7sw2kwNW1
 github.com/go-redis/redis/v7 v7.4.0/go.mod h1:JDNMw23GTyLNC4GZu9njt15ctBQVn7xjRfnwdHj/Dcg=
 github.com/go-redis/redis/v8 v8.11.4 h1:kHoYkfZP6+pe04aFTnhDH6GDROa5yJdHJVNxV3F46Tg=
 github.com/go-redis/redis/v8 v8.11.4/go.mod h1:2Z2wHZXdQpCDXEGzqMockDpNyYvi2l4Pxt6RJr792+w=
-github.com/go-redsync/redsync/v4 v4.11.0 h1:OPEcAxHBb95EzfwCKWM93ksOwHd5bTce2BD4+R14N6k=
-github.com/go-redsync/redsync/v4 v4.11.0/go.mod h1:ZfayzutkgeBmEmBlUR3j+rF6kN44UUGtEdfzhBFZTPc=
+github.com/go-redsync/redsync/v4 v4.12.0 h1:o9Vl8kRzVn82yaWdKDqKig/atDwvaM8exiTbvWRx4eg=
+github.com/go-redsync/redsync/v4 v4.12.0/go.mod h1:sn72ojgeEhxUuRjrliK0NRrB0Zl6kOZ3BDvNN3P2jAY=
 github.com/goccy/go-json v0.10.2 h1:CrxCmQqYDkv1z7lO7Wbh2HN93uovUHgrECaO5ZrCXAU=
 github.com/goccy/go-json v0.10.2/go.mod h1:6MelG93GURQebXPDq3khkgXZkazVtN9CRI+MGFi0w8I=
 github.com/gofrs/flock v0.8.1 h1:+gYjHKf32LDeiEEFhQaotPbLuUXjY5ZqxKgXy7n59aw=
