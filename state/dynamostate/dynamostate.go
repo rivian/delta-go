@@ -10,10 +10,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package dynamostate contains the resources required to create a DynamoDB state store.
 package dynamostate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -24,23 +27,25 @@ import (
 	"github.com/rivian/delta-go/state"
 )
 
-// Represents attribute names in DynamoDB items
+// Attribute represents attribute names in DynamoDB items.
 type Attribute string
 
 const (
-	Key                                Attribute = "key"
-	Version                            Attribute = "version"
-	DefaultMaxRetryTableCreateAttempts uint16    = 20
-	DefaultRCU                         int64     = 5
-	DefaultWCU                         int64     = 5
+	key                                Attribute = "key"
+	version                            Attribute = "version"
+	defaultMaxRetryTableCreateAttempts uint16    = 20
+	defaultRCU                         int64     = 5
+	defaultWCU                         int64     = 5
 )
 
+// DynamoState stores a table's commit state in DynamoDB.
 type DynamoState struct {
 	Table  string
 	Key    string
 	Client dynamodbutils.Client
 }
 
+// Options contains settings that can be adjusted to change the behavior of a DynamoDB state store.
 type Options struct {
 	MaxRetryTableCreateAttempts uint16
 	// The number of read capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/)
@@ -52,26 +57,27 @@ type Options struct {
 // Sets the default options
 func (opts *Options) setOptionsDefaults() {
 	if opts.MaxRetryTableCreateAttempts == 0 {
-		opts.MaxRetryTableCreateAttempts = DefaultMaxRetryTableCreateAttempts
+		opts.MaxRetryTableCreateAttempts = defaultMaxRetryTableCreateAttempts
 	}
 	if opts.RCU == 0 {
-		opts.RCU = DefaultRCU
+		opts.RCU = defaultRCU
 	}
 	if opts.WCU == 0 {
-		opts.WCU = DefaultWCU
+		opts.WCU = defaultWCU
 	}
 }
 
 // Compile time check that DynamoState implements state.StateStore
-var _ state.StateStore = (*DynamoState)(nil)
+var _ state.Store = (*DynamoState)(nil)
 
+// New creates a new DynamoState instance.
 func New(client dynamodbutils.Client, tableName string, key string, opts Options) (*DynamoState, error) {
 	opts.setOptionsDefaults()
 
 	createTableInput := dynamodb.CreateTableInput{
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(string(Key)),
+				AttributeName: aws.String(string(key)),
 				KeyType:       types.KeyTypeHash,
 			},
 		},
@@ -81,7 +87,9 @@ func New(client dynamodbutils.Client, tableName string, key string, opts Options
 		},
 		TableName: aws.String(tableName),
 	}
-	dynamodbutils.CreateTableIfNotExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts)
+	if err := dynamodbutils.CreateTableIfNotExists(client, tableName, createTableInput, opts.MaxRetryTableCreateAttempts); err != nil {
+		return nil, errors.Join(dynamodbutils.ErrFailedToCreateTable, err)
+	}
 
 	tb := new(DynamoState)
 	tb.Table = tableName
@@ -90,11 +98,12 @@ func New(client dynamodbutils.Client, tableName string, key string, opts Options
 	return tb, nil
 }
 
+// Get retrieves a commit state from a DynamoDB state store.
 func (l *DynamoState) Get() (state.CommitState, error) {
 	input := &dynamodb.GetItemInput{
 		TableName: aws.String(l.Table),
 		Key: map[string]types.AttributeValue{
-			string(Key): &types.AttributeValueMemberS{Value: l.Key},
+			string(key): &types.AttributeValueMemberS{Value: l.Key},
 		},
 	}
 
@@ -111,7 +120,7 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 		return state.CommitState{Version: -1}, err
 	}
 
-	versionValue := result.Item[string(Version)].(*types.AttributeValueMemberS).Value
+	versionValue := result.Item[string(version)].(*types.AttributeValueMemberS).Value
 	version, err := strconv.Atoi(versionValue)
 	if err != nil {
 		//TODO wrap error rather than printing
@@ -123,6 +132,7 @@ func (l *DynamoState) Get() (state.CommitState, error) {
 	return commit, nil
 }
 
+// Put adds a commit state to a DynamoDB state store.
 func (l *DynamoState) Put(commitS state.CommitState) error {
 	versionString := fmt.Sprintf("%v", commitS.Version)
 
@@ -130,8 +140,8 @@ func (l *DynamoState) Put(commitS state.CommitState) error {
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(l.Table),
 		Item: map[string]types.AttributeValue{
-			string(Key):     &types.AttributeValueMemberS{Value: l.Key},
-			string(Version): &types.AttributeValueMemberS{Value: versionString},
+			string(key):     &types.AttributeValueMemberS{Value: l.Key},
+			string(version): &types.AttributeValueMemberS{Value: versionString},
 		},
 	}
 

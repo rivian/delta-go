@@ -76,8 +76,7 @@ func TestRedsyncMultiplePools(t *testing.T) {
 	// Perform an operation.
 	fmt.Println(l.key + ": I have a lock!")
 
-	err = l.Unlock()
-	if err != nil {
+	if err := l.Unlock(); err != nil {
 		t.Error(err)
 	}
 }
@@ -99,8 +98,7 @@ func TestRedsyncSimpleClient(t *testing.T) {
 
 	fmt.Println(l.key + ": I have a lock!")
 
-	err = l.Unlock()
-	if err != nil {
+	if err := l.Unlock(); err != nil {
 		t.Error(err)
 	}
 }

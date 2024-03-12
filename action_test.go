@@ -120,7 +120,7 @@ func TestLogEntryFromActionChangeMetaData(t *testing.T) {
 	id, _ := uuid.Parse("af23c9d7-fff1-4a5a-a2c8-55c59bd782aa")
 	schemaString := "..."
 	action := MetaData{
-		Id:               id,
+		ID:               id,
 		Format:           format,
 		SchemaString:     schemaString,
 		PartitionColumns: []string{},
@@ -287,7 +287,7 @@ func TestActionsFromLogEntries(t *testing.T) {
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: 1675020556534,
-		Stats:            string(stats.Json()),
+		Stats:            string(stats.JSON()),
 	}
 
 	write := Write{Mode: ErrorIfExists}

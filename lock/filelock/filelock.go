@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package filelock provides the resources required to create a file lock.
 package filelock
 
 import (
@@ -24,9 +26,10 @@ import (
 )
 
 const (
-	DefaultTTL time.Duration = 60 * time.Second
+	defaultTTL time.Duration = 60 * time.Second
 )
 
+// FileLock represents a lock for a key stored as a single file.
 type FileLock struct {
 	baseURI storage.Path
 	key     string
@@ -37,6 +40,7 @@ type FileLock struct {
 // Compile time check that FileLock implements lock.Locker
 var _ lock.Locker = (*FileLock)(nil)
 
+// Options contains settings that can be adjusted to change the behavior of a file lock.
 type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	// If lease_duration is None then the lock is non-expirable.
@@ -47,14 +51,14 @@ type Options struct {
 	DeleteOnRelease bool
 }
 
-// Sets the default options
+// setOptionsDefaults sets the default options.
 func (opts *Options) setOptionsDefaults() {
 	if opts.TTL == 0 {
-		opts.TTL = DefaultTTL
+		opts.TTL = defaultTTL
 	}
 }
 
-// Creates a new FileLock instance
+// New creates a new FileLock instance.
 func New(baseURI storage.Path, key string, opts Options) *FileLock {
 	opts.setOptionsDefaults()
 
@@ -66,7 +70,7 @@ func New(baseURI storage.Path, key string, opts Options) *FileLock {
 	return l
 }
 
-// Creates a new FileLock instance using an existing FileLock instance
+// NewLock creates a new FileLock instance using an existing FileLock instance.
 func (l *FileLock) NewLock(key string) (lock.Locker, error) {
 	nl := new(FileLock)
 	nl.baseURI = l.baseURI
@@ -76,8 +80,8 @@ func (l *FileLock) NewLock(key string) (lock.Locker, error) {
 	return nl, nil
 }
 
-// Attempts to acquire a file lock
-func (l *FileLock) TryLock() (bool, error) {
+// TryLock attempts to acquire a file lock.
+func (l *FileLock) TryLock() (acquiredLock bool, returnErr error) {
 	lockPath := filepath.Join(l.baseURI.Raw, l.key)
 	if l.lock == nil {
 		l.lock = flock.New(lockPath)
@@ -92,7 +96,10 @@ func (l *FileLock) TryLock() (bool, error) {
 		//Enforce a TTL
 		go func() {
 			time.Sleep(l.opts.TTL)
-			l.Unlock()
+
+			if err := l.Unlock(); err != nil {
+				returnErr = errors.Join(lock.ErrUnableToUnlock, err)
+			}
 		}()
 		locked = true
 	case false:
@@ -105,7 +112,7 @@ func (l *FileLock) TryLock() (bool, error) {
 	return locked, err
 }
 
-// Releases a file lock
+// Unlock releases a file lock.
 func (l *FileLock) Unlock() error {
 	err := l.lock.Unlock()
 	if err != nil {

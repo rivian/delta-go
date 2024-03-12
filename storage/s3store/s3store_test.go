@@ -311,7 +311,7 @@ func TestHead(t *testing.T) {
 	// Verify the metadata returned from Head()
 	objMeta, err := s3Store.Head(path)
 	if err != nil {
-		t.Error("error occurred.")
+		t.Errorf("Failed to retrieve object's metadata: %v", err)
 	}
 	if objMeta.Size != int64(len(data)) {
 		t.Errorf("Size did not match expected. Returned size: %d, Expected size: %d", objMeta.Size, len(data))

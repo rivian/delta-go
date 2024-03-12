@@ -45,7 +45,10 @@ func TestTryLock(t *testing.T) {
 		t.Errorf("hasLock = %v; want false", hasLock)
 	}
 
-	l.Unlock()
+	if err := l.Unlock(); err != nil {
+		t.Errorf("Failed to release lock: %v", err)
+	}
+
 	hasLock, err = otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
@@ -86,7 +89,10 @@ func TestNewLock(t *testing.T) {
 		t.Errorf("hasLock = %v; want false", hasLock)
 	}
 
-	nl.(*FileLock).Unlock()
+	if err := nl.(*FileLock).Unlock(); err != nil {
+		t.Errorf("Failed to release lock: %v", err)
+	}
+
 	hasLock, err = otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
@@ -119,7 +125,10 @@ func TestTryLockBlocking(t *testing.T) {
 		t.Errorf("hasLock = %v; want true", hasLock)
 	}
 
-	l.Unlock()
+	if err := l.Unlock(); err != nil {
+		t.Errorf("Failed to release lock: %v", err)
+	}
+
 	hasLock, err = otherFileLock.TryLock()
 	if err != nil {
 		t.Errorf("err = %e;", err)
@@ -143,7 +152,9 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Errorf("locked = %v; want true", locked)
 	}
 
-	l.Unlock()
+	if err := l.Unlock(); err != nil {
+		t.Errorf("Failed to release lock: %v", err)
+	}
 
 	_, err = os.Stat(l.lock.Path())
 	if err != nil {
@@ -160,7 +171,9 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Errorf("locked = %v; want true", locked)
 	}
 
-	otherFileLock.Unlock()
+	if err := otherFileLock.Unlock(); err != nil {
+		t.Errorf("Failed to release lock: %v", err)
+	}
 
 	_, err = os.Stat(l.lock.Path())
 	if err == nil {

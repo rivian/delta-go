@@ -20,8 +20,8 @@ func TestNilLock(t *testing.T) {
 	if !locked {
 		t.Error("NilLock's TryLock should always succeed")
 	}
-	err = l.Unlock()
-	if err != nil {
+
+	if err := l.Unlock(); err != nil {
 		t.Error(err)
 	}
 }
@@ -48,8 +48,8 @@ func TestNewLock(t *testing.T) {
 	if !locked {
 		t.Error("NilLock's TryLock should always succeed")
 	}
-	err = nl.Unlock()
-	if err != nil {
+
+	if err := nl.Unlock(); err != nil {
 		t.Error(err)
 	}
 }

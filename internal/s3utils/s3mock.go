@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package s3utils implements utilities used to interact with S3.
 package s3utils
 
 import (
@@ -31,6 +33,7 @@ import (
 	"github.com/rivian/delta-go/storage/filestore"
 )
 
+// MockClient contains the components of an S3 mock client.
 type MockClient struct {
 	// Use a FileObjectStore to mock S3 storage
 	fileStore *filestore.FileObjectStore
@@ -100,6 +103,7 @@ func getFilePathFromS3Input(bucket string, key string) (storage.Path, error) {
 	return storage.NewPath(filePath), nil
 }
 
+// HeadObject retrieves metadata from an object without returning the object itself.
 func (m *MockClient) HeadObject(ctx context.Context, input *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
@@ -120,6 +124,7 @@ func (m *MockClient) HeadObject(ctx context.Context, input *s3.HeadObjectInput, 
 	return headObjectOutput, nil
 }
 
+// PutObject adds an object to a bucket.
 func (m *MockClient) PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
@@ -130,13 +135,17 @@ func (m *MockClient) PutObject(ctx context.Context, input *s3.PutObjectInput, op
 		return nil, err
 	}
 	buffer := new(bytes.Buffer)
-	buffer.ReadFrom(input.Body)
+	if _, err := buffer.ReadFrom(input.Body); err != nil {
+		return nil, errors.Join(errors.New("failed to append data to buffer"), err)
+	}
+
 	err = m.fileStore.Put(filePath, buffer.Bytes())
 
 	putObjectOutput := new(s3.PutObjectOutput)
 	return putObjectOutput, err
 }
 
+// GetObject retrieves an object.
 func (m *MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
@@ -157,20 +166,19 @@ func (m *MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, op
 		if groups == nil {
 			return nil, errors.New("invalid range")
 		}
-		if groups != nil {
-			off, err := strconv.ParseInt(groups[1], 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			max, err := strconv.ParseInt(groups[2], 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			if max > int64(len(data)) {
-				return nil, errors.Join(io.EOF, errors.New("invalid max"))
-			}
-			data = data[off : max+1]
+
+		off, err := strconv.ParseInt(groups[1], 10, 64)
+		if err != nil {
+			return nil, err
 		}
+		max, err := strconv.ParseInt(groups[2], 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		if max > int64(len(data)) {
+			return nil, errors.Join(io.EOF, errors.New("invalid max"))
+		}
+		data = data[off : max+1]
 	}
 
 	getObjectOutput := new(s3.GetObjectOutput)
@@ -179,6 +187,7 @@ func (m *MockClient) GetObject(ctx context.Context, input *s3.GetObjectInput, op
 	return getObjectOutput, nil
 }
 
+// CopyObject copies an object to a specified path.
 func (m *MockClient) CopyObject(ctx context.Context, input *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
 	if m.DisableObjectCopying {
 		return nil, storage.ErrCopyObject
@@ -208,6 +217,7 @@ func (m *MockClient) CopyObject(ctx context.Context, input *s3.CopyObjectInput, 
 	return copyObjectOutput, nil
 }
 
+// DeleteObject removes an object from a bucket.
 func (m *MockClient) DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
 	if m.DisableObjectDeleting {
 		return nil, storage.ErrDeleteObject
@@ -230,6 +240,7 @@ func (m *MockClient) DeleteObject(ctx context.Context, input *s3.DeleteObjectInp
 	return deleteObjectOutput, nil
 }
 
+// ListObjectsV2 lists objects in a bucket.
 func (m *MockClient) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 	if m.MockError != nil {
 		return nil, m.MockError
@@ -302,7 +313,7 @@ func getFilePath(baseURI storage.Path, location storage.Path) (storage.Path, err
 	return storage.NewPath(path), err
 }
 
-// getFile returns a file from the underlying filestore, for use in unit tests
+// GetFile returns a file from the underlying filestore, for use in unit tests
 func (m *MockClient) GetFile(baseURI storage.Path, location storage.Path) ([]byte, error) {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
@@ -311,7 +322,7 @@ func (m *MockClient) GetFile(baseURI storage.Path, location storage.Path) ([]byt
 	return m.fileStore.Get(filePath)
 }
 
-// putFile writes data to a file in the underlying filestore for use in unit tests
+// PutFile writes data to a file in the underlying filestore for use in unit tests
 func (m *MockClient) PutFile(baseURI storage.Path, location storage.Path, data []byte) error {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {
@@ -320,7 +331,7 @@ func (m *MockClient) PutFile(baseURI storage.Path, location storage.Path, data [
 	return m.fileStore.Put(filePath, data)
 }
 
-// fileExists checks if a file exists in the underlying filestore for use in unit tests
+// FileExists checks if a file exists in the underlying filestore for use in unit tests
 func (m *MockClient) FileExists(baseURI storage.Path, location storage.Path) (bool, error) {
 	filePath, err := getFilePath(baseURI, location)
 	if err != nil {

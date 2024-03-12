@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -43,14 +45,14 @@ const (
 	millisecondsPerSecond   = int64(time.Second / time.Millisecond)
 )
 
-// Json converts the stats into JSON
-func (s *Stats) Json() []byte {
+// JSON converts the stats into JSON
+func (s *Stats) JSON() []byte {
 	b, _ := json.Marshal(s)
 	return b
 }
 
-// StatsFromJson parses JSON into a Stats object
-func StatsFromJson(b []byte) (*Stats, error) {
+// StatsFromJSON parses JSON into a Stats object
+func StatsFromJSON(b []byte) (*Stats, error) {
 	s := new(Stats)
 	var err error
 	if len(b) > 0 {

@@ -24,23 +24,23 @@ func TestPut(t *testing.T) {
 	o := Options{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
 	ls, err := New(o)
 	if err != nil {
-		t.Error("Failed to create DynamoDB log store")
+		t.Errorf("Failed to create DynamoDB log store: %v", err)
 	}
 
 	ce := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("Failed to create commit entry")
+		t.Errorf("Failed to create commit entry: %v", err)
 	}
 	if err := ls.Put(ce, true); err != nil {
-		t.Error("Failed to put commit entry")
+		t.Errorf("Failed to put commit entry: %v", err)
 	}
 
 	ce = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), true, uint64(0))
 	if err != nil {
-		t.Error("Failed to create commit entry")
+		t.Errorf("Failed to create commit entry: %v", err)
 	}
 	if err := ls.Put(ce, true); err != nil {
-		t.Error("Failed to overwrite commit entry")
+		t.Errorf("Failed to overwrite commit entry: %v", err)
 	}
 
 	items, ok := ls.client.(*dynamodbutils.MockClient).TablesToItems().Get("log_store")
@@ -53,7 +53,7 @@ func TestPut(t *testing.T) {
 
 	ce, err = ls.Latest(storage.NewPath("usr/local/"))
 	if err != nil {
-		t.Error("Failed to get latest commit entry")
+		t.Errorf("Failed to get latest commit entry: %v", err)
 	}
 	if ce.IsComplete() != true {
 		t.Error("Commit entry should be complete")
@@ -64,28 +64,28 @@ func TestGet(t *testing.T) {
 	o := Options{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
 	ls, err := New(o)
 	if err != nil {
-		t.Error("Failed to create new DynamoDB log store")
+		t.Errorf("Failed to create new DynamoDB log store: %v", err)
 	}
 
 	ce := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("Failed to create commit entry")
+		t.Errorf("Failed to create commit entry: %v", err)
 	}
 	if err := ls.Put(ce, false); err != nil {
-		t.Error("Failed to put commit entry")
+		t.Errorf("Failed to put commit entry: %v", err)
 	}
 
 	ce = logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("Failed to create commit entry")
+		t.Errorf("Failed to create commit entry: %v", err)
 	}
 	if err := ls.Put(ce, false); err == nil {
-		t.Error("Commit entry already exists")
+		t.Errorf("Commit entry already exists: %v", err)
 	}
 
 	ce, err = ls.Get(storage.NewPath("usr/local/"), storage.NewPath("01.json"))
 	if err != nil || ce == nil {
-		t.Error("Failed to get commit entry")
+		t.Errorf("Failed to get commit entry: %v", err)
 	}
 
 	ce, err = ls.Get(storage.NewPath("usr/local/A"), storage.NewPath("01.json"))
@@ -103,28 +103,28 @@ func TestLatest(t *testing.T) {
 	o := Options{Client: dynamodbutils.NewMockClient(), TableName: "log_store"}
 	ls, err := New(o)
 	if err != nil {
-		t.Error("Failed to create DynamoDB log store")
+		t.Errorf("Failed to create DynamoDB log store: %v", err)
 	}
 
 	firstEntry := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("01.json"), storage.NewPath("01.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("Failed to create commit entry")
+		t.Errorf("Failed to create commit entry: %v", err)
 	}
 	if err := ls.Put(firstEntry, false); err != nil {
-		t.Error("Failed to put commit entry")
+		t.Errorf("Failed to put commit entry: %v", err)
 	}
 
 	secondEntry := logstore.New(storage.NewPath("usr/local/"), storage.NewPath("02.json"), storage.NewPath("02.tmp"), false, uint64(0))
 	if err != nil {
-		t.Error("Failed to create commit entry")
+		t.Errorf("Failed to create commit entry: %v", err)
 	}
 	if err := ls.Put(secondEntry, false); err != nil {
-		t.Error("Failed to put commit entry")
+		t.Errorf("Failed to put commit entry: %v", err)
 	}
 
 	latest, err := ls.Latest(storage.NewPath("usr/local/"))
 	if err != nil || latest == nil {
-		t.Error("Failed to get latest commit entry")
+		t.Errorf("Failed to get latest commit entry: %v", err)
 	}
 	if secondEntry.FileName().Raw != latest.FileName().Raw || secondEntry.TempPath().Raw != latest.TempPath().Raw {
 		t.Error("Got incorrect latest commit entry")

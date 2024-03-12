@@ -33,8 +33,8 @@ import (
 	"github.com/rivian/delta-go/storage/filestore"
 )
 
-// / Helper function to set up test state
-func setupCheckpointTest(t *testing.T, inputFolder string) (store *filestore.FileObjectStore, state state.StateStore, lock lock.Locker, checkpointLock lock.Locker) {
+// Helper function to set up test state
+func setupCheckpointTest(t *testing.T, inputFolder string) (store *filestore.FileObjectStore, state state.Store, lock lock.Locker, checkpointLock lock.Locker) {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -49,7 +49,11 @@ func setupCheckpointTest(t *testing.T, inputFolder string) (store *filestore.Fil
 		}
 	}
 
-	os.MkdirAll(filepath.Join(tmpDir, "_delta_log"), 0777)
+	deltaLogDirPath := filepath.Join(tmpDir, "_delta_log")
+	if err := os.MkdirAll(deltaLogDirPath, 0777); err != nil {
+		t.Errorf("Failed to create directory %s: %v", deltaLogDirPath, err)
+	}
+
 	state = filestate.New(tmpPath, "_delta_log/_commit.state")
 	lock = filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
 	checkpointLock = filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.Options{})
@@ -300,7 +304,6 @@ func TestTombstones(t *testing.T) {
 			if useOnDisk {
 				path := storage.NewPath("tempCheckpoint")
 				readConfig := OptimizeCheckpointConfiguration{OnDiskOptimization: true, WorkingStore: store, WorkingFolder: path}
-				defer store.Delete(path)
 				checkpointConfiguration.ReadWriteConfiguration = readConfig
 			}
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
@@ -311,7 +314,10 @@ func TestTombstones(t *testing.T) {
 			// Set tombstone expiry time to 2 hours
 			metadata := NewTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 2 hours"})
 			protocol := new(Protocol).Default()
-			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
+			if err := table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0)); err != nil {
+				t.Errorf("Failed to create table: %v", err)
+			}
+
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
 			add2 := getTestAdd(2 * 60 * 1000) // 2 mins ago
 			v, err := testDoCommit(t, table, []Action{add1})
@@ -419,7 +425,6 @@ func TestExpiredTombstones(t *testing.T) {
 			if useOnDisk {
 				path := storage.NewPath("tempCheckpoint")
 				readConfig := OptimizeCheckpointConfiguration{OnDiskOptimization: true, WorkingStore: store, WorkingFolder: path}
-				defer store.Delete(path)
 				checkpointConfiguration.ReadWriteConfiguration = readConfig
 			}
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
@@ -429,7 +434,10 @@ func TestExpiredTombstones(t *testing.T) {
 
 			metadata := NewTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 			protocol := new(Protocol).Default()
-			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
+			if err := table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0)); err != nil {
+				t.Errorf("Failed to create table: %v", err)
+			}
+
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
 			add2 := getTestAdd(2 * 60 * 1000) // 2 mins ago
 			v, err := testDoCommit(t, table, []Action{add1})
@@ -527,7 +535,6 @@ func TestCheckpointNoPartition(t *testing.T) {
 			if useOnDisk {
 				path := storage.NewPath("tempCheckpoint")
 				readConfig := OptimizeCheckpointConfiguration{OnDiskOptimization: true, WorkingStore: store, WorkingFolder: path}
-				defer store.Delete(path)
 				checkpointConfiguration.ReadWriteConfiguration = readConfig
 			}
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
@@ -537,7 +544,10 @@ func TestCheckpointNoPartition(t *testing.T) {
 
 			metadata := NewTableMetaData("", "", Format{}, GetSchema(new(tombstonesTestData)), make([]string, 0), map[string]string{string(DeletedFileRetentionDurationDeltaConfigKey): "interval 1 minute"})
 			protocol := new(Protocol).Default()
-			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
+			if err := table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0)); err != nil {
+				t.Errorf("Failed to create table: %v", err)
+			}
+
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
 			add2 := getTestAdd(2 * 60 * 1000) // 2 mins ago
 			v, err := testDoCommit(t, table, []Action{add1})
@@ -607,7 +617,6 @@ func TestMultiPartCheckpoint(t *testing.T) {
 			if useOnDisk {
 				path := storage.NewPath("tempCheckpoint")
 				readConfig := OptimizeCheckpointConfiguration{OnDiskOptimization: true, WorkingStore: store, WorkingFolder: path, ConcurrentCheckpointRead: 4}
-				defer store.Delete(path)
 				checkpointConfiguration.ReadWriteConfiguration = readConfig
 			}
 			checkpointConfiguration.ReadWriteConfiguration.ConcurrentCheckpointRead = concurrent
@@ -620,7 +629,10 @@ func TestMultiPartCheckpoint(t *testing.T) {
 			metadata := NewTableMetaData("test-data", "For testing multi-part checkpoints", Format{Provider: provider, Options: options},
 				SchemaTypeStruct{}, make([]string, 0), map[string]string{"delta.isTest": "true"})
 			protocol := new(Protocol).Default()
-			table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0))
+			if err := table.Create(*metadata, protocol, CommitInfo{}, make([]Add, 0)); err != nil {
+				t.Errorf("Failed to create table: %v", err)
+			}
+
 			paths := make([]string, 0, 10)
 			// Commit ten Add actions
 			for i := 0; i < 10; i++ {
@@ -649,7 +661,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 			// And a txn
 			txn := new(Txn)
 			appID := "testApp"
-			txn.AppId = appID
+			txn.AppID = appID
 			lastUpdated := int64(time.Now().UnixMilli())
 			txn.LastUpdated = &lastUpdated
 			txnVersion := v
@@ -771,7 +783,7 @@ func TestMultiPartCheckpoint(t *testing.T) {
 			if len(table.State.AppTransactionVersion) != 1 {
 				t.Errorf("Found %d app versions, expected 1", len(table.State.AppTransactionVersion))
 			} else {
-				version, ok := table.State.AppTransactionVersion[txn.AppId]
+				version, ok := table.State.AppTransactionVersion[txn.AppID]
 				if !ok {
 					t.Error("Did not find expected app in app versions")
 				} else {
@@ -1021,7 +1033,7 @@ func TestInvalidCheckpointFallback(t *testing.T) {
 	}
 }
 
-// / Check cleanup removes logs if enabled and doesn't if disabled
+// Check cleanup removes logs if enabled and doesn't if disabled
 func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 	tests := []bool{
 		true,
@@ -1034,7 +1046,9 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 
 			table := NewTable(store, lock, stateStore)
 			// Use log expiration of 10 minutes
-			table.Create(TableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, new(Protocol).Default(), CommitInfo{}, []Add{})
+			if err := table.Create(TableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 10 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): strconv.FormatBool(enableCleanupInTableConfig)}}, new(Protocol).Default(), CommitInfo{}, []Add{}); err != nil {
+				t.Errorf("Failed to create table: %v", err)
+			}
 
 			add1 := getTestAdd(3 * 60 * 1000) // 3 mins ago
 			add2 := getTestAdd(2 * 60 * 1000) // 2 mins ago
@@ -1134,15 +1148,17 @@ func TestCheckpointCleanupExpiredLogs(t *testing.T) {
 	}
 }
 
-// / Test with times requiring adjustment
-// / Based on the scenario described in the comments for BufferingLogDeletionIterator at
-// / https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
+// Test with times requiring adjustment
+// Based on the scenario described in the comments for BufferingLogDeletionIterator at
+// https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
 func TestCheckpointCleanupTimeAdjustment(t *testing.T) {
 	store, stateStore, lock, checkpointLock := setupCheckpointTest(t, "")
 
 	table := NewTable(store, lock, stateStore)
 	// Use log expiration of 12 minutes
-	table.Create(TableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []Add{})
+	if err := table.Create(TableMetaData{Configuration: map[string]string{string(LogRetentionDurationDeltaConfigKey): "interval 11 minutes", string(EnableExpiredLogCleanupDeltaConfigKey): "true"}}, Protocol{}, CommitInfo{}, []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
 
 	add1 := getTestAdd(20 * 60 * 1000) // 20 mins ago
 	add2 := getTestAdd(19 * 60 * 1000) // 19 mins ago

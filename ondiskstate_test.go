@@ -183,7 +183,11 @@ func TestCountAddsAndTombstones(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer parquetReader.Close()
+	defer func() {
+		if err := parquetReader.Close(); err != nil {
+			t.Errorf("Failed to close Parquet reader: %v", err)
+		}
+	}()
 
 	fileReader, err := pqarrow.NewFileReader(parquetReader, pqarrow.ArrowReadProperties{BatchSize: 10, Parallel: true}, pool)
 	if err != nil {
@@ -266,7 +270,12 @@ func TestSetupOnDiskOptimization(t *testing.T) {
 	}
 
 	tableState = NewTableState(-1)
-	store.Put(storage.NewPath(filepath.Join(config.WorkingFolder.Raw, "test.txt")), []byte{1, 2, 3})
+
+	filePath := storage.NewPath(filepath.Join(config.WorkingFolder.Raw, "test.txt"))
+	if err := store.Put(filePath, []byte{1, 2, 3}); err != nil {
+		t.Errorf("Failed to add file %s to file system", filePath)
+	}
+
 	err = setupOnDiskOptimization(&config, tableState, 0)
 	if !errors.Is(err, ErrCheckpointOptimizationWorkingFolder) {
 		t.Errorf("expected error setting optimization with non empty working store/folder but returned %v", err)
@@ -298,7 +307,7 @@ func TestOnDiskTombstoneCheckpointRows(t *testing.T) {
 	config.ReadWriteConfiguration = *optimizeConfig
 
 	checkpointRows := make([]CheckpointEntry, 0, 10)
-	checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &MetaData{Id: uuid.New()}})
+	checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &MetaData{ID: uuid.New()}})
 	checkpointRows = append(checkpointRows, CheckpointEntry{Protocol: &Protocol{MinReaderVersion: 1, MinWriterVersion: 1}})
 
 	err = onDiskTombstoneCheckpointRows(ts, 0, &checkpointRows, config)
@@ -391,7 +400,7 @@ func TestOnDiskAddCheckpointRows(t *testing.T) {
 	config.ReadWriteConfiguration = *optimizeConfig
 
 	checkpointRows := make([]CheckpointEntry, 0, 10)
-	checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &MetaData{Id: uuid.New()}})
+	checkpointRows = append(checkpointRows, CheckpointEntry{MetaData: &MetaData{ID: uuid.New()}})
 	checkpointRows = append(checkpointRows, CheckpointEntry{Protocol: &Protocol{MinReaderVersion: 1, MinWriterVersion: 1}})
 
 	err = onDiskAddCheckpointRows(ts, 0, &checkpointRows, config)

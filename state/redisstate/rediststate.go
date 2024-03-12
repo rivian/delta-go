@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package redisstate contains the resources required to create a Redis state store.
 package redisstate
 
 import (
@@ -21,24 +23,27 @@ import (
 	"github.com/rivian/delta-go/state"
 )
 
-type RedisStateStore struct {
+// Store stores a table's commit state in Redis.
+type Store struct {
 	Key         string
 	RedisClient redis.UniversalClient
 	ctx         context.Context
 }
 
 // Compile time check that FileStateStore implements state.StateStore
-var _ state.StateStore = (*RedisStateStore)(nil)
+var _ state.Store = (*Store)(nil)
 
-func New(client redis.UniversalClient, key string) *RedisStateStore {
-	s := new(RedisStateStore)
+// New creates a new Store instance.
+func New(client redis.UniversalClient, key string) *Store {
+	s := new(Store)
 	s.RedisClient = client
 	s.Key = key
 	s.ctx = context.TODO()
 	return s
 }
 
-func (s *RedisStateStore) Get() (state.CommitState, error) {
+// Get retrieves a state store's commit state.
+func (s *Store) Get() (state.CommitState, error) {
 	var commitState state.CommitState
 
 	data, err := s.RedisClient.Get(s.ctx, s.Key).Result()
@@ -57,7 +62,8 @@ func (s *RedisStateStore) Get() (state.CommitState, error) {
 	return commitState, nil
 }
 
-func (s *RedisStateStore) Put(commitState state.CommitState) error {
+// Put sets a state store's current commit state.
+func (s *Store) Put(commitState state.CommitState) error {
 	data, _ := json.Marshal(commitState)
 	err := s.RedisClient.Set(s.ctx, s.Key, data, 0).Err()
 	if err != nil {

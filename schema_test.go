@@ -24,7 +24,7 @@ func TestGetSchema(t *testing.T) {
 	}
 
 	type RowType struct {
-		Id        int       `parquet:"id,snappy" nullable:"false"`
+		ID        int       `parquet:"id,snappy" nullable:"false"`
 		Label     string    `parquet:"label,dict,snappy"`
 		Value     float64   `parquet:"value,snappy"`
 		SubStruct SubStruct `parquet:"sub_struct"`
@@ -48,7 +48,7 @@ func TestGetSchema(t *testing.T) {
 		t.Errorf("expected %v got %v", expectedSchema, schema)
 	}
 
-	b := schema.Json()
+	b := schema.JSON()
 	schemaString := string(b)
 	fmt.Println(schemaString)
 	expectedStr := `{"type":"struct","fields":[{"name":"id","type":"integer","nullable":false,"metadata":{}},{"name":"label","type":"string","nullable":true,"metadata":{}},{"name":"value","type":"double","nullable":true,"metadata":{}},{"name":"sub_struct","type":{"type":"struct","fields":[{"name":"data","type":"string","nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}`
@@ -80,7 +80,7 @@ func TestGetSchemaWithWeirdTypes(t *testing.T) {
 		t.Error("does not contain timestamp field")
 	}
 
-	b := schema.Json()
+	b := schema.JSON()
 	schemaString := string(b)
 	fmt.Println(schemaString)
 	expectedStr := `{"type":"struct","fields":[{"name":"bin","type":"binary","nullable":true,"metadata":{}},{"name":"timestamp","type":"timestamp","nullable":true,"metadata":{}}]}`

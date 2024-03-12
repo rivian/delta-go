@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package lock contains the resources required to create a lock.
 package lock
 
 import (
@@ -17,8 +19,10 @@ import (
 )
 
 var (
+	// ErrLockNotObtained is returned when a lock cannot be returned.
 	ErrLockNotObtained error = errors.New("the lock could not be obtained")
-	ErrUnableToUnlock  error = errors.New("the lock could not be released")
+	// ErrUnableToUnlock is returned when a lock cannot be released.
+	ErrUnableToUnlock error = errors.New("the lock could not be released")
 )
 
 // Locker is the abstract interface for providing a lock client that stores data in the lock

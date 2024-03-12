@@ -54,7 +54,7 @@ func main() {
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.Json()),
+		Stats:            string(stats.JSON()),
 		PartitionValues:  make(map[string]string),
 	}
 	transaction := table.CreateTransaction(delta.NewTransactionOptions())

@@ -11,10 +11,11 @@ fmt:
 	@gofmt -w $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
 lint: vendor
-	@echo "✓ Linting source code with https://staticcheck.io/ ..."
-	@go run honnef.co/go/tools/cmd/staticcheck@v0.4.0 ./...
+	@echo "✓ Linting source code with https://golangci-lint.run/ ..."
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@golangci-lint run
 
-test: lint
+test:
 	@echo "✓ Running tests ..."
 	@go run gotest.tools/gotestsum@latest --format pkgname-and-test-fails \
 		--no-summary=skipped --raw-command go test -v \

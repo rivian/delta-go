@@ -11,6 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -28,8 +30,8 @@ var (
 	ErrParseSchema error = errors.New("unable to parse schema")
 )
 
-// / Type alias for a string expected to match a GUID/UUID format
-type Guid string
+// GUID is a type alias for a string expected to match a GUID/UUID format.
+type GUID string
 
 // Schema represents the schema of the Delta table.
 type Schema = SchemaTypeStruct
@@ -75,24 +77,40 @@ type SchemaTypeMap struct {
 type SchemaDataTypeName string
 
 const (
-	String    SchemaDataTypeName = "string"    //  * string: utf8
-	Long      SchemaDataTypeName = "long"      //  * long  // undocumented, i64?
-	Integer   SchemaDataTypeName = "integer"   //  * integer: i32
-	Short     SchemaDataTypeName = "short"     //  * short: i16
-	Byte      SchemaDataTypeName = "byte"      //  * byte: i8
-	Float     SchemaDataTypeName = "float"     //  * float: f32
-	Double    SchemaDataTypeName = "double"    //  * double: f64
-	Boolean   SchemaDataTypeName = "boolean"   //  * boolean: bool
-	Binary    SchemaDataTypeName = "binary"    //  * binary: a sequence of binary data
-	Date      SchemaDataTypeName = "date"      //  * date: A calendar date, represented as a year-month-day triple without a timezone
+	// String is the schema data type representing a string.
+	String SchemaDataTypeName = "string" //  * string: utf8
+	// Long is the schema data type representing a long.
+	Long SchemaDataTypeName = "long" //  * long  // undocumented, i64?
+	// Integer is the schema data type representing an integer.
+	Integer SchemaDataTypeName = "integer" //  * integer: i32
+	// Short is the schema data type representing a short.
+	Short SchemaDataTypeName = "short" //  * short: i16
+	// Byte is the schema data type representing a byte.
+	Byte SchemaDataTypeName = "byte" //  * byte: i8
+	// Float is the schema data type representing a float.
+	Float SchemaDataTypeName = "float" //  * float: f32
+	// Double is the schema data type representing a double.
+	Double SchemaDataTypeName = "double" //  * double: f64
+	// Boolean is the schema data type representing a boolean.
+	Boolean SchemaDataTypeName = "boolean" //  * boolean: bool
+	// Binary is the schema data type representing a binary.
+	Binary SchemaDataTypeName = "binary" //  * binary: a sequence of binary data
+	// Date is the schema data type representing a date.
+	Date SchemaDataTypeName = "date" //  * date: A calendar date, represented as a year-month-day triple without a timezone
+	// Timestamp is the schema data type representing a timestamp.
 	Timestamp SchemaDataTypeName = "timestamp" //  * timestamp: Microsecond precision timestamp without a timezone
-	Struct    SchemaDataTypeName = "struct"    //  * struct:
-	Array     SchemaDataTypeName = "array"     //  * array:
-	Map       SchemaDataTypeName = "map"       //  * map:
-	Unknown   SchemaDataTypeName = "unknown"
+	// Struct is the schema data type representing a struct.
+	Struct SchemaDataTypeName = "struct" //  * struct:
+	// Array is the schema data type representing an array.
+	Array SchemaDataTypeName = "array" //  * array:
+	// Map is the schema data type representing a map.
+	Map SchemaDataTypeName = "map" //  * map:
+	// Unknown is the schema data type representing an unknown.
+	Unknown SchemaDataTypeName = "unknown"
 )
 
-func (s *SchemaTypeStruct) Json() []byte {
+// JSON marshals a struct type field in a schema into a JSON object.
+func (s *SchemaTypeStruct) JSON() []byte {
 	containerStruct := SchemaTypeStruct{
 		Type:   Struct,
 		Fields: s.Fields,
@@ -101,6 +119,7 @@ func (s *SchemaTypeStruct) Json() []byte {
 	return b
 }
 
+// UnmarshalJSON unmarshals a JSON object into a schema field.
 func (s *SchemaField) UnmarshalJSON(b []byte) error {
 	data := make(map[string]interface{})
 	if err := json.Unmarshal(b, &data); err != nil {
