@@ -84,7 +84,7 @@ func TestStatsFromJSON(t *testing.T) {
 
 	statsStr := "{\"numRecords\":123,\"tightBounds\":true,\"minValues\":{\"field1\":\"hello\",\"id\":5},\"maxValues\":{\"field1\":\"world\",\"id\":50},\"nullCount\":{\"field1\":2,\"id\":0}}"
 
-	stats, err := StatsFromJson([]byte(statsStr))
+	stats, err := StatsFromJSON([]byte(statsStr))
 	if err != nil {
 		t.Fatalf("Error in StatsFromJson: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestStatsFromSource(t *testing.T) {
 					t.Errorf("Expected missing columns %v returned %v", tt.wantMissing, missingColumns)
 				}
 			}
-			statsJSON := stats.Json()
+			statsJSON := stats.JSON()
 			statsString := string(statsJSON)
 			if statsString != tt.want {
 				t.Errorf("Expected %s returned %s", tt.want, statsString)

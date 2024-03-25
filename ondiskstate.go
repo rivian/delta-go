@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -313,7 +315,7 @@ func updateOnDiskPartState(
 }
 
 // Count the adds and tombstones in a checkpoint file and add them to the state total
-func countAddsAndTombstones(tableState *TableState, checkpointBytes []byte, arrowSchema *arrow.Schema, allocator memory.Allocator) error {
+func countAddsAndTombstones(tableState *TableState, checkpointBytes []byte, arrowSchema *arrow.Schema, allocator memory.Allocator) (returnErr error) {
 	if allocator == nil {
 		allocator = memory.DefaultAllocator
 	}
@@ -328,7 +330,12 @@ func countAddsAndTombstones(tableState *TableState, checkpointBytes []byte, arro
 	if err != nil {
 		return err
 	}
-	defer parquetReader.Close()
+	defer func() {
+		if err := parquetReader.Close(); err != nil {
+			returnErr = errors.Join(errors.New("failed to close Parquet reader"), err)
+		}
+	}()
+
 	arrowRdr, err := pqarrow.NewFileReader(parquetReader, pqarrow.ArrowReadProperties{Parallel: true, BatchSize: 10}, allocator)
 	if err != nil {
 		return err
@@ -365,7 +372,7 @@ type tempFileSchemaDetails struct {
 	removeDeletionTimestampIndex    int
 }
 
-// / This only supports top level checkpoint column skipping, by using excludePrefixes
+// This only supports top level checkpoint column skipping, by using excludePrefixes
 func (d *tempFileSchemaDetails) setFromArrowSchema(arrowSchema *arrow.Schema, excludePrefixes []string) error {
 	d.schema = arrowSchema
 
@@ -491,9 +498,6 @@ func newCheckpointEntryRecord(count int) (arrow.Record, error) {
 
 	checkpointEntryBuilder := array.NewRecordBuilder(memory.DefaultAllocator, arrowSchema)
 	defer checkpointEntryBuilder.Release()
-	if err != nil {
-		return nil, err
-	}
 	for _, field := range checkpointEntryBuilder.Fields() {
 		field.AppendNulls(count)
 	}
@@ -823,12 +827,12 @@ func onDiskAddCheckpointRows(
 		func(t *tempFileSchemaDetails) int { return t.addFieldIndex })
 }
 
-// / The slice of functions returned contains cleanup functions that should be immediately called with defer by the caller,
-// / even if an error is also returned.
-// / Also, the cleanup functions do cleanup for everything including the returned TableReader
-// / If excludePrefixes is set, the parquet schema will be adjusted to skip reading any columns starting with that prefix
-func openFileForTableReader(store storage.ObjectStore, path storage.Path, excludePrefixes []string) (*array.TableReader, *tempFileSchemaDetails, []func(), error) {
-	deferFuncs := make([]func(), 0, 3)
+// The slice of functions returned contains cleanup functions that should be immediately called with defer by the caller,
+// even if an error is also returned.
+// Also, the cleanup functions do cleanup for everything including the returned TableReader
+// If excludePrefixes is set, the parquet schema will be adjusted to skip reading any columns starting with that prefix
+func openFileForTableReader(store storage.ObjectStore, path storage.Path, excludePrefixes []string) (tableReader *array.TableReader, schemaDetails *tempFileSchemaDetails, deferFuncs []func(), returnErr error) {
+	deferFuncs = make([]func(), 0, 3)
 	checkpointBytes, err := store.Get(path)
 	if err != nil {
 		return nil, nil, deferFuncs, err
@@ -839,7 +843,9 @@ func openFileForTableReader(store storage.ObjectStore, path storage.Path, exclud
 		return nil, nil, deferFuncs, err
 	}
 	closeIgnoreErr := func() {
-		parquetReader.Close()
+		if err := parquetReader.Close(); err != nil {
+			returnErr = err
+		}
 	}
 	deferFuncs = append(deferFuncs, closeIgnoreErr)
 
@@ -848,7 +854,7 @@ func openFileForTableReader(store storage.ObjectStore, path storage.Path, exclud
 		return nil, nil, deferFuncs, err
 	}
 
-	schemaDetails := new(tempFileSchemaDetails)
+	schemaDetails = new(tempFileSchemaDetails)
 	arrowSchema, err := arrowRdr.Schema()
 	if err != nil {
 		return nil, nil, deferFuncs, err
@@ -886,14 +892,14 @@ func openFileForTableReader(store storage.ObjectStore, path storage.Path, exclud
 	}
 	deferFuncs = append(deferFuncs, tbl.Release)
 
-	tableReader := array.NewTableReader(tbl, 0)
+	tableReader = array.NewTableReader(tbl, 0)
 	deferFuncs = append(deferFuncs, tableReader.Release)
 
 	return tableReader, schemaDetails, deferFuncs, nil
 }
 
 // Write the given records to the store
-func writeRecords(store storage.ObjectStore, path storage.Path, arrschema *arrow.Schema, records []arrow.Record) error {
+func writeRecords(store storage.ObjectStore, path storage.Path, arrschema *arrow.Schema, records []arrow.Record) (returnErr error) {
 	props := parquet.NewWriterProperties(
 		parquet.WithCompression(compress.Codecs.Zstd),
 	)
@@ -911,7 +917,11 @@ func writeRecords(store storage.ObjectStore, path storage.Path, arrschema *arrow
 		if err != nil {
 			return err
 		}
-		defer closeFunc()
+		defer func() {
+			if err := closeFunc(); err != nil {
+				returnErr = err
+			}
+		}()
 		w = wr
 	} else {
 		buf = new(bytes.Buffer)
@@ -928,7 +938,11 @@ func writeRecords(store storage.ObjectStore, path storage.Path, arrschema *arrow
 			return innerErr
 		}
 
-		defer writer.Close()
+		defer func() {
+			if err := writer.Close(); err != nil {
+				returnErr = err
+			}
+		}()
 		for _, record := range records {
 			innerErr = writer.Write(record)
 			if innerErr != nil {
@@ -942,7 +956,9 @@ func writeRecords(store storage.ObjectStore, path storage.Path, arrschema *arrow
 	}
 
 	if !store.SupportsWriter() {
-		store.Put(path, buf.Bytes())
+		if err := store.Put(path, buf.Bytes()); err != nil {
+			return errors.Join(errors.New("failed to add data to object at storage path"), err)
+		}
 	}
 	return nil
 }

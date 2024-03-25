@@ -54,8 +54,17 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 	l := filelock.New(storage.NewPath(""), "tmp/_delta_log/_commit.lock", filelock.Options{})
 	deltaTable := Table{Store: &store, LockClient: l}
 	options := TransactionOptions{MaxRetryCommitAttempts: 3}
-	os.MkdirAll("tmp/_delta_log/", 0700)
-	defer os.RemoveAll("tmp/_delta_log/")
+
+	tempDeltaLogDir := "tmp/_delta_log/"
+	if err := os.MkdirAll(tempDeltaLogDir, 0700); err != nil {
+		t.Errorf("Failed to create directory %s", tempDeltaLogDir)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempDeltaLogDir); err != nil {
+			t.Errorf("Failed to remove directory %s", tempDeltaLogDir)
+		}
+	}()
+
 	transaction := deltaTable.CreateTransaction(options)
 	add := Add{
 		Path:             "part-00000-80a9bb40-ec43-43b6-bb8a-fc66ef7cd768-c000.snappy.parquet",
@@ -95,7 +104,11 @@ func TestDeltaTransactionPrepareCommit(t *testing.T) {
 
 func TestDeltaTableReadCommitVersion(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+
+	if err := table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
@@ -151,7 +164,7 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 		Path:             path,
 		Size:             984,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.Json()),
+		Stats:            string(stats.JSON()),
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
@@ -213,7 +226,11 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 
 func TestDeltaTableTryCommitTransaction(t *testing.T) {
 	table, _, _ := setupTest(t)
-	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+
+	if err := table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
@@ -251,12 +268,17 @@ func TestDeltaTableTryCommitTransaction(t *testing.T) {
 func TestTryCommitWithExistingLock(t *testing.T) {
 	tmpDir := t.TempDir()
 	fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
-	os.MkdirAll(filepath.Dir(fileLockKey), 0700)
+	fileLockKeyDir := filepath.Dir(fileLockKey)
+	if err := os.MkdirAll(filepath.Dir(fileLockKey), 0700); err != nil {
+		t.Errorf("Failed to create directory %s", fileLockKeyDir)
+	}
 
 	tmpPath := storage.NewPath(tmpDir)
 	//Create w0 commit lock
 	w0lockClient := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{TTL: 10 * time.Second})
-	w0lockClient.TryLock()
+	if _, err := w0lockClient.TryLock(); err != nil {
+		t.Errorf("Failed to acquire file lock: %v", err)
+	}
 	//try_commit while lock is held by w0
 	lockClient := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{TTL: 60 * time.Second})
 	// lockClient.Unlock()
@@ -283,7 +305,10 @@ func TestTryCommitWithExistingLock(t *testing.T) {
 	}
 
 	//try_commit after w0.Unlock()
-	w0lockClient.Unlock()
+	if err := w0lockClient.Unlock(); err != nil {
+		t.Errorf("Failed to release file lock: %v", err)
+	}
+
 	time.Sleep(time.Second)
 	version, err = transaction.Commit()
 	if version != 1 {
@@ -310,7 +335,10 @@ func (l *testBrokenUnlockLocker) Unlock() error {
 func TestCommitUnlockFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 	fileLockKey := filepath.Join(tmpDir, "_delta_log/_commit.lock")
-	os.MkdirAll(filepath.Dir(fileLockKey), 0700)
+	fileLockKeyDir := filepath.Dir(fileLockKey)
+	if err := os.MkdirAll(filepath.Dir(fileLockKey), 0700); err != nil {
+		t.Errorf("Failed to create directory %s", fileLockKeyDir)
+	}
 
 	tmpPath := storage.NewPath(tmpDir)
 
@@ -328,7 +356,7 @@ func TestCommitUnlockFailure(t *testing.T) {
 	}
 }
 
-// / Test using local state and empty lock; this scenario is for local scripts and testing
+// Test using local state and empty lock; this scenario is for local scripts and testing
 func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpPath := storage.NewPath(tmpDir)
@@ -337,7 +365,10 @@ func TestTryCommitWithNilLockAndLocalState(t *testing.T) {
 	lock := nillock.New()
 	table := NewTable(store, lock, storeState)
 
-	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+	if err := table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
 	transaction := setupTransaction(t, table, NewTransactionOptions())
 
 	commit, err := transaction.prepareCommit()
@@ -554,7 +585,12 @@ func TestDeltaTableExists(t *testing.T) {
 
 	// Move the new version file to a backup folder that starts with _delta_log
 	commitPath = filepath.Join(tmpDir, CommitURIFromVersion(1).Raw)
-	os.MkdirAll(filepath.Join(tmpDir, "_delta_log.bak"), 0700)
+
+	dirPath := filepath.Join(tmpDir, "_delta_log.bak")
+	if err := os.MkdirAll(dirPath, 0700); err != nil {
+		t.Errorf("Failed to create directory %s", dirPath)
+	}
+
 	fakeCommitPath := filepath.Join(tmpDir, "_delta_log.bak/00000000000000000000.json")
 	err = os.Rename(commitPath, fakeCommitPath)
 	if err != nil {
@@ -641,8 +677,10 @@ func TestDeltaTableExistsManyTempFiles(t *testing.T) {
 	}
 
 	for i := 0; i < 1100; i++ {
-		tempFilePath := fmt.Sprintf("_delta_log/.fake_optimize_%d", i)
-		table.Store.Put(storage.NewPath(tempFilePath), []byte{})
+		tempFilePath := storage.NewPath(fmt.Sprintf("_delta_log/.fake_optimize_%d", i))
+		if err := table.Store.Put(tempFilePath, []byte{}); err != nil {
+			t.Errorf("failed to add data to object at storage path %s", tempFilePath.Raw)
+		}
 	}
 
 	tableExists, err = table.Exists()
@@ -683,7 +721,11 @@ func TestDeltaTableTryCommitLoop(t *testing.T) {
 
 func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+
+	if err := table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
 	transaction := setupTransaction(t, table, TransactionOptions{MaxRetryCommitAttempts: 5, RetryWaitDuration: time.Second})
 
 	commit, err := transaction.prepareCommit()
@@ -698,11 +740,17 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 
 	//Some other process writes commit 0002.json
 	fakeCommit2 := filepath.Join(tmpDir, CommitURIFromVersion(2).Raw)
-	os.WriteFile(fakeCommit2, []byte("temp commit data"), 0700)
+
+	if err := os.WriteFile(fakeCommit2, []byte("temp commit data"), 0700); err != nil {
+		t.Errorf("Failed to write data to file %s", fakeCommit2)
+	}
 
 	//Some other process writes commit 0003.json
 	fakeCommit3 := filepath.Join(tmpDir, CommitURIFromVersion(3).Raw)
-	os.WriteFile(fakeCommit3, []byte("temp commit data"), 0700)
+
+	if err := os.WriteFile(fakeCommit3, []byte("temp commit data"), 0700); err != nil {
+		t.Errorf("Failed to write data to file %s", fakeCommit3)
+	}
 
 	//create the next commit, should be 004.json after trying 003.json
 	newCommit, err := transaction.prepareCommit()
@@ -733,7 +781,11 @@ func TestDeltaTableTryCommitLoopWithCommitExists(t *testing.T) {
 
 func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	table, _, tmpDir := setupTest(t)
-	table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{})
+
+	if err := table.Create(TableMetaData{}, Protocol{}, CommitInfo{}, []Add{}); err != nil {
+		t.Errorf("Failed to create table: %v", err)
+	}
+
 	transaction := setupTransaction(t, table, TransactionOptions{
 		MaxRetryCommitAttempts:                5, //Should break on max attempts if the latest version logic fails
 		RetryWaitDuration:                     time.Second,
@@ -755,7 +807,11 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	// Write 0 to state
 	commitState, _ := table.StateStore.Get()
 	commitState.Version = 0
-	table.StateStore.Put(commitState)
+
+	if err := table.StateStore.Put(commitState); err != nil {
+		t.Errorf("Failed to put commit state in state store: %v", err)
+	}
+
 	table.State.Version = 0
 
 	//create the next commit, should be 010.json after finding that 000.json exists and loading the tabel state
@@ -786,8 +842,14 @@ func TestDeltaTableTryCommitLoopStateStoreOutOfSync(t *testing.T) {
 	// Test SyncStateStore by putting the state store out of sync
 
 	commitState.Version = 2
-	table.StateStore.Put(commitState)
-	table.syncStateStore()
+
+	if err := table.StateStore.Put(commitState); err != nil {
+		t.Errorf("Failed to put commit state in state store: %v", err)
+	}
+
+	if err := table.syncStateStore(); err != nil {
+		t.Errorf("Failed to sync state store: %v", err)
+	}
 
 	commitState, _ = table.StateStore.Get()
 	if commitState.Version != 10 {
@@ -878,7 +940,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.Json()),
+		Stats:            string(stats.JSON()),
 		PartitionValues:  make(map[string]string),
 	}
 
@@ -924,7 +986,7 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 				Size:             p.Size,
 				DataChange:       true,
 				ModificationTime: time.Now().UnixMilli(),
-				Stats:            string(stats.Json()),
+				Stats:            string(stats.JSON()),
 				PartitionValues:  make(map[string]string),
 			}
 
@@ -989,7 +1051,7 @@ func TestCreateWithParquet(t *testing.T) {
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.Json()),
+		Stats:            string(stats.JSON()),
 		PartitionValues:  make(map[string]string),
 	}
 
@@ -1004,7 +1066,7 @@ func TestCreateWithParquet(t *testing.T) {
 }
 
 type testData struct {
-	Id        int64    `json:"id" parquet:"name=id"`
+	ID        int64    `json:"id" parquet:"name=id"`
 	Timestamp int64    `json:"timestamp" parquet:"name=timestamp, converted=timestamp_micros"`
 	Label     string   `json:"label" parquet:"name=label, converted=UTF8"`
 	Value1    float64  `json:"value1" parquet:"name=value1"`
@@ -1022,7 +1084,7 @@ func (t *testData) UnmarshalJSON(data []byte) error {
 	for k, v := range m {
 		switch k {
 		case "id":
-			t.Id = int64(v.(float64))
+			t.ID = int64(v.(float64))
 		case "timestamp":
 			t.Timestamp = int64(v.(float64))
 		case "label":
@@ -1039,7 +1101,7 @@ func (t *testData) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (data *testData) getSchema() SchemaTypeStruct {
+func (t *testData) getSchema() SchemaTypeStruct {
 	// schema := GetSchema(data)
 	schema := SchemaTypeStruct{
 		Fields: []SchemaField{
@@ -1066,7 +1128,7 @@ func makeTestData(n int) []testData {
 		b := make([]byte, 8)
 		binary.LittleEndian.PutUint64(b, uint64(rand.Int()))
 		row := testData{
-			Id:        int64(id),
+			ID:        int64(id),
 			Timestamp: time.Now().UnixMicro(),
 			Label:     uuid.NewString(),
 			Value1:    v,
@@ -1082,7 +1144,7 @@ func makeTestDataStats(data []testData) Stats {
 	stats := Stats{}
 	for _, row := range data {
 		stats.NumRecords++
-		UpdateStats(&stats, "id", &row.Id)
+		UpdateStats(&stats, "id", &row.ID)
 		UpdateStats(&stats, "timestamp", &row.Timestamp)
 		// i := row.T2.UnixMicro()
 		// UpdateStats(&stats, "t2", &i)
@@ -1129,8 +1191,8 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 	return p, nil
 }
 
-// / Helper function to set up test state
-func setupTest(t *testing.T) (table *Table, state *filestate.FileStateStore, tmpDir string) {
+// Helper function to set up test state
+func setupTest(t *testing.T) (table *Table, state *filestate.Store, tmpDir string) {
 	t.Helper()
 
 	tmpDir = t.TempDir()
@@ -1142,8 +1204,8 @@ func setupTest(t *testing.T) (table *Table, state *filestate.FileStateStore, tmp
 	return
 }
 
-// / Helper function to set up a basic transaction
-func setupTransaction(t *testing.T, table *Table, opts TransactionOptions) (transaction *transaction) {
+// Helper function to set up a basic transaction
+func setupTransaction(t *testing.T, table *Table, opts TransactionOptions) (transaction *Transaction) {
 	t.Helper()
 
 	transaction = table.CreateTransaction(opts)
@@ -1310,7 +1372,9 @@ func TestLatestVersion(t *testing.T) {
 		fileName := fmt.Sprintf(")_%s.json", uuid.New().String())
 		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
 
-		table.Store.Put(filePath, nil)
+		if err := table.Store.Put(filePath, nil); err != nil {
+			t.Errorf("Failed to add data to object at storage path %s", filePath.Raw)
+		}
 	}
 
 	if _, err := table.LatestVersion(); !errors.Is(err, ErrNotATable) { // if NO error
@@ -1351,7 +1415,9 @@ func TestLatestVersion(t *testing.T) {
 		fileName := fmt.Sprintf("_commit_%s.json.tmp", uuid.New().String())
 		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
 
-		table.Store.Put(filePath, nil)
+		if err := table.Store.Put(filePath, nil); err != nil {
+			t.Errorf("Failed to add data to object at storage path %s", filePath.Raw)
+		}
 	}
 
 	version, err = table.LatestVersion()
@@ -1365,7 +1431,9 @@ func TestLatestVersion(t *testing.T) {
 	for version := 2; version < 2100; version++ {
 		filePath := CommitURIFromVersion(int64(version))
 
-		table.Store.Put(filePath, nil)
+		if err := table.Store.Put(filePath, nil); err != nil {
+			t.Errorf("Failed to add data to object at storage path %s", filePath.Raw)
+		}
 	}
 
 	version, err = table.LatestVersion()
@@ -1380,7 +1448,9 @@ func TestLatestVersion(t *testing.T) {
 		fileName := fmt.Sprintf("%020d", version) + ".checkpoint.parquet"
 		filePath := storage.PathFromIter([]string{"_delta_log", fileName})
 
-		table.Store.Put(filePath, nil)
+		if err := table.Store.Put(filePath, nil); err != nil {
+			t.Errorf("Failed to add data to object at storage path %s", filePath.Raw)
+		}
 	}
 
 	version, err = table.LatestVersion()
@@ -1394,7 +1464,9 @@ func TestLatestVersion(t *testing.T) {
 	for version := 0; version < 1000; version++ {
 		filePath := CommitURIFromVersion(int64(version))
 
-		table.Store.Delete(filePath)
+		if err := table.Store.Delete(filePath); err != nil {
+			t.Errorf("Failed to remove object at storage path %s", filePath.Raw)
+		}
 	}
 
 	version, err = table.LatestVersion()
@@ -1408,7 +1480,9 @@ func TestLatestVersion(t *testing.T) {
 	for version := 2100; version < 4100; version++ {
 		filePath := CommitURIFromVersion(int64(version))
 
-		table.Store.Put(filePath, nil)
+		if err := table.Store.Put(filePath, nil); err != nil {
+			t.Errorf("Failed to add data to object at storage path %s", filePath.Raw)
+		}
 	}
 
 	checkpoint := CheckPoint{
@@ -1469,10 +1543,14 @@ func BenchmarkLatestVersion(b *testing.B) {
 	for version := 0; version < 1000; version++ {
 		filePath := CommitURIFromVersion(int64(version))
 
-		table.Store.Put(filePath, nil)
+		if err := table.Store.Put(filePath, nil); err != nil {
+			b.Errorf("Failed to add data to object at storage path %s", filePath.Raw)
+		}
 	}
 
-	table.LatestVersion()
+	if _, err := table.LatestVersion(); err != nil {
+		b.Errorf("Failed to get table's latest version: %v", err)
+	}
 }
 
 func TestLoadVersion(t *testing.T) {
@@ -1544,7 +1622,7 @@ func TestLoadVersion(t *testing.T) {
 	options := map[string]string{}
 	expectedState.CurrentMetadata = NewTableMetaData("", "", Format{Provider: provider, Options: options}, schema, []string{"date"}, make(map[string]string))
 	expectedState.CurrentMetadata.CreatedTime = time.Unix(1627668675, 432000000)
-	expectedState.CurrentMetadata.Id = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
+	expectedState.CurrentMetadata.ID = uuid.MustParse("853536c9-0abe-4e66-9732-1718e542e6aa")
 
 	if !reflect.DeepEqual(*expectedState, table.State) {
 		t.Errorf("table state expected %v, found %v", *expectedState, table.State)
@@ -1637,7 +1715,7 @@ func TestCommitLogStore_Sequential(t *testing.T) {
 
 	var (
 		transactions     = 101
-		tableTransaction *transaction
+		tableTransaction *Transaction
 	)
 	for i := 1; i < transactions; i++ {
 		transaction := table.CreateTransaction(NewTransactionOptions())
@@ -1782,7 +1860,7 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 		maxGoroutines    = 5
 		guard            = make(chan struct{}, maxGoroutines)
 		transactions     = 101
-		tableTransaction *transaction
+		tableTransaction *Transaction
 	)
 	for i := 1; i < transactions; i++ {
 		i := i
@@ -1931,7 +2009,7 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 	var (
 		wg               sync.WaitGroup
 		transactions     = 101
-		tableTransaction *transaction
+		tableTransaction *Transaction
 	)
 	for i := 1; i < transactions; i++ {
 		i := i
@@ -2122,8 +2200,8 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 	var (
 		wg                     sync.WaitGroup
 		transactions           = 100
-		firstTableTransaction  *transaction
-		secondTableTransaction *transaction
+		firstTableTransaction  *Transaction
+		secondTableTransaction *Transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
 		i := i
@@ -2415,8 +2493,8 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 	var (
 		wg                     sync.WaitGroup
 		transactions           = 100
-		firstTableTransaction  *transaction
-		secondTableTransaction *transaction
+		firstTableTransaction  *Transaction
+		secondTableTransaction *Transaction
 	)
 	for i := 1; i < transactions/2+1; i++ {
 		i := i

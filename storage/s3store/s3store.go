@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package s3store contains the resources required to interact with an S3 store.
 package s3store
 
 import (
@@ -29,7 +31,7 @@ import (
 	"github.com/rivian/delta-go/storage"
 )
 
-// type filePutter func(key string, data io.ReadSeeker, creds *credentials.Credentials) error
+// S3ObjectStore allows interaction with an S3 object store.
 type S3ObjectStore struct {
 	// Source object key
 	Client  s3utils.Client
@@ -44,6 +46,7 @@ type S3ObjectStore struct {
 // Compile time check that S3ObjectStore implements storage.ObjectStore
 var _ storage.ObjectStore = (*S3ObjectStore)(nil)
 
+// New creates a new S3ObjectStore instance.
 func New(client s3utils.Client, baseURI storage.Path) (*S3ObjectStore, error) {
 	store := new(S3ObjectStore)
 	store.Client = client
@@ -62,6 +65,7 @@ func New(client s3utils.Client, baseURI storage.Path) (*S3ObjectStore, error) {
 	return store, nil
 }
 
+// Put adds an object to a bucket.
 func (s *S3ObjectStore) Put(location storage.Path, data []byte) error {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
@@ -80,6 +84,7 @@ func (s *S3ObjectStore) Put(location storage.Path, data []byte) error {
 
 }
 
+// Get retrieves an object.
 func (s *S3ObjectStore) Get(location storage.Path) ([]byte, error) {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
@@ -106,6 +111,7 @@ func (s *S3ObjectStore) Get(location storage.Path) ([]byte, error) {
 	return bodyBytes, nil
 }
 
+// Delete removes an object from a bucket.
 func (s *S3ObjectStore) Delete(location storage.Path) error {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {
@@ -122,6 +128,7 @@ func (s *S3ObjectStore) Delete(location storage.Path) error {
 	return nil
 }
 
+// RenameIfNotExists renames an object if it does not exist.
 func (s *S3ObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
 	// return ErrObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
@@ -136,6 +143,7 @@ func (s *S3ObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) er
 	return nil
 }
 
+// Rename renames an object.
 func (s *S3ObjectStore) Rename(from storage.Path, to storage.Path) error {
 	srcKey, err := url.JoinPath(s.path, from.Raw)
 	if err != nil {
@@ -165,6 +173,7 @@ func (s *S3ObjectStore) Rename(from storage.Path, to storage.Path) error {
 	return nil
 }
 
+// Head retrieves metadata from an object without returning the object itself.
 func (s *S3ObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) {
 	var m storage.ObjectMeta
 	key, err := url.JoinPath(s.path, location.Raw)
@@ -228,6 +237,7 @@ func getListInputAndTrimPrefix(s *S3ObjectStore, prefix storage.Path, previousRe
 	return listInput, pathWithSeparators, nil
 }
 
+// List lists objects in a bucket using pagination.
 func (s *S3ObjectStore) List(prefix storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
 	listInput, resultsTrimPrefix, err := getListInputAndTrimPrefix(s, prefix, previousResult)
 	if err != nil {
@@ -254,6 +264,7 @@ func (s *S3ObjectStore) List(prefix storage.Path, previousResult *storage.ListRe
 	return listResult, nil
 }
 
+// ListAll lists objects in a bucket.
 func (s *S3ObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error) {
 	var listResult storage.ListResult
 	listInput, resultsTrimPrefix, err := getListInputAndTrimPrefix(s, prefix, nil)
@@ -281,18 +292,22 @@ func (s *S3ObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error)
 	return listResult, nil
 }
 
+// IsListOrdered returns true.
 func (s *S3ObjectStore) IsListOrdered() bool {
 	return true
 }
 
+// SupportsWriter returns false.
 func (s *S3ObjectStore) SupportsWriter() bool {
 	return false
 }
 
-func (s *S3ObjectStore) Writer(to storage.Path, flag int) (io.Writer, func(), error) {
+// Writer returns an operation not supported error.
+func (s *S3ObjectStore) Writer(to storage.Path, flag int) (io.Writer, func() error, error) {
 	return nil, nil, storage.ErrOperationNotSupported
 }
 
+// DeleteFolder removes objects with a certain prefix.
 func (s *S3ObjectStore) DeleteFolder(location storage.Path) error {
 	deletedAnything := false
 	results, err := s.ListAll(location)
@@ -321,6 +336,7 @@ func (s *S3ObjectStore) BaseURI() storage.Path {
 	return s.baseURI
 }
 
+// ReadAt counts the number of bytes read from an object.
 func (s *S3ObjectStore) ReadAt(location storage.Path, p []byte, off int64, max int64) (n int, err error) {
 	key, err := url.JoinPath(s.path, location.Raw)
 	if err != nil {

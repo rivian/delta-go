@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package logstore contains the resources required to create a log store.
 package logstore
 
 import (
@@ -64,7 +66,7 @@ func (ce *CommitEntry) IsComplete() bool {
 	return ce.isComplete
 }
 
-// ExpireTime gets the expiration time of a commit entry.
+// ExpirationTime gets the expiration time of a commit entry.
 func (ce *CommitEntry) ExpirationTime() uint64 {
 	return ce.expirationTime
 }

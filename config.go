@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -19,33 +21,55 @@ import (
 	"time"
 )
 
-type DeltaConfigKey string
+// ConfigKey represents a Delta configuration.
+type ConfigKey string
 
 var (
+	//ErrConfigValidation is returned when a Delta configuration cannot be validated.
 	ErrConfigValidation = errors.New("error validating delta configuration")
 )
 
 const (
-	AppendOnlyDeltaConfigKey                      DeltaConfigKey = "delta.appendOnly"
-	CheckpointIntervalDeltaConfigKey              DeltaConfigKey = "delta.checkpointInterval"
-	AutoOptimizeAutoCompactDeltaConfigKey         DeltaConfigKey = "delta.autoOptimize.autoCompact"
-	AutoOptimizeOptimizeWriteDeltaConfigKey       DeltaConfigKey = "delta.autoOptimize.optimizeWrite"
-	CheckpointWriteStatsAsJsonDeltaConfigKey      DeltaConfigKey = "delta.checkpoint.writeStatsAsJson"
-	CheckpointWriteStatsAsStructDeltaConfigKey    DeltaConfigKey = "delta.checkpoint.writeStatsAsStruct"
-	ColumnMappingModeDeltaConfigKey               DeltaConfigKey = "delta.columnMapping.mode"
-	DataSkippingNumIndexedColsDeltaConfigKey      DeltaConfigKey = "delta.dataSkippingNumIndexedCols"
-	DeletedFileRetentionDurationDeltaConfigKey    DeltaConfigKey = "delta.deletedFileRetentionDuration"
-	EnableChangeDataFeedDeltaConfigKey            DeltaConfigKey = "delta.enableChangeDataFeed"
-	IsolationLevelDeltaConfigKey                  DeltaConfigKey = "delta.isolationLevel"
-	LogRetentionDurationDeltaConfigKey            DeltaConfigKey = "delta.logRetentionDuration"
-	EnableExpiredLogCleanupDeltaConfigKey         DeltaConfigKey = "delta.enableExpiredLogCleanup"
-	MinReaderVersionDeltaConfigKey                DeltaConfigKey = "delta.minReaderVersion"
-	MinWriterVersionDeltaConfigKey                DeltaConfigKey = "delta.minWriterVersion"
-	RandomizeFilePrefixesDeltaConfigKey           DeltaConfigKey = "delta.randomizeFilePrefixes"
-	RandomPrefixLengthDeltaConfigKey              DeltaConfigKey = "delta.randomPrefixLength"
-	SetTransactionRetentionDurationDeltaConfigKey DeltaConfigKey = "delta.setTransactionRetentionDuration"
-	TargetFileSizeDeltaConfigKey                  DeltaConfigKey = "delta.targetFileSize"
-	TuneFileSizesForRewritesDeltaConfigKey        DeltaConfigKey = "delta.tuneFileSizesForRewrites"
+	// AppendOnlyDeltaConfigKey represents the Delta configuration to specify whethere a table is append-only.
+	AppendOnlyDeltaConfigKey ConfigKey = "delta.appendOnly"
+	// CheckpointIntervalDeltaConfigKey represents the Delta configuration to specify a checkpoint interval.
+	CheckpointIntervalDeltaConfigKey ConfigKey = "delta.checkpointInterval"
+	// AutoOptimizeAutoCompactDeltaConfigKey represents the Delta configuration to specify whether auto compaction needs to be enabled.
+	AutoOptimizeAutoCompactDeltaConfigKey ConfigKey = "delta.autoOptimize.autoCompact"
+	// AutoOptimizeOptimizeWriteDeltaConfigKey represents the Delta configuration to specify whether optimized writing needs to be enabled.
+	AutoOptimizeOptimizeWriteDeltaConfigKey ConfigKey = "delta.autoOptimize.optimizeWrite"
+	// CheckpointWriteStatsAsJSONDeltaConfigKey represents the Delta configuration to specify whether stats need to be written as a JSON object in a checkpoint.
+	CheckpointWriteStatsAsJSONDeltaConfigKey ConfigKey = "delta.checkpoint.writeStatsAsJson"
+	// CheckpointWriteStatsAsStructDeltaConfigKey represents the Delta configuration to specify whether stats need to be written as a struct in a checkpoint.
+	CheckpointWriteStatsAsStructDeltaConfigKey ConfigKey = "delta.checkpoint.writeStatsAsStruct"
+	// ColumnMappingModeDeltaConfigKey represents the Delta configuration to specify whether column mapping needs to be enabled.
+	ColumnMappingModeDeltaConfigKey ConfigKey = "delta.columnMapping.mode"
+	// DataSkippingNumIndexedColsDeltaConfigKey represents the Delta configuration to specify the number of columns for which to collect stats.
+	DataSkippingNumIndexedColsDeltaConfigKey ConfigKey = "delta.dataSkippingNumIndexedCols"
+	// DeletedFileRetentionDurationDeltaConfigKey represents the Delta configuration to specify the retention duration of a deleted file.
+	DeletedFileRetentionDurationDeltaConfigKey ConfigKey = "delta.deletedFileRetentionDuration"
+	// EnableChangeDataFeedDeltaConfigKey represents the Delta configuration to specify whether change data feed needs to be enabled.
+	EnableChangeDataFeedDeltaConfigKey ConfigKey = "delta.enableChangeDataFeed"
+	// IsolationLevelDeltaConfigKey represents the Delta configuration to specify what isolation level to use.
+	IsolationLevelDeltaConfigKey ConfigKey = "delta.isolationLevel"
+	// LogRetentionDurationDeltaConfigKey represents the Delta configuration to specify the retention duration of commit logs.
+	LogRetentionDurationDeltaConfigKey ConfigKey = "delta.logRetentionDuration"
+	// EnableExpiredLogCleanupDeltaConfigKey represents the Delta configuration to specify whether expired commit logs need be cleaned up.
+	EnableExpiredLogCleanupDeltaConfigKey ConfigKey = "delta.enableExpiredLogCleanup"
+	// MinReaderVersionDeltaConfigKey represents the Delta configuration tp specify the minimum reader version.
+	MinReaderVersionDeltaConfigKey ConfigKey = "delta.minReaderVersion"
+	// MinWriterVersionDeltaConfigKey represents the Delta configuration to specify the minimum writer version.
+	MinWriterVersionDeltaConfigKey ConfigKey = "delta.minWriterVersion"
+	// RandomizeFilePrefixesDeltaConfigKey represents the Delta configuration to specify whether file prefixes should be randomized.
+	RandomizeFilePrefixesDeltaConfigKey ConfigKey = "delta.randomizeFilePrefixes"
+	// RandomPrefixLengthDeltaConfigKey represents the Delta configuration to specify the number of characters generated for random prefixes.
+	RandomPrefixLengthDeltaConfigKey ConfigKey = "delta.randomPrefixLength"
+	// SetTransactionRetentionDurationDeltaConfigKey represents the Delta configuration to specify the retention duration of a transaction.
+	SetTransactionRetentionDurationDeltaConfigKey ConfigKey = "delta.setTransactionRetentionDuration"
+	// TargetFileSizeDeltaConfigKey represents the Delta configuration to specify the target size of a file.
+	TargetFileSizeDeltaConfigKey ConfigKey = "delta.targetFileSize"
+	// TuneFileSizesForRewritesDeltaConfigKey represents the Delta configuration to specify whether file sizes need to be tuned for rewrites.
+	TuneFileSizesForRewritesDeltaConfigKey ConfigKey = "delta.tuneFileSizesForRewrites"
 )
 
 // See safeStringToInterval at

@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -195,13 +197,13 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 		}
 		tableState.CurrentMetadata = &deltaTableMetadata
 	case *Txn:
-		tableState.AppTransactionVersion[action.AppId] = action.Version
+		tableState.AppTransactionVersion[action.AppID] = action.Version
 	case *Protocol:
 		tableState.MinReaderVersion = action.MinReaderVersion
 		tableState.MinWriterVersion = action.MinWriterVersion
 	case *CommitInfo:
 		tableState.CommitInfos = append(tableState.CommitInfos, *action)
-	case *Cdc:
+	case *CDC:
 		return ErrCDCNotSupported
 	default:
 		return errors.Join(ErrActionUnknown, fmt.Errorf("unknown %v", action))
@@ -318,9 +320,6 @@ func stateFromCheckpointPart(task checkpointProcessingTask) error {
 func actionFromCheckpointEntry(checkpointEntry *CheckpointEntry) (Action, error) {
 	var action Action
 	if checkpointEntry.Add != nil {
-		if action != nil {
-			return action, ErrCheckpointEntryMultipleActions
-		}
 		action = checkpointEntry.Add
 	}
 	if checkpointEntry.Remove != nil {
@@ -381,7 +380,11 @@ func (tableState *TableState) processCheckpointBytes(checkpointBytes []byte, par
 	if err != nil {
 		return err
 	}
-	defer parquetReader.Close()
+	defer func() {
+		if err := parquetReader.Close(); err != nil {
+			returnErr = errors.Join(errors.New("failed to close Parquet reader"), err)
+		}
+	}()
 
 	parquetSchema := parquetReader.MetaData().Schema
 	fileReader, err := pqarrow.NewFileReader(parquetReader, pqarrow.ArrowReadProperties{BatchSize: 10, Parallel: true}, memory.DefaultAllocator)
@@ -466,7 +469,11 @@ func (tableState *TableState) processCheckpointBytes(checkpointBytes []byte, par
 		// slows us down here for a very minimal improvement in file size.
 		// Instead we just write out the entire file.
 		onDiskFile := storage.PathFromIter([]string{config.WorkingFolder.Raw, fmt.Sprintf("intermediate.%d.parquet", part)})
-		config.WorkingStore.Put(onDiskFile, checkpointBytes)
+
+		if err := config.WorkingStore.Put(onDiskFile, checkpointBytes); err != nil {
+			return errors.Join(errors.New("failed to add checkpoint bytes to on-disk file"), err)
+		}
+
 		func() {
 			tableState.concurrentUpdateMutex.Lock()
 			defer tableState.concurrentUpdateMutex.Unlock()
@@ -561,7 +568,7 @@ func checkpointRows(
 		for i, appID := range keys {
 			if startOffset < currentOffset+i {
 				txn := new(Txn)
-				txn.AppId = appID
+				txn.AppID = appID
 				version := tableState.AppTransactionVersion[appID]
 				txn.Version = version
 				checkpointRows = append(checkpointRows, CheckpointEntry{Txn: txn})
@@ -583,7 +590,10 @@ func checkpointRows(
 			if initialOffset < 0 {
 				initialOffset = 0
 			}
-			onDiskTombstoneCheckpointRows(tableState, initialOffset, &checkpointRows, config)
+
+			if err := onDiskTombstoneCheckpointRows(tableState, initialOffset, &checkpointRows, config); err != nil {
+				return nil, errors.Join(errors.New("failed to retrieve on-disk tombstone checkpoint rows"), err)
+			}
 		} else {
 			keys := make([]string, 0, tombstoneCount)
 			for k := range tableState.Tombstones {
@@ -613,7 +623,10 @@ func checkpointRows(
 			if initialOffset < 0 {
 				initialOffset = 0
 			}
-			onDiskAddCheckpointRows(tableState, initialOffset, &checkpointRows, config)
+
+			if err := onDiskAddCheckpointRows(tableState, initialOffset, &checkpointRows, config); err != nil {
+				return nil, errors.Join(errors.New("failed to retrieve on-disk add checkpoint rows"), err)
+			}
 		} else {
 			keys := make([]string, 0, fileCount)
 			for k := range tableState.Files {

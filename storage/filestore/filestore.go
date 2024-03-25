@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package filestore contains the resources required to interact with an file store.
 package filestore
 
 import (
@@ -32,12 +34,14 @@ type FileObjectStore struct {
 // Compile time check that FileObjectStore implements storage.ObjectStore
 var _ storage.ObjectStore = (*FileObjectStore)(nil)
 
+// New creates a new FileObjectStore instance.
 func New(baseURI storage.Path) *FileObjectStore {
 	fs := new(FileObjectStore)
 	fs.baseURI = baseURI
 	return fs
 }
 
+// Put adds a file to a file system.
 func (s *FileObjectStore) Put(location storage.Path, bytes []byte) error {
 	writePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.MkdirAll(filepath.Dir(writePath), 0700)
@@ -51,6 +55,7 @@ func (s *FileObjectStore) Put(location storage.Path, bytes []byte) error {
 	return nil
 }
 
+// RenameIfNotExists renames a file if it does not exist.
 func (s *FileObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
 	// return ErrObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
@@ -61,6 +66,7 @@ func (s *FileObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) 
 	return s.Rename(from, to)
 }
 
+// Get retrieves a file.
 func (s *FileObjectStore) Get(location storage.Path) ([]byte, error) {
 	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	data, err := os.ReadFile(filePath)
@@ -73,6 +79,7 @@ func (s *FileObjectStore) Get(location storage.Path) ([]byte, error) {
 	return data, nil
 }
 
+// Head retrieves metadata from a file without returning the file itself.
 func (s *FileObjectStore) Head(location storage.Path) (storage.ObjectMeta, error) {
 	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	var meta storage.ObjectMeta
@@ -94,6 +101,7 @@ func (s *FileObjectStore) Head(location storage.Path) (storage.ObjectMeta, error
 	return meta, nil
 }
 
+// Rename renames a file.
 func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 	// rename source to destination
 	f := s.baseURI.Join(from)
@@ -105,6 +113,7 @@ func (s *FileObjectStore) Rename(from storage.Path, to storage.Path) error {
 	return nil
 }
 
+// Delete removes a file from a file system.
 func (s *FileObjectStore) Delete(location storage.Path) error {
 	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.Remove(filePath)
@@ -114,6 +123,7 @@ func (s *FileObjectStore) Delete(location storage.Path) error {
 	return nil
 }
 
+// DeleteFolder removes a folder from a file system.
 func (s *FileObjectStore) DeleteFolder(location storage.Path) error {
 	filePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.RemoveAll(filePath)
@@ -123,7 +133,7 @@ func (s *FileObjectStore) DeleteFolder(location storage.Path) error {
 	return nil
 }
 
-// / Convert an fs.FileInfo to a storage.ObjectMeta
+// Convert an fs.FileInfo to a storage.ObjectMeta
 func objectMetaFromFileInfo(info fs.FileInfo, name string, isDir bool, parentDir string, trimPrefix string) *storage.ObjectMeta {
 	meta := new(storage.ObjectMeta)
 	meta.LastModified = info.ModTime()
@@ -142,7 +152,7 @@ func objectMetaFromFileInfo(info fs.FileInfo, name string, isDir bool, parentDir
 	return meta
 }
 
-// / Convert an fs.DirEntry to a storage.ObjectMeta
+// Convert an fs.DirEntry to a storage.ObjectMeta
 func objectMetaFromDirEntry(dirEntry fs.DirEntry, parentDir string, trimPrefix string) (*storage.ObjectMeta, error) {
 	info, err := dirEntry.Info()
 	if err != nil {
@@ -151,9 +161,9 @@ func objectMetaFromDirEntry(dirEntry fs.DirEntry, parentDir string, trimPrefix s
 	return objectMetaFromFileInfo(info, dirEntry.Name(), dirEntry.IsDir(), parentDir, trimPrefix), nil
 }
 
-// / List all files in the directory recursively, where the file must start with prefix if it is not empty
-// / For consistency with S3, directory names are included
-// / The baseURI will be trimmed from the beginning of each file path
+// List all files in the directory recursively, where the file must start with prefix if it is not empty
+// For consistency with S3, directory names are included
+// The baseURI will be trimmed from the beginning of each file path
 func listFilesInDirRecursively(baseURI string, dir string, prefix string) ([]storage.ObjectMeta, error) {
 	results, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -185,6 +195,7 @@ func listFilesInDirRecursively(baseURI string, dir string, prefix string) ([]sto
 	return out, nil
 }
 
+// ListAll lists files in a file system.
 func (s *FileObjectStore) ListAll(prefix storage.Path) (storage.ListResult, error) {
 	var listResult storage.ListResult
 	dir, filePrefix := filepath.Split(prefix.Raw)
@@ -227,19 +238,23 @@ func (s *FileObjectStore) ListAll(prefix storage.Path) (storage.ListResult, erro
 	return listResult, nil
 }
 
+// List lists files in a file system.
 func (s *FileObjectStore) List(prefix storage.Path, previousResult *storage.ListResult) (storage.ListResult, error) {
 	return s.ListAll(prefix)
 }
 
+// IsListOrdered returns true.
 func (s *FileObjectStore) IsListOrdered() bool {
 	return true
 }
 
+// SupportsWriter returns true.
 func (s *FileObjectStore) SupportsWriter() bool {
 	return true
 }
 
-func (s *FileObjectStore) Writer(location storage.Path, flag int) (io.Writer, func(), error) {
+// Writer returns a file writer.
+func (s *FileObjectStore) Writer(location storage.Path, flag int) (io.Writer, func() error, error) {
 	writePath := filepath.Join(s.baseURI.Raw, location.Raw)
 	err := os.MkdirAll(filepath.Dir(writePath), 0700)
 	if err != nil {
@@ -247,7 +262,12 @@ func (s *FileObjectStore) Writer(location storage.Path, flag int) (io.Writer, fu
 	}
 
 	f, err := os.OpenFile(writePath, os.O_WRONLY|flag, 0700)
-	return f, func() { f.Close() }, err
+	return f, func() error {
+		if err := f.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			return errors.Join(errors.New("failed to close file"), err)
+		}
+		return nil
+	}, err
 }
 
 // BaseURI gets the base URI.
@@ -260,6 +280,7 @@ func (s *FileObjectStore) SetBaseURI(baseURI storage.Path) {
 	s.baseURI = baseURI
 }
 
+// ReadAt counts the number of bytes read from an object.
 func (s *FileObjectStore) ReadAt(location storage.Path, p []byte, off int64, max int64) (n int, err error) {
 	path := s.baseURI.Join(location)
 	f, err := os.Open(path.Raw)

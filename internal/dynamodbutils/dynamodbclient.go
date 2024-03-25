@@ -10,16 +10,24 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package dynamodbutils implements utilities used to interact with DynamoDB.
 package dynamodbutils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	log "github.com/sirupsen/logrus"
+)
+
+var (
+	// ErrFailedToCreateTable is returned when a table cannot be created if it does not exist.
+	ErrFailedToCreateTable = errors.New("failed to create DynamoDB table if it does not exist")
 )
 
 // Client defines methods implemented by AWS SDK for Go v2's DynamoDB client.

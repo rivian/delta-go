@@ -10,10 +10,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package dynamodblogstore contains the resources required to create a DynamoDB log store.
 package dynamodblogstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -30,11 +33,15 @@ import (
 type attribute string
 
 const (
-	// DynamoDB table attribute names
-	TablePath  attribute = "tablePath"
-	FileName   attribute = "fileName"
-	TempPath   attribute = "tempPath"
-	Complete   attribute = "complete"
+	// TablePath is the DynamoDB table attribute representing table path.
+	TablePath attribute = "tablePath"
+	// FileName is the DynamoDB table attribute representing file name.
+	FileName attribute = "fileName"
+	// TempPath is the DynamoDB table attribute representing temp path.
+	TempPath attribute = "tempPath"
+	// Complete is the DynamoDB table attribute representing transaction completeness.
+	Complete attribute = "complete"
+	// ExpireTime is the DynamoDB table attribute representing expire time.
 	ExpireTime attribute = "expireTime"
 
 	// The delay, in seconds, after a commit entry has been committed to a Delta log at which
@@ -74,14 +81,13 @@ const (
 	defaultWCU                         int64  = 5
 )
 
-// A concrete implementation of LogStore that uses a DynamoDB table
-// to provide the mutual exclusion during calls to `Put`.
-
+// LogStore uses a DynamoDB table to provide mutual exclusion during calls to `Put`.
+//
 // DynamoDB entries are of the form
 // - key
 // -- tablePath (HASH, STRING)
 // -- fileName (RANGE, STRING)
-
+//
 // - attributes
 // -- tempPath (STRING, relative to the Delta log)
 // -- complete (STRING, representing boolean, "true" or "false")
@@ -191,9 +197,11 @@ func New(o Options) (*LogStore, error) {
 		},
 		TableName: aws.String(ls.tableName),
 	}
-	err := dynamodbutils.CreateTableIfNotExists(ls.client, ls.tableName, cti, ls.maxTableCreateAttempts)
+	if err := dynamodbutils.CreateTableIfNotExists(ls.client, ls.tableName, cti, ls.maxTableCreateAttempts); err != nil {
+		return nil, errors.Join(dynamodbutils.ErrFailedToCreateTable, err)
+	}
 
-	return ls, err
+	return ls, nil
 }
 
 // Put puts a commit entry into a log store in an exclusive way.

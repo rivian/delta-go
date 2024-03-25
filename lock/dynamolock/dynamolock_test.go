@@ -27,19 +27,18 @@ func TestLock(t *testing.T) {
 	}
 	l, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
-		t.Error("Failed to create lock")
+		t.Errorf("Failed to create lock: %v", err)
 	}
 
 	haslock, err := l.TryLock()
 	if err != nil {
-		t.Error("Failed to acquire lock")
+		t.Errorf("Failed to acquire lock: %v", err)
 	}
 	if haslock {
 		t.Log("Acquired lock")
 	}
 
-	err = l.Unlock()
-	if err != nil {
+	if err = l.Unlock(); err != nil {
 		t.Error(err)
 	}
 }
@@ -51,7 +50,7 @@ func TestNewLock(t *testing.T) {
 	}
 	l, err := New(client, "delta_lock_table", "_commit.lock", options)
 	if err != nil {
-		t.Error("Failed to create lock")
+		t.Errorf("Failed to create lock: %v", err)
 	}
 	nl, err := l.NewLock("_new_commit.lock")
 	if err != nil {
@@ -64,7 +63,7 @@ func TestNewLock(t *testing.T) {
 
 	haslock, err := nl.TryLock()
 	if err != nil {
-		t.Error("Failed to acquire lock")
+		t.Errorf("Failed to acquire lock: %v", err)
 	}
 	if haslock {
 		t.Log("Acquired lock")
@@ -105,7 +104,9 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Log("Acquired lock")
 	}
 
-	l.Unlock()
+	if err := l.Unlock(); err != nil {
+		t.Errorf("Failed to unlock: %v", err)
+	}
 
 	isExpired := l.lockedItem.IsExpired()
 	if !isExpired {
@@ -137,7 +138,9 @@ func TestDeleteOnRelease(t *testing.T) {
 		t.Log("Acquired lock")
 	}
 
-	l.Unlock()
+	if err := l.Unlock(); err != nil {
+		t.Errorf("Failed to unlock: %v", err)
+	}
 
 	isExpired = l.lockedItem.IsExpired()
 	if !isExpired {

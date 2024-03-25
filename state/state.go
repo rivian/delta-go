@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package state contains the resources required to create a state store.
 package state
 
 import (
@@ -17,8 +19,11 @@ import (
 )
 
 var (
-	ErrorStateIsEmpty     error = errors.New("the state is empty")
-	ErrorCanNotReadState  error = errors.New("the state is could not be read")
+	// ErrorStateIsEmpty is returned when a state is empty.
+	ErrorStateIsEmpty error = errors.New("the state is empty")
+	// ErrorCanNotReadState is returned when a state cannot be read.
+	ErrorCanNotReadState error = errors.New("the state is could not be read")
+	// ErrorCanNotWriteState is returned when a state cannot be written.
 	ErrorCanNotWriteState error = errors.New("the state is could not be written")
 )
 
@@ -28,8 +33,8 @@ type CommitState struct {
 	Version int64 `json:"version"`
 }
 
-// StateStore provides remote state storage for fast lookup on the current commit version
-type StateStore interface {
+// Store provides remote state storage for fast lookup on the current commit version.
+type Store interface {
 	// GetData() retrieves the data cached in the lock.
 	// for a DeltaTable, the data will contain the current or prior locked commit version.
 	Get() (CommitState, error)

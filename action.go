@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -33,11 +35,12 @@ var (
 	ErrAddZeroSize error = errors.New("add size must not be zero to prevent optimize failures")
 )
 
-// Delta log action that describes a parquet data file that is part of the table.
+// Action represents a Delta log action that describes a parquet data file part of the table.
 type Action interface {
 	// Add | CommitInfo
 }
 
+// CommitInfo represents a CommitInfo action.
 type CommitInfo map[string]interface{}
 
 // An Add action is typed to allow the stats_parsed and partitionValues_parsed fields to be written to checkpoints with
@@ -121,13 +124,13 @@ func NewAdd(store storage.ObjectStore, location storage.Path, partitionValues ma
 	if err != nil {
 		return nil, missingColumns, err
 	}
-	add.Stats = string(stats.Json())
+	add.Stats = string(stats.JSON())
 
 	return add, missingColumns, nil
 }
 
-// / Represents a tombstone (deleted file) in the Delta log.
-// / This is a top-level action in Delta log entries.
+// Remove represents a tombstone (deleted file) in the Delta log.
+// This is a top-level action in Delta log entries.
 type Remove struct {
 	/// The path of the file that is removed from the table.
 	Path string `json:"path" parquet:"name=path, repetition=OPTIONAL, converted=UTF8"`
@@ -149,7 +152,7 @@ type Remove struct {
 	Tags *map[string]string `json:"tags" parquet:"-"`
 }
 
-// Describes the data format of files in the table.
+// Format describes the data format of files in the table.
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#format-specification
 type Format struct {
 	/// Name of the encoding for files in this table.
@@ -160,7 +163,7 @@ type Format struct {
 	Options map[string]string `json:"options" parquet:"name=options, repetition=OPTIONAL, keyconverted=UTF8, valueconverted=UTF8"`
 }
 
-// NewFormat provides the correct default format options as of Delta Lake 0.3.0
+// Default provides the correct default format options as of Delta Lake 0.3.0
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#format-specification
 // As of Delta Lake 0.3.0, user-facing APIs only allow the creation of tables where format = 'parquet' and options = {}.
 func (format *Format) Default() Format {
@@ -169,13 +172,13 @@ func (format *Format) Default() Format {
 	return *format
 }
 
-// / Action that describes the metadata of the table.
-// / This is a top-level action in Delta log entries.
+// MetaData represents the action that describes the metadata of the table.
+// This is a top-level action in Delta log entries.
 type MetaData struct {
 	/// Unique identifier for this table
-	Id uuid.UUID `json:"id" parquet:"-"`
+	ID uuid.UUID `json:"id" parquet:"-"`
 	/// Parquet library cannot import to UUID
-	IdAsString string `json:"-" parquet:"name=id, repetition=OPTIONAL, converted=UTF8"`
+	IDAsString string `json:"-" parquet:"name=id, repetition=OPTIONAL, converted=UTF8"`
 	/// User-provided identifier for this table
 	Name *string `json:"name" parquet:"name=name, repetition=OPTIONAL, converted=UTF8"`
 	/// User-provided description for this table
@@ -199,15 +202,15 @@ func (md *MetaData) toTableMetadata() (TableMetaData, error) {
 	schema, err := md.GetSchema()
 
 	// Manually convert IdAsString to UUID if required
-	id := md.Id
-	if md.Id == uuid.Nil && len(md.IdAsString) > 0 {
-		id, err = uuid.Parse(md.IdAsString)
+	id := md.ID
+	if md.ID == uuid.Nil && len(md.IDAsString) > 0 {
+		id, err = uuid.Parse(md.IDAsString)
 		if err != nil {
 			return TableMetaData{}, errors.Join(err, errors.New("unable to parse UUID in metadata"))
 		}
 	}
 	dtmd := TableMetaData{
-		Id:               id,
+		ID:               id,
 		Schema:           schema,
 		PartitionColumns: md.PartitionColumns,
 		Configuration:    md.Configuration,
@@ -225,19 +228,17 @@ func (md *MetaData) toTableMetadata() (TableMetaData, error) {
 	return dtmd, err
 }
 
-// / Action used by streaming systems to track progress using application-specific versions to
-// / enable idempotency.
+// Txn represents the action used by streaming systems to track progress using application-specific versions to enable idempotency.
 type Txn struct {
 	/// A unique identifier for the application performing the transaction.
-	AppId string `json:"appId" parquet:"name=appId, repetition=OPTIONAL, converted=UTF8"`
+	AppID string `json:"appId" parquet:"name=appId, repetition=OPTIONAL, converted=UTF8"`
 	/// An application-specific numeric identifier for this transaction.
 	Version int64 `json:"version" parquet:"name=version, repetition=OPTIONAL"`
 	/// The time when this transaction action was created in milliseconds since the Unix epoch.
 	LastUpdated *int64 `json:"-" parquet:"name=lastUpdated, repetition=OPTIONAL"`
 }
 
-// / Action used to increase the version of the Delta protocol required to read or write to the
-// / table.
+// Protocol represents the action used to increase the version of the Delta protocol required to read or write to the table.
 type Protocol struct {
 	/// Minimum version of the Delta read protocol a client must implement to correctly read the
 	/// table.
@@ -247,14 +248,15 @@ type Protocol struct {
 	MinWriterVersion int32 `json:"minWriterVersion" parquet:"name=minWriterVersion, repetition=OPTIONAL"`
 }
 
-// / Default protocol versions are currently 1, 1 as we do not support any more advanced features yet
+// Default sets the minimum reader and writer version to 1.
 func (protocol *Protocol) Default() Protocol {
 	protocol.MinReaderVersion = 1
 	protocol.MinWriterVersion = 1
 	return *protocol
 }
 
-type Cdc struct {
+// CDC represents a CDC action.
+type CDC struct {
 	/// A relative path, from the root of the table, or an
 	/// absolute path to a CDC file
 	Path string `json:"path" parquet:"name=path, repetition=OPTIONAL, converted=UTF8"`
@@ -299,6 +301,7 @@ func logEntryFromAction(action Action) ([]byte, error) {
 	return log, nil
 }
 
+// LogEntryFromActions retrieves a log entry from a list of actions.
 func LogEntryFromActions(actions []Action) ([]byte, error) {
 	var jsons [][]byte
 
@@ -313,20 +316,29 @@ func LogEntryFromActions(actions []Action) ([]byte, error) {
 	return bytes.Join(jsons, []byte("\n")), nil
 }
 
+// ActionKey represents a Delta action.
 type ActionKey string
 
 const (
-	AddActionKey         ActionKey = "add"
-	RemoveActionKey      ActionKey = "remove"
-	CommitInfoActionKey  ActionKey = "commitInfo"
-	ProtocolActionKey    ActionKey = "protocol"
-	MetaDataActionKey    ActionKey = "metaData"
-	FormatActionKey      ActionKey = "format"
+	// AddActionKey represents an Add action.
+	AddActionKey ActionKey = "add"
+	// RemoveActionKey represents a Remove action.
+	RemoveActionKey ActionKey = "remove"
+	// CommitInfoActionKey represents a CommitInfo action.
+	CommitInfoActionKey ActionKey = "commitInfo"
+	// ProtocolActionKey represents a Protocol action.
+	ProtocolActionKey ActionKey = "protocol"
+	// MetaDataActionKey represents a metaData action.
+	MetaDataActionKey ActionKey = "metaData"
+	// FormatActionKey represents a Format action.
+	FormatActionKey ActionKey = "format"
+	// TransactionActionKey represents a Txn action.
 	TransactionActionKey ActionKey = "txn"
-	CDCActionKey         ActionKey = "cdc"
+	// CDCActionKey represents a CDC action.
+	CDCActionKey ActionKey = "cdc"
 )
 
-// / Retrieve an action from a log entry
+// Retrieve an action from a log entry
 func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, error) {
 	if len(unstructuredResult) != 1 {
 		return nil, errors.Join(ErrActionJSONFormat, errors.New("log entry JSON must have one value"))
@@ -364,7 +376,7 @@ func actionFromLogEntry(unstructuredResult map[string]json.RawMessage) (Action, 
 	return action, nil
 }
 
-// / Retrieve all actions in this log
+// ActionsFromLogEntries retrieves all the actions from a log.
 func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 	lines := bytes.Split(logEntries, []byte("\n"))
 	actions := make([]Action, 0, len(lines))
@@ -386,26 +398,21 @@ func ActionsFromLogEntries(logEntries []byte) ([]Action, error) {
 	return actions, nil
 }
 
-// Returns the table schema from the embedded schema string contained within the metadata
-// action.
+// GetSchema returns the table schema from the embedded schema string contained within the metadata action.
 func (md *MetaData) GetSchema() (Schema, error) {
 	var schema Schema
 	err := json.Unmarshal([]byte(md.SchemaString), &schema)
 	return schema, err
 }
 
-// /// Operation performed when creating a new log entry with one or more actions.
-// /// This is a key element of the `CommitInfo` action.
-// #[allow(clippy::large_enum_variant)]
-// #[derive(Serialize, Deserialize, Debug, Clone)]
-// #[serde(rename_all = "camelCase")]
+// Operation represents the operation performed when creating a new log entry with one or more actions.
 type Operation interface {
 	GetCommitInfo() CommitInfo
 }
 
-// / Represents a Delta `Create` operation.
-// / Would usually only create the table, if also data is written,
-// / a `Write` operations is more appropriate
+// Create represents a Delta `Create` operation.
+// Would usually only create the table, if also data is written,
+// a `Write` operations is more appropriate
 type Create struct {
 	/// The save mode used during the create.
 	Mode SaveMode `json:"mode"`
@@ -417,6 +424,7 @@ type Create struct {
 	MetaData TableMetaData
 }
 
+// GetCommitInfo retrieves commit info.
 func (op Create) GetCommitInfo() CommitInfo {
 	commitInfo := make(CommitInfo)
 
@@ -427,8 +435,8 @@ func (op Create) GetCommitInfo() CommitInfo {
 	return commitInfo
 }
 
-// / Represents a Delta `Write` operation.
-// / Write operations will typically only include `Add` actions.
+// Write represents a Delta `Write` operation.
+// Write operations will typically only include `Add` actions.
 type Write struct {
 	/// The save mode used during the write.
 	Mode SaveMode `json:"mode"`
@@ -438,6 +446,7 @@ type Write struct {
 	Predicate []string `json:"predicate"`
 }
 
+// GetCommitInfo retrieves commit info.
 func (op Write) GetCommitInfo() CommitInfo {
 	commitInfo := make(CommitInfo)
 
@@ -468,38 +477,38 @@ func (op Write) GetCommitInfo() CommitInfo {
 	return commitInfo
 }
 
-// / Represents a Delta `StreamingUpdate` operation.
+// StreamingUpdate represents a Delta `StreamingUpdate` operation.
 type StreamingUpdate struct {
 	/// The output mode the streaming writer is using.
 	OutputMode OutputMode
 	/// The query id of the streaming writer.
-	QueryId string
+	QueryID string
 	/// The epoch id of the written micro-batch.
-	EpochId int64
+	EpochID int64
 }
 
-// / The SaveMode used when performing a Operation
+// SaveMode represents the save mode used when performing a Operation.
 type SaveMode string
 
 const (
-	/// Files will be appended to the target location.
+	// Append causes files to be appended to the target location.
 	Append SaveMode = "Append"
-	/// The target location will be overwritten.
+	// Overwrite causes a target location to be overwritten.
 	Overwrite SaveMode = "Overwrite"
-	/// If files exist for the target, the operation must fail.
+	// ErrorIfExists causes an operation to fail if files exist for the target.
 	ErrorIfExists SaveMode = "ErrorIfExists"
-	/// If files exist for the target, the operation must not proceed or change any data.
+	// Ignore causes an operation to not proceed or change any data if files exist for the target.
 	Ignore SaveMode = "Ignore"
 )
 
-// / The OutputMode used in streaming operations.
+// OutputMode represents the output mode used in streaming operations.
 type OutputMode string
 
 const (
-	/// Only new rows will be written when new data is available.
+	// AppendOutputMode causes only new rows to be written when new data is available.
 	AppendOutputMode OutputMode = "Append"
-	/// The full output (all rows) will be written whenever new data is available.
+	// Complete causes the full output (all rows) to be written whenever new data is available.
 	Complete OutputMode = "Complete"
-	/// Only rows with updates will be written when new or changed data is available.
+	// Update causes only rows with updates to be written when new or changed data is available.
 	Update OutputMode = "Update"
 )

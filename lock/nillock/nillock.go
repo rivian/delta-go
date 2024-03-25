@@ -10,44 +10,46 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package nillock contains the resources required to create a nil lock.
 package nillock
 
 import (
 	"github.com/rivian/delta-go/lock"
 )
 
-// / An NilLock implements the Locker interface but is not backed by anything
-// / It is intended for use in a scenario where there is guaranteed to be only one process writing to a delta table
-// / so that locking is not necessary
-// /
-// / WARNING:
-// / It provides NO concurrency support.
-// / It must be used with a single goroutine only.
-// / If used while there are other goroutines or applications (including Spark) writing to the table then
-// / it is likely that commits will be overwritten and lost.
-// / This is intended only for testing, or for use with local tables.
+// An NilLock implements the Locker interface but is not backed by anything
+// It is intended for use in a scenario where there is guaranteed to be only one process writing to a delta table
+// so that locking is not necessary
+//
+// WARNING:
+// It provides NO concurrency support.
+// It must be used with a single goroutine only.
+// If used while there are other goroutines or applications (including Spark) writing to the table then
+// it is likely that commits will be overwritten and lost.
+// This is intended only for testing, or for use with local tables.
 type NilLock struct {
 }
 
 // Compile time check that NilLock implements lock.Locker
 var _ lock.Locker = (*NilLock)(nil)
 
-// Creates a new NilLock instance
+// New reates a new NilLock instance.
 func New() *NilLock {
 	return new(NilLock)
 }
 
-// Creates a new NilLock instance using an existing NilLock instance
+// NewLock creates a new NilLock instance using an existing NilLock instance.
 func (*NilLock) NewLock(key string) (lock.Locker, error) {
 	return new(NilLock), nil
 }
 
-// Does nothing
+// Unlock does nothing.
 func (*NilLock) Unlock() error {
 	return nil
 }
 
-// Always returns true
+// TryLock returns true.
 func (*NilLock) TryLock() (bool, error) {
 	return true, nil
 }

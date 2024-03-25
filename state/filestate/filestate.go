@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package filestate contains the resources required to create a file state store.
 package filestate
 
 import (
@@ -22,22 +24,25 @@ import (
 	"github.com/rivian/delta-go/storage"
 )
 
-type FileStateStore struct {
+// Store stores a table's commit state in a file system.
+type Store struct {
 	BaseURI storage.Path
 	Key     string
 }
 
 // Compile time check that FileStateStore implements state.StateStore
-var _ state.StateStore = (*FileStateStore)(nil)
+var _ state.Store = (*Store)(nil)
 
-func New(baseURI storage.Path, key string) *FileStateStore {
-	fs := new(FileStateStore)
+// New creates a new Store instance.
+func New(baseURI storage.Path, key string) *Store {
+	fs := new(Store)
 	fs.BaseURI = baseURI
 	fs.Key = key
 	return fs
 }
 
-func (s *FileStateStore) Get() (state.CommitState, error) {
+// Get retrieves a state store's commit state.
+func (s *Store) Get() (state.CommitState, error) {
 	getPath := filepath.Join(s.BaseURI.Raw, s.Key)
 	var commitState state.CommitState
 	data, err := os.ReadFile(getPath)
@@ -56,7 +61,8 @@ func (s *FileStateStore) Get() (state.CommitState, error) {
 	return commitState, nil
 }
 
-func (s *FileStateStore) Put(commitState state.CommitState) error {
+// Put sets a state store's current commit state.
+func (s *Store) Put(commitState state.CommitState) error {
 	putPath := filepath.Join(s.BaseURI.Raw, s.Key)
 	err := os.MkdirAll(filepath.Dir(putPath), 0755)
 	if err != nil {

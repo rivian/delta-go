@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package logstore contains the resources required to create a log store.
 package logstore
 
 import (
@@ -23,6 +25,7 @@ var (
 	ErrLatestDoesNotExist error = errors.New("the latest item does not exist")
 )
 
+// LogStore uses optimistic concurrency control to commit transactions.
 type LogStore interface {
 	// Put puts a commit entry into a log store in an exclusive way.
 	Put(entry *CommitEntry, overwrite bool) error

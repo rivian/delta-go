@@ -19,7 +19,7 @@ import (
 )
 
 func TestGetPutVersion(t *testing.T) {
-	localState := new(LocalStateStore)
+	localState := new(Store)
 
 	err := localState.Put(state.CommitState{Version: 1})
 	if err != nil {

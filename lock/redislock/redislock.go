@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package redislock contains the resources required a create a Redis lock.
 package redislock
 
 import (
@@ -23,10 +25,11 @@ import (
 )
 
 const (
-	DefaultTTL      time.Duration = 60 * time.Second
-	DefaultMaxTries int           = 20
+	defaultTTL      time.Duration = 60 * time.Second
+	defaultMaxTries int           = 20
 )
 
+// RedisLock represents a lock for a key stored as a single Redis key.
 type RedisLock struct {
 	key             string
 	redsyncInstance *redsync.Redsync
@@ -34,6 +37,10 @@ type RedisLock struct {
 	opts            Options
 }
 
+// Compile time check that RedisLock implements lock.Locker
+var _ lock.Locker = (*RedisLock)(nil)
+
+// Options contains settings that can be adjusted to change the behavior of a Redis lock.
 type Options struct {
 	// The amount of time (in seconds) that the owner has this lock for.
 	TTL time.Duration
@@ -41,20 +48,17 @@ type Options struct {
 	MaxTries int
 }
 
-// Compile time check that MutexWrapper implements lock.Locker
-var _ lock.Locker = (*RedisLock)(nil)
-
-// Sets the default options
+// setOptionsDefaults sets the default options
 func (opts *Options) setOptionsDefaults() {
 	if opts.TTL == 0 {
-		opts.TTL = DefaultTTL
+		opts.TTL = defaultTTL
 	}
 	if opts.MaxTries == 0 {
-		opts.MaxTries = DefaultMaxTries
+		opts.MaxTries = defaultMaxTries
 	}
 }
 
-// Creates a new RedisLock instance using a Redis client
+// NewFromClient creates a new RedisLock instance using a Redis client.
 func NewFromClient(client goredislib.UniversalClient, key string, opts Options) *RedisLock {
 	pool := goredis.NewPool(client)
 	rs := redsync.New(pool)
@@ -64,7 +68,7 @@ func NewFromClient(client goredislib.UniversalClient, key string, opts Options) 
 	return l
 }
 
-// Creates a new RedisLock instance using a Redsync instance
+// New creates a new RedisLock instance using a Redsync instance.
 func New(rs *redsync.Redsync, key string, opts Options) *RedisLock {
 	opts.setOptionsDefaults()
 
@@ -79,7 +83,7 @@ func New(rs *redsync.Redsync, key string, opts Options) *RedisLock {
 	return l
 }
 
-// Creates a new RedisLock instance using an existing RedisLock instance
+// NewLock creates a new RedisLock instance using an existing RedisLock instance.
 func (l *RedisLock) NewLock(key string) (lock.Locker, error) {
 	nl := new(RedisLock)
 	nl.key = key
@@ -90,7 +94,7 @@ func (l *RedisLock) NewLock(key string) (lock.Locker, error) {
 	return nl, nil
 }
 
-// Attempts to acquire a Redis lock
+// TryLock attempts to acquire a Redis lock.
 func (l *RedisLock) TryLock() (bool, error) {
 	// Obtain a lock for our given mutex. After this is successful, no one else
 	// can obtain the same lock (the same mutex name) until we unlock it.
@@ -101,7 +105,7 @@ func (l *RedisLock) TryLock() (bool, error) {
 	return true, nil
 }
 
-// Releases a Redis lock
+// Unlock releases a Redis lock.
 func (l *RedisLock) Unlock() error {
 	// Release the lock so other processes or threads can obtain a lock.
 	if ok, err := l.redsyncMutex.Unlock(); !ok || err != nil {

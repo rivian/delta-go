@@ -10,36 +10,40 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package localstate contains the resources required to create a localstate.
 package localstate
 
 import (
 	"github.com/rivian/delta-go/state"
 )
 
-// / LocalStateStore stores the version locally.
-// / WARNING
-// / There is no concurrency support for multiple goroutines or processes.
-// / There is no persistence.
-// / This is intended for local use and testing only.
-type LocalStateStore struct {
+// Store stores the version locally.
+// WARNING
+// There is no concurrency support for multiple goroutines or processes.
+// There is no persistence.
+// This is intended for local use and testing only.
+type Store struct {
 	version int64
 }
 
-// / Create a new LocalStateStore with the current table version
-func New(currentTableVersion int64) *LocalStateStore {
-	ls := new(LocalStateStore)
+// New creates a new Store with the current table version.
+func New(currentTableVersion int64) *Store {
+	ls := new(Store)
 	ls.version = currentTableVersion
 	return ls
 }
 
-// Compile time check that LocalStateStore implements state.StateStore
-var _ state.StateStore = (*LocalStateStore)(nil)
+// Compile time check that Store implements state.StateStore
+var _ state.Store = (*Store)(nil)
 
-func (stateStore *LocalStateStore) Get() (state.CommitState, error) {
+// Get retrieves a state store's commit state.
+func (stateStore *Store) Get() (state.CommitState, error) {
 	return state.CommitState{Version: stateStore.version}, nil
 }
 
-func (stateStore *LocalStateStore) Put(commitState state.CommitState) error {
+// Put sets a state store's current commit state.
+func (stateStore *Store) Put(commitState state.CommitState) error {
 	stateStore.version = commitState.Version
 	return nil
 }

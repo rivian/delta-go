@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -52,7 +54,7 @@ type CheckpointEntry struct {
 	Remove   *Remove   `parquet:"name=remove"`
 	MetaData *MetaData `parquet:"name=metaData"`
 	Protocol *Protocol `parquet:"name=protocol"`
-	Cdc      *Cdc      `parquet:"-"` // CDC not implemented yet
+	Cdc      *CDC      `parquet:"-"` // CDC not implemented yet
 }
 
 // CheckpointConfiguration contains additional configuration for checkpointing
@@ -119,7 +121,7 @@ var (
 	ErrCheckpointAddZeroSize error = errors.New("zero size in add not allowed")
 	// ErrCheckpointEntryMultipleActions is returned if a checkpoint entry has more than one non-null action
 	ErrCheckpointEntryMultipleActions error = errors.New("checkpoint entry contains multiple actions")
-	// ErrWorkingFolder is returned if there is a problem with the optimization working folder
+	// ErrCheckpointOptimizationWorkingFolder is returned if there is a problem with the optimization working folder
 	ErrCheckpointOptimizationWorkingFolder error = errors.New("error using checkpoint optimization working folder")
 )
 
@@ -137,9 +139,9 @@ func lastCheckpointPath() storage.Path {
 	return path
 }
 
-// / Return the checkpoint version and total parts, and the current part index if the URI is a valid checkpoint filename
-// / If the checkpoint is single-part then part and checkpoint.Parts will both be zero
-// / If the URI is not a valid checkpoint filename then checkpoint will be nil
+// Return the checkpoint version and total parts, and the current part index if the URI is a valid checkpoint filename
+// If the checkpoint is single-part then part and checkpoint.Parts will both be zero
+// If the URI is not a valid checkpoint filename then checkpoint will be nil
 func checkpointInfoFromURI(path storage.Path) (checkpoint *CheckPoint, part int32, parseErr error) {
 	// Check for a single-part checkpoint
 	groups := checkpointRegex.FindStringSubmatch(path.Base())
@@ -229,9 +231,9 @@ func DoesCheckpointVersionExist(store storage.ObjectStore, version int64, valida
 	return false, nil
 }
 
-// / Create a checkpoint for the given state in the given store
-// / Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
-// / Applies tombstone expiration first
+// Create a checkpoint for the given state in the given store
+// Assumes that checkpointing is locked such that no other process is currently trying to write a checkpoint for the same version
+// Applies tombstone expiration first
 func createCheckpointFor(tableState *TableState, store storage.ObjectStore, checkpointConfiguration *CheckpointConfiguration) error {
 	checkpointExists, err := DoesCheckpointVersionExist(store, tableState.Version, false)
 	if err != nil {
@@ -241,7 +243,9 @@ func createCheckpointFor(tableState *TableState, store storage.ObjectStore, chec
 		return ErrCheckpointAlreadyExists
 	}
 
-	tableState.prepareStateForCheckpoint(&checkpointConfiguration.ReadWriteConfiguration)
+	if err := tableState.prepareStateForCheckpoint(&checkpointConfiguration.ReadWriteConfiguration); err != nil {
+		return errors.Join(errors.New("failed to prepare state for checkpoint"), err)
+	}
 
 	totalRows := tableState.FileCount() + tableState.TombstoneCount() + len(tableState.AppTransactionVersion) + 2
 	numParts := int32(((totalRows - 1) / checkpointConfiguration.MaxRowsPerPart) + 1)
@@ -365,9 +369,9 @@ func createCheckpointFor(tableState *TableState, store storage.ObjectStore, chec
 	return nil
 }
 
-// / Generate an Add action for a checkpoint (with additional fields) from a basic Add action
-// / Note that parsed stats and partition have been removed during the parquet library change.
-// / TODO add them back
+// Generate an Add action for a checkpoint (with additional fields) from a basic Add action
+// Note that parsed stats and partition have been removed during the parquet library change.
+// TODO add them back
 func checkpointAdd(add *Add) (*Add, error) {
 	// stats, err := StatsFromJson([]byte(add.Stats))
 	// if err != nil {
@@ -408,10 +412,10 @@ type deletionCandidate struct {
 	Meta    storage.ObjectMeta
 }
 
-// / If the maybeToDelete files are safe to delete, delete them.  Otherwise, clear them
-// / "Safe to delete" is determined by the version and timestamp of the last file in the maybeToDelete list.
-// / For more details see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
-// / Returns the number of files deleted.
+// If the maybeToDelete files are safe to delete, delete them.  Otherwise, clear them
+// "Safe to delete" is determined by the version and timestamp of the last file in the maybeToDelete list.
+// For more details see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
+// Returns the number of files deleted.
 func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []deletionCandidate, beforeVersion int64, maxTimestamp time.Time) (int, error) {
 	deleted := 0
 
@@ -431,10 +435,10 @@ func flushDeleteFiles(store storage.ObjectStore, maybeToDelete []deletionCandida
 	return deleted, nil
 }
 
-// / *** The caller MUST validate that there is a checkpoint at or after beforeVersion before calling this ***
-// / Remove any logs and checkpoints that have a last updated date before maxTimestamp and a version before beforeVersion
-// / Last updated timestamps are required to be monotonically increasing, so there may be some time adjustment required
-// / For more detail see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
+// *** The caller MUST validate that there is a checkpoint at or after beforeVersion before calling this ***
+// Remove any logs and checkpoints that have a last updated date before maxTimestamp and a version before beforeVersion
+// Last updated timestamps are required to be monotonically increasing, so there may be some time adjustment required
+// For more detail see BufferingLogDeletionIterator() in https://github.com/delta-io/delta/blob/master/spark/src/main/scala/org/apache/spark/sql/delta/DeltaHistoryManager.scala
 func removeExpiredLogsAndCheckpoints(beforeVersion int64, maxTimestamp time.Time, store storage.ObjectStore) (int, error) {
 	if !store.IsListOrdered() {
 		// Currently all object stores return list results sorted

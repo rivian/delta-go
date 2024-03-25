@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Package delta contains the resources required to interact with a Delta table.
 package delta
 
 import (
@@ -40,16 +42,26 @@ const (
 )
 
 var (
+	// ErrExceededCommitRetryAttempts is returned when the maximum number of commit retry attempts has been exceeded.
 	ErrExceededCommitRetryAttempts error = errors.New("exceeded commit retry attempts")
-	ErrNotATable                   error = errors.New("not a table")
-	ErrInvalidVersion              error = errors.New("invalid version")
-	ErrUnableToLoadVersion         error = errors.New("unable to load specified version")
-	ErrLockFailed                  error = errors.New("lock failed unexpectedly without an error")
-	ErrNotImplemented              error = errors.New("not implemented")
-	ErrUnsupportedReaderVersion    error = errors.New("reader version is unsupported")
-	ErrUnsupportedWriterVersion    error = errors.New("writer version is unsupported")
-	ErrFailedToCopyTempFile        error = errors.New("failed to copy temp file")
-	ErrFailedToAcknowledgeCommit   error = errors.New("failed to acknowledge commit")
+	// ErrNotATable is returned when a Delta table is not valid.
+	ErrNotATable error = errors.New("not a table")
+	// ErrInvalidVersion is returned when a version is invalid.
+	ErrInvalidVersion error = errors.New("invalid version")
+	// ErrUnableToLoadVersion is returned when a version cannot be loaded.
+	ErrUnableToLoadVersion error = errors.New("unable to load specified version")
+	// ErrLockFailed is returned a lock fails unexpectedly.
+	ErrLockFailed error = errors.New("lock failed unexpectedly without an error")
+	// ErrNotImplemented is returned when a feature has not been implemented.
+	ErrNotImplemented error = errors.New("not implemented")
+	// ErrUnsupportedReaderVersion is returned when a reader version is unsupported.
+	ErrUnsupportedReaderVersion error = errors.New("reader version is unsupported")
+	// ErrUnsupportedWriterVersion is returned when a writer version is unsupported.
+	ErrUnsupportedWriterVersion error = errors.New("writer version is unsupported")
+	// ErrFailedToCopyTempFile is returned when a temp file fails to be copied into a commit URI.
+	ErrFailedToCopyTempFile error = errors.New("failed to copy temp file")
+	// ErrFailedToAcknowledgeCommit is returned when a commit fails to be acknowledged.
+	ErrFailedToAcknowledgeCommit error = errors.New("failed to acknowledge commit")
 )
 
 var (
@@ -59,11 +71,12 @@ var (
 	commitOrCheckpointRegex *regexp.Regexp = regexp.MustCompile(`^(\d{20})\.((json$)|(checkpoint\.parquet$)|(checkpoint\.(\d{10})\.(\d{10})\.parquet$))`)
 )
 
+// Table represents a Delta table.
 type Table struct {
 	// The state of the table as of the most recent loaded Delta log entry.
 	State TableState
 	// The remote store of the state of the table as of the most recent loaded Delta log entry.
-	StateStore state.StateStore
+	StateStore state.Store
 	// object store to access log and data files
 	Store storage.ObjectStore
 	// Locking client to ensure optimistic locked commits from distributed workers
@@ -76,11 +89,11 @@ type Table struct {
 	LogStore logstore.LogStore
 }
 
-// Create a new Table struct without loading any data from backing storage.
+// NewTable creates a new Table struct without loading any data from backing storage.
 //
 // NOTE: This is for advanced users. If you don't know why you need to use this method, please
 // call one of the `open_table` helper methods instead.
-func NewTable(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore) *Table {
+func NewTable(store storage.ObjectStore, lock lock.Locker, stateStore state.Store) *Table {
 	table := new(Table)
 	table.Store = store
 	table.StateStore = stateStore
@@ -90,6 +103,7 @@ func NewTable(store storage.ObjectStore, lock lock.Locker, stateStore state.Stat
 	return table
 }
 
+// NewTableWithLogStore creates a new Table instance with a log store configured.
 func NewTableWithLogStore(store storage.ObjectStore, lock lock.Locker, logStore logstore.LogStore) *Table {
 	t := new(Table)
 	t.State = *NewTableState(-1)
@@ -101,13 +115,13 @@ func NewTableWithLogStore(store storage.ObjectStore, lock lock.Locker, logStore 
 	return t
 }
 
-// Creates a new Transaction for the Table.
+// CreateTransaction creates a new Transaction for the Table.
 // The transaction holds a mutable reference to the Table, preventing other references
 // until the transaction is dropped.
-func (t *Table) CreateTransaction(opts TransactionOptions) *transaction {
+func (t *Table) CreateTransaction(opts TransactionOptions) *Transaction {
 	opts.setOptionsDefaults()
 
-	transaction := new(transaction)
+	transaction := new(Transaction)
 	transaction.Table = t
 	transaction.options = opts
 
@@ -133,19 +147,19 @@ func (o *TransactionOptions) setOptionsDefaults() {
 	}
 }
 
-// / Return the uri of commit version.
+// CommitURIFromVersion returns the URI of commit version.
 func CommitURIFromVersion(version int64) storage.Path {
 	str := fmt.Sprintf("%020d.json", version)
 	path := storage.PathFromIter([]string{"_delta_log", str})
 	return path
 }
 
-// / The base path of commit uri's
+// BaseCommitURI returns the base path of a commit URI.
 func BaseCommitURI() storage.Path {
 	return storage.NewPath("_delta_log/")
 }
 
-// / Return true if URI is a valid commit filename (not a checkpoint file, and not a temp commit)
+// IsValidCommitURI returns true if a URI is a valid commit filename (not a checkpoint file, and not a temp commit).
 func IsValidCommitURI(path storage.Path) bool {
 	match := commitFileRegex.MatchString(path.Base())
 	return match
@@ -157,7 +171,7 @@ func IsValidCommitOrCheckpointURI(path storage.Path) bool {
 	return commitFileRegex.MatchString(path.Base()) || commitOrCheckpointRegex.MatchString(path.Base())
 }
 
-// / Return true plus the version if the URI is a valid commit filename
+// CommitVersionFromURI returns true plus the version if the URI is a valid commit filename.
 func CommitVersionFromURI(path storage.Path) (bool, int64) {
 	groups := commitFileRegex.FindStringSubmatch(path.Base())
 	if len(groups) == 2 {
@@ -169,7 +183,7 @@ func CommitVersionFromURI(path storage.Path) (bool, int64) {
 	return false, 0
 }
 
-// / Return true plus the version if the URI is a valid commit or checkpoint filename
+// CommitOrCheckpointVersionFromURI returns true plus the version if the URI is a valid commit or checkpoint filename.
 func CommitOrCheckpointVersionFromURI(path storage.Path) (bool, int64) {
 	groups := commitOrCheckpointRegex.FindStringSubmatch(path.Base())
 	if groups != nil {
@@ -181,9 +195,9 @@ func CommitOrCheckpointVersionFromURI(path storage.Path) (bool, int64) {
 	return false, 0
 }
 
-// / Create a Table with version 0 given the provided MetaData, Protocol, and CommitInfo
-// / Note that if the protocol MinReaderVersion or MinWriterVersion is too high, the table will be created
-// / and then an error will be returned
+// Create creates a Table with version 0 given the provided MetaData, Protocol, and CommitInfo.
+// Note that if the protocol MinReaderVersion or MinWriterVersion is too high, the table will be created
+// and then an error will be returned
 func (t *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo CommitInfo, addActions []Add) error {
 	meta := metadata.toMetaData()
 
@@ -222,9 +236,11 @@ func (t *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo Com
 		zeroState := state.CommitState{
 			Version: t.State.Version,
 		}
-		transaction.Table.StateStore.Put(zeroState)
-		err = transaction.tryCommit(&preparedCommit)
-		if err != nil {
+		if err := transaction.Table.StateStore.Put(zeroState); err != nil {
+			return errors.Join(fmt.Errorf("failed to add commit state with version %d to state store", zeroState.Version), err)
+		}
+
+		if err := transaction.tryCommit(&preparedCommit); err != nil {
 			return err
 		}
 
@@ -236,7 +252,9 @@ func (t *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo Com
 	if err != nil {
 		return err
 	}
-	t.State.merge(newState, 150000, nil, false)
+	if err := t.State.merge(newState, 150000, nil, false); err != nil && !errors.Is(err, ErrVersionOutOfOrder) {
+		return errors.Join(errors.New("failed to merge new state into existing state"), err)
+	}
 
 	// If either version is too high, we return an error, but we still create the table first
 	if protocol.MinReaderVersion > maxReaderVersionSupported {
@@ -249,7 +267,7 @@ func (t *Table) Create(metadata TableMetaData, protocol Protocol, commitInfo Com
 	return err
 }
 
-// / Exists checks if a Table with version 0 exists in the object store.
+// Exists checks if a Table with version 0 exists in the object store.
 func (t *Table) Exists() (bool, error) {
 	path := CommitURIFromVersion(0)
 
@@ -287,7 +305,7 @@ func (t *Table) Exists() (bool, error) {
 	return true, nil
 }
 
-// / Read a commit log and return the actions from the log
+// ReadCommitVersion retrieves the actions from a commit log.
 func (t *Table) ReadCommitVersion(version int64) ([]Action, error) {
 	path := CommitURIFromVersion(version)
 	transaction := t.CreateTransaction(NewTransactionOptions())
@@ -321,11 +339,12 @@ func (t *Table) LatestVersion() (int64, error) {
 			break
 		}
 	} else {
-		if checkpoint, err := checkpointFromBytes(bytes); err != nil {
+		checkpoint, err := checkpointFromBytes(bytes)
+		if err != nil {
 			return -1, fmt.Errorf("checkpoint from bytes: %v", err)
-		} else {
-			minVersion = checkpoint.Version
 		}
+
+		minVersion = checkpoint.Version
 	}
 
 	var (
@@ -382,12 +401,12 @@ func findValidCommitOrCheckpointURI(metadata []storage.ObjectMeta) (bool, int64)
 func (t *Table) syncStateStore() (err error) {
 	locked, err := t.LockClient.TryLock()
 	if err != nil {
-		return errors.Join(errors.New("failed to acquire lock"), err)
+		return errors.Join(lock.ErrLockNotObtained, err)
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
 		if unlockErr := t.LockClient.Unlock(); unlockErr != nil {
-			err = errors.Join(errors.New("failed to release lock"), err)
+			err = errors.Join(lock.ErrUnableToUnlock, err)
 		}
 	}()
 
@@ -423,7 +442,7 @@ func (t *Table) LoadVersionWithConfiguration(version *int64, config *OptimizeChe
 	return t.loadVersionWithConfiguration(version, config, true)
 }
 
-func (t *Table) loadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) error {
+func (t *Table) loadVersionWithConfiguration(version *int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) (returnErr error) {
 	t.LastCheckPoint = nil
 	t.State = *NewTableState(-1)
 	err := setupOnDiskOptimization(config, &t.State, 0)
@@ -431,7 +450,11 @@ func (t *Table) loadVersionWithConfiguration(version *int64, config *OptimizeChe
 		return err
 	}
 	if cleanupWorkingStorage && t.State.onDiskOptimization {
-		defer config.WorkingStore.DeleteFolder(config.WorkingFolder)
+		defer func() {
+			if err := config.WorkingStore.DeleteFolder(config.WorkingFolder); err != nil {
+				returnErr = errors.Join(fmt.Errorf("failed to delete folder %s", config.WorkingFolder), err)
+			}
+		}()
 	}
 	var checkpointLoadError error
 	if version != nil {
@@ -496,10 +519,10 @@ func (t *Table) loadVersionWithConfiguration(version *int64, config *OptimizeChe
 	return nil
 }
 
-// / Find the most recent checkpoint(s) at or before the given version
-// / If we are returning all checkpoints at or before the version, allReturned will be true, otherwise it will be false
-// / If we are able to use the _last_checkpoint to retrieve the checkpoint then we will just return that one, and set allReturned to false
-// / If we need to search through the directory for checkpoints, then allReturned will be true if the listing is ordered and false otherwise
+// Find the most recent checkpoint(s) at or before the given version
+// If we are returning all checkpoints at or before the version, allReturned will be true, otherwise it will be false
+// If we are able to use the _last_checkpoint to retrieve the checkpoint then we will just return that one, and set allReturned to false
+// If we need to search through the directory for checkpoints, then allReturned will be true if the listing is ordered and false otherwise
 func (t *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints []CheckPoint, allReturned bool, err error) {
 	// First check if _last_checkpoint exists and is prior to the desired version
 	var errReadingLastCheckpoint error
@@ -653,8 +676,8 @@ func (t *Table) updateIncremental(maxVersion *int64, config *OptimizeCheckpointC
 	return nil
 }
 
-// / Get the actions inside the next commit log if it exists and return the next commit's version and its actions
-// / If the next commit doesn't exist, returns false in the third return parameter
+// Get the actions inside the next commit log if it exists and return the next commit's version and its actions
+// If the next commit doesn't exist, returns false in the third return parameter
 func (t *Table) nextCommitDetails() (int64, []Action, bool, error) {
 	nextVersion := t.State.Version + 1
 	nextCommitURI := CommitURIFromVersion(nextVersion)
@@ -691,7 +714,11 @@ func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, che
 		}
 	}
 	if table.State.onDiskOptimization {
-		defer checkpointConfiguration.ReadWriteConfiguration.WorkingStore.DeleteFolder(checkpointConfiguration.ReadWriteConfiguration.WorkingFolder)
+		defer func() {
+			if deleteErr := checkpointConfiguration.ReadWriteConfiguration.WorkingStore.DeleteFolder(checkpointConfiguration.ReadWriteConfiguration.WorkingFolder); deleteErr != nil {
+				err = errors.Join(fmt.Errorf("failed to delete folder %s", checkpointConfiguration.ReadWriteConfiguration.WorkingFolder), deleteErr)
+			}
+		}()
 	}
 	locked, err := checkpointLock.TryLock()
 	if err != nil {
@@ -721,7 +748,7 @@ func CreateCheckpoint(store storage.ObjectStore, checkpointLock lock.Locker, che
 	return true, err
 }
 
-// / Cleanup expired logs before the given checkpoint version, after confirming there is a readable checkpoint
+// Cleanup expired logs before the given checkpoint version, after confirming there is a readable checkpoint
 func validateCheckpointAndCleanup(table *Table, store storage.ObjectStore, checkpointVersion int64) error {
 	// First confirm there is a valid checkpoint at the given version
 	checkpoints, _, err := table.findLatestCheckpointsForVersion(&checkpointVersion)
@@ -745,10 +772,10 @@ func validateCheckpointAndCleanup(table *Table, store storage.ObjectStore, check
 	return err
 }
 
-// Delta table metadata
+// TableMetaData represents the metadata of a Delta table.
 type TableMetaData struct {
 	// Unique identifier for this table
-	Id uuid.UUID
+	ID uuid.UUID
 	/// User-provided identifier for this table
 	Name string
 	/// User-provided description for this table
@@ -765,12 +792,12 @@ type TableMetaData struct {
 	Configuration map[string]string
 }
 
-// / Create metadata for a Table from scratch
+// NewTableMetaData creates a new TableMetaData instance.
 func NewTableMetaData(name string, description string, format Format, schema Schema, partitionColumns []string, configuration map[string]string) *TableMetaData {
 	// Reference implementation uses uuid v4 to create GUID:
 	// https://github.com/delta-io/delta/blob/master/core/src/main/scala/org/apache/spark/sql/delta/actions/actions.scala#L350
 	metaData := new(TableMetaData)
-	metaData.Id = uuid.New()
+	metaData.ID = uuid.New()
 	metaData.Name = name
 	metaData.Description = description
 	metaData.Format = format
@@ -786,12 +813,12 @@ func NewTableMetaData(name string, description string, format Format, schema Sch
 func (md *TableMetaData) toMetaData() MetaData {
 	createdTime := md.CreatedTime.UnixMilli()
 	metadata := MetaData{
-		Id:               md.Id,
-		IdAsString:       md.Id.String(),
+		ID:               md.ID,
+		IDAsString:       md.ID.String(),
 		Name:             &md.Name,
 		Description:      &md.Description,
 		Format:           md.Format,
-		SchemaString:     string(md.Schema.Json()),
+		SchemaString:     string(md.Schema.JSON()),
 		PartitionColumns: md.PartitionColumns,
 		CreatedTime:      &createdTime,
 		Configuration:    md.Configuration,
@@ -799,18 +826,18 @@ func (md *TableMetaData) toMetaData() MetaData {
 	return metadata
 }
 
-// / Object representing a Delta transaction.
-// / Clients that do not need to mutate action content in case a transaction conflict is encountered
-// / may use the `commit` method and rely on optimistic concurrency to determine the
-// / appropriate Delta version number for a commit. A good example of this type of client is an
-// / append only client that does not need to maintain transaction state with external systems.
-// / Clients that may need to do conflict resolution if the Delta version changes should use
-// / the `prepare_commit` and `try_commit_transaction` methods and manage the Delta version
-// / themselves so that they can resolve data conflicts that may occur between Delta versions.
-// /
-// / Please not that in case of non-retryable error the temporary commit file such as
-// / `_delta_log/_commit_<uuid>.json` will orphaned in storage.
-type transaction struct {
+// Transaction represents a Delta transaction.
+// Clients that do not need to mutate action content in case a Transaction conflict is encountered
+// may use the `commit` method and rely on optimistic concurrency to determine the
+// appropriate Delta version number for a commit. A good example of this type of client is an
+// append only client that does not need to maintain Transaction state with external systems.
+// Clients that may need to do conflict resolution if the Delta version changes should use
+// the `prepare_commit` and `try_commit_transaction` methods and manage the Delta version
+// themselves so that they can resolve data conflicts that may occur between Delta versions.
+//
+// Please not that in case of non-retryable error the temporary commit file such as
+// `_delta_log/_commit_<uuid>.json` will orphaned in storage.
+type Transaction struct {
 	Table       *Table
 	Actions     []Action
 	Operation   Operation
@@ -825,7 +852,7 @@ type transaction struct {
 // target N.json file more than once. Though data loss will *NOT* occur, readers of N.json
 // may receive an error from S3 as the ETag of N.json was changed. This is safe to
 // retry, so we do so here.
-func (t *transaction) ReadActions(path storage.Path) ([]Action, error) {
+func (t *Transaction) ReadActions(path storage.Path) ([]Action, error) {
 	var (
 		entry   []byte
 		err     error
@@ -868,7 +895,7 @@ func (t *transaction) ReadActions(path storage.Path) ([]Action, error) {
 //
 // - Step 4: ACKNOWLEDGE the commit.
 //   - Overwrite and complete commit entry E in the log store.
-func (t *transaction) CommitLogStore() (int64, error) {
+func (t *Transaction) CommitLogStore() (int64, error) {
 	var (
 		version int64
 		err     error
@@ -895,7 +922,7 @@ func (t *transaction) CommitLogStore() (int64, error) {
 	}
 }
 
-func (t *transaction) tryCommitLogStore() (version int64, err error) {
+func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 	var currURI storage.Path
 	prevURI, err := t.Table.LogStore.Latest(t.Table.Store.BaseURI())
 	if errors.Is(err, logstore.ErrLatestDoesNotExist) {
@@ -937,16 +964,16 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	// into N.json from different machines is provided by the log store, not by this lock.
 	// Also note that this lock is for N.json, while the lock used during a recovery is for
 	// N-1.json. Thus, there is no deadlock.
-	lock, err := t.Table.LockClient.NewLock(t.Table.Store.BaseURI().Join(currURI).Raw)
+	versionLock, err := t.Table.LockClient.NewLock(t.Table.Store.BaseURI().Join(currURI).Raw)
 	if err != nil {
 		return -1, errors.Join(errors.New("failed to create lock"), err)
 	}
-	if _, err = lock.TryLock(); err != nil {
-		return -1, errors.Join(errors.New("failed to acquire lock"), err)
+	if _, err = versionLock.TryLock(); err != nil {
+		return -1, errors.Join(lock.ErrLockNotObtained, err)
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
-		if unlockErr := lock.Unlock(); unlockErr != nil {
+		if unlockErr := versionLock.Unlock(); unlockErr != nil {
 			err = unlockErr
 		}
 	}()
@@ -1015,7 +1042,7 @@ func (t *transaction) tryCommitLogStore() (version int64, err error) {
 	return currVersion, nil
 }
 
-func (t *transaction) complete(entry *logstore.CommitEntry) error {
+func (t *Transaction) complete(entry *logstore.CommitEntry) error {
 	seconds := t.Table.LogStore.ExpirationDelaySeconds()
 	entry = entry.Complete(seconds)
 
@@ -1026,15 +1053,15 @@ func (t *transaction) complete(entry *logstore.CommitEntry) error {
 	return nil
 }
 
-func (t *transaction) copyTempFile(src storage.Path, dst storage.Path) error {
+func (t *Transaction) copyTempFile(src storage.Path, dst storage.Path) error {
 	return t.Table.Store.RenameIfNotExists(src, dst)
 }
 
-func (t *transaction) createTempPath(path storage.Path) (storage.Path, error) {
+func (t *Transaction) createTempPath(path storage.Path) (storage.Path, error) {
 	return storage.NewPath(fmt.Sprintf(".tmp/%s.%s", path.Raw, uuid.New().String())), nil
 }
 
-func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
+func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	if entry.IsComplete() {
 		return nil
 	}
@@ -1044,16 +1071,16 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 		return fmt.Errorf("get absolute file path: %v", err)
 	}
 
-	lock, err := t.Table.LockClient.NewLock(filePath.Raw)
+	versionLock, err := t.Table.LockClient.NewLock(filePath.Raw)
 	if err != nil {
 		return fmt.Errorf("create lock: %v", err)
 	}
-	if _, err = lock.TryLock(); err != nil {
-		return fmt.Errorf("acquire lock: %v", err)
+	if _, err = versionLock.TryLock(); err != nil {
+		return errors.Join(lock.ErrLockNotObtained, err)
 	}
 	defer func() {
 		// Defer the unlock and overwrite any errors if the unlock fails.
-		if unlockErr := lock.Unlock(); err != nil {
+		if unlockErr := versionLock.Unlock(); err != nil {
 			err = unlockErr
 		}
 	}()
@@ -1099,7 +1126,7 @@ func (t *transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	}
 }
 
-func (t *transaction) writeActions(path storage.Path, actions []Action) error {
+func (t *Transaction) writeActions(path storage.Path, actions []Action) error {
 	// Serialize all actions that are part of this log entry.
 	entry, err := LogEntryFromActions(actions)
 	if err != nil {
@@ -1109,18 +1136,18 @@ func (t *transaction) writeActions(path storage.Path, actions []Action) error {
 	return t.Table.Store.Put(path, entry)
 }
 
-// / Add an arbitrary "action" to the actions associated with this transaction
-func (t *transaction) AddAction(action Action) {
+// AddAction adds an arbitrary "action" to the actions associated with this transaction.
+func (t *Transaction) AddAction(action Action) {
 	t.Actions = append(t.Actions, action)
 }
 
-// / Add an arbitrary number of actions to the actions associated with this transaction
-func (t *transaction) AddActions(actions []Action) {
+// AddActions adds an arbitrary number of actions to the actions associated with this transaction.
+func (t *Transaction) AddActions(actions []Action) {
 	t.Actions = append(t.Actions, actions...)
 }
 
 // addCommitInfoIfNotPresent adds a `commitInfo` action to a transaction's actions if not already present.
-func (t *transaction) addCommitInfoIfNotPresent() {
+func (t *Transaction) addCommitInfoIfNotPresent() {
 	found := false
 	for _, action := range t.Actions {
 		switch action.(type) {
@@ -1146,18 +1173,18 @@ func (t *transaction) addCommitInfoIfNotPresent() {
 }
 
 // SetOperation sets the Delta operation for this transaction.
-func (t *transaction) SetOperation(operation Operation) {
+func (t *Transaction) SetOperation(operation Operation) {
 	t.Operation = operation
 }
 
 // SetAppMetadata sets the app metadata for this transaction.
-func (t *transaction) SetAppMetadata(appMetadata map[string]any) {
+func (t *Transaction) SetAppMetadata(appMetadata map[string]any) {
 	t.AppMetadata = appMetadata
 }
 
-// Commits the given actions to the Delta log.
+// Commit commits the given actions to the Delta log.
 // This method will retry the transaction commit based on the value of `max_retry_commit_attempts` set in `TransactionOptions`.
-func (t *transaction) Commit() (int64, error) {
+func (t *Transaction) Commit() (int64, error) {
 	PreparedCommit, err := t.prepareCommit()
 	if err != nil {
 		log.Debugf("delta-go: PrepareCommit attempt failed. %v", err)
@@ -1168,10 +1195,10 @@ func (t *transaction) Commit() (int64, error) {
 	return t.Table.State.Version, err
 }
 
-// / Low-level transaction API. Creates a temporary commit file. Once created,
-// / the transaction object could be dropped and the actual commit could be executed
-// / with `Table.try_commit_transaction`.
-func (t *transaction) prepareCommit() (PreparedCommit, error) {
+// Low-level transaction API. Creates a temporary commit file. Once created,
+// the transaction object could be dropped and the actual commit could be executed
+// with `Table.try_commit_transaction`.
+func (t *Transaction) prepareCommit() (PreparedCommit, error) {
 	t.addCommitInfoIfNotPresent()
 
 	// Serialize all actions that are part of this log entry.
@@ -1197,7 +1224,7 @@ func (t *transaction) prepareCommit() (PreparedCommit, error) {
 
 // tryCommitLoop continues to iterate until a temp file is successfully copied into a commit URI or the
 // maximum number of attempts have been exhausted.
-func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
+func (t *Transaction) tryCommitLoop(commit *PreparedCommit) error {
 	var (
 		err     error
 		attempt = 0
@@ -1227,7 +1254,7 @@ func (t *transaction) tryCommitLoop(commit *PreparedCommit) error {
 	}
 }
 
-func (t *transaction) tryCommit(commit *PreparedCommit) (err error) {
+func (t *Transaction) tryCommit(commit *PreparedCommit) (err error) {
 	// 1) Acquire the lock.
 	locked, err := t.Table.LockClient.TryLock()
 	defer func() {
@@ -1282,8 +1309,7 @@ func max[T constraints.Ordered](a, b T) T {
 	return b
 }
 
-// Holds the uri to prepared commit temporary file created with `Transaction.prepare_commit`.
-// Once created, the actual commit could be executed with `Transaction.try_commit`.
+// PreparedCommit holds the URI of a temp commit.
 type PreparedCommit struct {
 	URI storage.Path
 }
@@ -1297,7 +1323,7 @@ const (
 	defaultMaxRetryLogFixAttempts                uint16        = 3
 )
 
-// Options for customizing behavior of a `Transaction`
+// TransactionOptions customizes the behavior of a transaction.
 type TransactionOptions struct {
 	// number of retry attempts allowed when committing a transaction
 	MaxRetryCommitAttempts uint32
@@ -1326,16 +1352,16 @@ func NewTransactionOptions() TransactionOptions {
 
 // OpenTableWithVersion loads the table at this specific version
 // If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
-func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64) (*Table, error) {
+func OpenTableWithVersion(store storage.ObjectStore, lock lock.Locker, stateStore state.Store, version int64) (*Table, error) {
 	return OpenTableWithVersionAndConfiguration(store, lock, stateStore, version, nil)
 }
 
 // OpenTableWithVersionAndConfiguration loads the table at this specific version using the given configuration for optimization settings
-func OpenTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64, config *OptimizeCheckpointConfiguration) (*Table, error) {
+func OpenTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.Store, version int64, config *OptimizeCheckpointConfiguration) (*Table, error) {
 	return openTableWithVersionAndConfiguration(store, lock, stateStore, version, config, true)
 }
 
-func openTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, version int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) (*Table, error) {
+func openTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.Store, version int64, config *OptimizeCheckpointConfiguration, cleanupWorkingStorage bool) (*Table, error) {
 	table := NewTable(store, lock, stateStore)
 	err := table.loadVersionWithConfiguration(&version, config, cleanupWorkingStorage)
 	if err != nil {
@@ -1355,12 +1381,12 @@ func openTableWithVersionAndConfiguration(store storage.ObjectStore, lock lock.L
 
 // OpenTable loads the latest version of the table
 // If the table reader or writer version is greater than the client supports, the table will still be opened, but an error will also be returned
-func OpenTable(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore) (*Table, error) {
+func OpenTable(store storage.ObjectStore, lock lock.Locker, stateStore state.Store) (*Table, error) {
 	return OpenTableWithConfiguration(store, lock, stateStore, nil)
 }
 
 // OpenTableWithConfiguration loads the latest version of the table, using the given configuration for optimization settings
-func OpenTableWithConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.StateStore, config *OptimizeCheckpointConfiguration) (*Table, error) {
+func OpenTableWithConfiguration(store storage.ObjectStore, lock lock.Locker, stateStore state.Store, config *OptimizeCheckpointConfiguration) (*Table, error) {
 	table := NewTable(store, lock, stateStore)
 	err := table.LoadVersionWithConfiguration(nil, config)
 	if err != nil {
