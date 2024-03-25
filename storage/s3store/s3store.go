@@ -27,6 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/rivian/delta-go/internal/s3utils"
 	"github.com/rivian/delta-go/storage"
 )
@@ -40,7 +41,8 @@ type S3ObjectStore struct {
 	bucket  string
 	path    string
 	//s3, http, file
-	scheme string
+	scheme       string
+	storageClass types.StorageClass
 }
 
 // Compile time check that S3ObjectStore implements storage.ObjectStore
@@ -61,8 +63,14 @@ func New(client s3utils.Client, baseURI storage.Path) (*S3ObjectStore, error) {
 	store.bucket = store.baseURL.Host
 	store.path = strings.TrimPrefix(store.baseURL.Path, "/")
 	store.scheme = store.baseURL.Scheme
+	store.storageClass = types.StorageClassStandard
 
 	return store, nil
+}
+
+// SetStorageClass sets the storage class for uploaded objects.
+func (s *S3ObjectStore) SetStorageClass(storageClass types.StorageClass) {
+	s.storageClass = storageClass
 }
 
 // Put adds an object to a bucket.
@@ -73,9 +81,10 @@ func (s *S3ObjectStore) Put(location storage.Path, data []byte) error {
 	}
 	_, err = s.Client.PutObject(context.Background(),
 		&s3.PutObjectInput{
-			Bucket: aws.String(s.bucket),
-			Key:    aws.String(key),
-			Body:   bytes.NewReader(data),
+			Bucket:       aws.String(s.bucket),
+			Key:          aws.String(key),
+			Body:         bytes.NewReader(data),
+			StorageClass: s.storageClass,
 		})
 	if err != nil {
 		return errors.Join(storage.ErrPutObject, err)
