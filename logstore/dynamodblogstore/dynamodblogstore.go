@@ -211,11 +211,11 @@ func (ls *LogStore) Put(entry *logstore.CommitEntry, overwrite bool) error {
 
 	pir, err := ls.createPutItemRequest(entry, overwrite)
 	if err != nil {
-		return fmt.Errorf("create put item request: %v", err)
+		return errors.Join(errors.New("failed to create put item request"), err)
 	}
 
 	if _, err := ls.client.PutItem(context.TODO(), pir); err != nil {
-		return fmt.Errorf("put item: %v", err)
+		return errors.Join(errors.New("failed to put item"), err)
 	}
 
 	return nil
@@ -228,12 +228,12 @@ func (ls *LogStore) Get(tablePath storage.Path, fileName storage.Path) (*logstor
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
 	gio, err := ls.client.GetItem(context.TODO(), &gii)
 	if err != nil || gio.Item == nil {
-		return nil, fmt.Errorf("get item: %v", err)
+		return nil, errors.Join(errors.New("failed to get item"), err)
 	}
 
 	ce, err := ls.mapItemToEntry(gio.Item)
 	if err != nil {
-		return nil, fmt.Errorf("map item to entry: %v", err)
+		return nil, errors.Join(errors.New("failed to map item to entry"), err)
 	}
 
 	return ce, err
@@ -246,7 +246,7 @@ func (ls *LogStore) Latest(tablePath storage.Path) (*logstore.CommitEntry, error
 		KeyConditionExpression:    aws.String(fmt.Sprintf("%s = :partitionKey", TablePath))}
 	qo, err := ls.client.Query(context.TODO(), &qi)
 	if err != nil {
-		return nil, fmt.Errorf("query: %v", err)
+		return nil, errors.Join(errors.New("failed to query"), err)
 	}
 	if len(qo.Items) == 0 {
 		return nil, logstore.ErrLatestDoesNotExist
@@ -254,7 +254,7 @@ func (ls *LogStore) Latest(tablePath storage.Path) (*logstore.CommitEntry, error
 
 	ce, err := ls.mapItemToEntry(qo.Items[0])
 	if err != nil {
-		return nil, fmt.Errorf("map item to entry: %v", err)
+		return nil, errors.Join(errors.New("failed to map item to entry"), err)
 	}
 
 	return ce, nil
@@ -270,7 +270,7 @@ func (ls *LogStore) mapItemToEntry(item map[string]types.AttributeValue) (*logst
 	} else {
 		time, err = strconv.ParseUint(item[string(ExpireTime)].(*types.AttributeValueMemberN).Value, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to interpret expire time as uint64: %v", err)
+			return nil, errors.Join(errors.New("failed to interpret expire time as uint64"), err)
 		}
 	}
 

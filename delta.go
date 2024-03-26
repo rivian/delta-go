@@ -341,7 +341,7 @@ func (t *Table) LatestVersion() (int64, error) {
 	} else {
 		checkpoint, err := checkpointFromBytes(bytes)
 		if err != nil {
-			return -1, fmt.Errorf("checkpoint from bytes: %v", err)
+			return -1, errors.Join(errors.New("failed to get checkpoint from bytes"), err)
 		}
 
 		minVersion = checkpoint.Version
@@ -935,7 +935,7 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 				storage.NewPath("") /* tempPath */, true /* isComplete */, uint64(time.Now().Unix())+seconds)
 
 			if err := t.Table.LogStore.Put(entry, false); err != nil {
-				return -1, fmt.Errorf("put first commit entry: %v", err)
+				return -1, errors.Join(errors.New("failed to put first commit entry"), err)
 			}
 			log.WithFields(log.Fields{"tablePath": t.Table.Store.BaseURI().Raw, "fileName": fileName.Raw}).
 				Infof("delta-go: Put completed commit entry in empty log store")
@@ -995,10 +995,10 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 		prevFileName := storage.NewPath(strings.Split(CommitURIFromVersion(currVersion-1).Raw, "_delta_log/")[1])
 
 		if prevEntry, err := t.Table.LogStore.Get(t.Table.Store.BaseURI(), prevFileName); err != nil {
-			return -1, fmt.Errorf("get previous commit: %v", err)
+			return -1, errors.Join(errors.New("failed to get previous commit"), err)
 		} else if !prevEntry.IsComplete() {
 			if err := t.fixLog(prevEntry); err != nil {
-				return -1, fmt.Errorf("fix Delta log: %v", err)
+				return -1, errors.Join(errors.New("failed to fix Delta log"), err)
 			}
 		}
 	} else {
@@ -1012,26 +1012,26 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 	// Step 2: PREPARE the commit.
 	tempPath, err := t.createTempPath(fileName)
 	if err != nil {
-		return -1, fmt.Errorf("create temp path: %v", err)
+		return -1, errors.Join(errors.New("failed to create temp path"), err)
 	}
 	relativeTempPath := storage.NewPath("_delta_log").Join(tempPath)
 
 	entry := logstore.New(t.Table.Store.BaseURI(), fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
 
 	if err := t.writeActions(relativeTempPath, t.Actions); err != nil {
-		return -1, fmt.Errorf("write actions: %v", err)
+		return -1, errors.Join(errors.New("failed to write actions"), err)
 	}
 
 	// Step 2.2: Create uncompleted commit entry E(N, T(N)).
 	if err := t.Table.LogStore.Put(entry, false); err != nil {
-		return -1, fmt.Errorf("put uncompleted commit entry: %v", err)
+		return -1, errors.Join(errors.New("failed to put uncompleted commit entry"), err)
 	}
 
 	// Step 3: COMMIT the commit to the Delta log.
 	//         Copy T(N) -> N.json.
 	if err := t.copyTempFile(relativeTempPath, currURI); err != nil {
 		return -1, errors.Join(ErrFailedToCopyTempFile,
-			fmt.Errorf("copy temp file %s to %s: %v", relativeTempPath.Raw, currURI.Raw, err))
+			errors.Join(fmt.Errorf("failed to copy %s to %s", relativeTempPath.Raw, currURI.Raw), err))
 	}
 
 	// Step 4: ACKNOWLEDGE the commit.
@@ -1047,7 +1047,7 @@ func (t *Transaction) complete(entry *logstore.CommitEntry) error {
 	entry = entry.Complete(seconds)
 
 	if err := t.Table.LogStore.Put(entry, true); err != nil {
-		return fmt.Errorf("put completed commit entry: %v", err)
+		return errors.Join(errors.New("failed to put completed commit entry"), err)
 	}
 
 	return nil
@@ -1068,12 +1068,12 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 
 	filePath, err := entry.AbsoluteFilePath()
 	if err != nil {
-		return fmt.Errorf("get absolute file path: %v", err)
+		return errors.Join(errors.New("failed to get absolute file path"), err)
 	}
 
 	versionLock, err := t.Table.LockClient.NewLock(filePath.Raw)
 	if err != nil {
-		return fmt.Errorf("create lock: %v", err)
+		return errors.Join(errors.New("failed to create lock"), err)
 	}
 	if _, err = versionLock.TryLock(); err != nil {
 		return errors.Join(lock.ErrLockNotObtained, err)
@@ -1091,7 +1091,7 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	)
 	for {
 		if attempt >= int(t.options.MaxRetryLogFixAttempts) {
-			return fmt.Errorf("failed to fix Delta log after %d attempts: %v", t.options.MaxRetryLogFixAttempts, err)
+			return errors.Join(fmt.Errorf("failed to fix Delta log after %d attempts", t.options.MaxRetryLogFixAttempts), err)
 		}
 
 		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Trying to fix %s", entry.FileName().Raw)
