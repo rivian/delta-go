@@ -154,6 +154,12 @@ func StatsFromParquet(store storage.ObjectStore, add *Add) (*Stats, []string, er
 			continue
 		}
 
+		// Do not include nested fields, such as map keys or values
+		if len(c.ColumnPath()) > 1 {
+			validStatsColumns[i] = false
+			continue
+		}
+
 		validStatsColumns[i] = true
 		validCount++
 	}
@@ -204,7 +210,11 @@ func StatsFromParquet(store storage.ObjectStore, add *Add) (*Stats, []string, er
 			s.NullCount[name] = stats.NullCount()
 		}
 		if stats.HasMinMax() {
-			c := meta.Schema.Column(meta.Schema.ColumnIndexByName(name))
+			index := meta.Schema.ColumnIndexByName(name)
+			if index == -1 {
+				return nil, nil, fmt.Errorf("column %s not found in schema", name)
+			}
+			c := meta.Schema.Column(index)
 			switch t := c.LogicalType().(type) {
 			case schema.StringLogicalType:
 				setStringStats(stats, s, name)
