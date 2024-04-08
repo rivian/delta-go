@@ -927,9 +927,11 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 	prevURI, err := t.Table.LogStore.Latest(t.Table.Store.BaseURI())
 	if errors.Is(err, logstore.ErrLatestDoesNotExist) {
 		if version, err := t.Table.LatestVersion(); err == nil {
-			uri := CommitURIFromVersion(version).Raw
-			fileName := storage.NewPath(strings.Split(uri, "_delta_log/")[1])
-			seconds := t.Table.LogStore.ExpirationDelaySeconds()
+			var (
+				uri      = CommitURIFromVersion(version).Raw
+				fileName = storage.NewPath(strings.Split(uri, "_delta_log/")[1])
+				seconds  = t.Table.LogStore.ExpirationDelaySeconds()
+			)
 
 			entry := logstore.New(t.Table.Store.BaseURI(), fileName,
 				storage.NewPath("") /* tempPath */, true /* isComplete */, uint64(time.Now().Unix())+seconds)
@@ -1014,9 +1016,11 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 	if err != nil {
 		return -1, errors.Join(errors.New("failed to create temp path"), err)
 	}
-	relativeTempPath := storage.NewPath("_delta_log").Join(tempPath)
 
-	entry := logstore.New(t.Table.Store.BaseURI(), fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
+	var (
+		entry            = logstore.New(t.Table.Store.BaseURI(), fileName, tempPath, false /* isComplete */, 0 /* expirationTime */)
+		relativeTempPath = entry.RelativeTempPath()
+	)
 
 	if err := t.writeActions(relativeTempPath, t.Actions); err != nil {
 		return -1, errors.Join(errors.New("failed to write actions"), err)
@@ -1029,7 +1033,7 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 
 	// Step 3: COMMIT the commit to the Delta log.
 	//         Copy T(N) -> N.json.
-	if err := t.copyTempFile(relativeTempPath, currURI); err != nil {
+	if err := t.copyTempFile(relativeTempPath, currURI); err != nil && !errors.Is(err, storage.ErrObjectAlreadyExists) {
 		return -1, errors.Join(ErrFailedToCopyTempFile,
 			errors.Join(fmt.Errorf("failed to copy %s to %s", relativeTempPath.Raw, currURI.Raw), err))
 	}
@@ -1066,12 +1070,7 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 		return nil
 	}
 
-	filePath, err := entry.AbsoluteFilePath()
-	if err != nil {
-		return errors.Join(errors.New("failed to get absolute file path"), err)
-	}
-
-	versionLock, err := t.Table.LockClient.NewLock(filePath.Raw)
+	versionLock, err := t.Table.LockClient.NewLock(entry.AbsoluteFilePath().Raw)
 	if err != nil {
 		return errors.Join(errors.New("failed to create lock"), err)
 	}
@@ -1086,8 +1085,8 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	}()
 
 	var (
-		attempt = 0
-		copied  = false
+		attempt          = 0
+		relativeFilePath = entry.RelativeFilePath()
 	)
 	for {
 		if attempt >= int(t.options.MaxRetryLogFixAttempts) {
@@ -1096,23 +1095,14 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 
 		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Trying to fix %s", entry.FileName().Raw)
 
-		if _, err = t.Table.Store.Head(filePath); !copied && err != nil {
-			tempPath, err := entry.AbsoluteTempPath()
-			if err != nil {
+		if _, err = t.Table.Store.Head(relativeFilePath); err != nil {
+			relativeTempPath := entry.RelativeTempPath()
+
+			if err := t.copyTempFile(relativeTempPath, relativeFilePath); err != nil && !errors.Is(err, storage.ErrObjectAlreadyExists) {
 				attempt++
-				log.Debugf("delta-go: Attempt number %d: failed to get absolute temp path. %v", attempt, err)
+				log.Debugf("delta-go: Attempt number %d: failed to copy %s to %s. %v", attempt, relativeTempPath.Raw, relativeFilePath.Raw, err)
 				continue
 			}
-
-			if err := t.copyTempFile(tempPath, filePath); err != nil {
-				attempt++
-				log.Debugf("delta-go: Attempt number %d: file %s already copied. %v",
-					attempt, entry.FileName().Raw, err)
-				copied = true
-				continue
-			}
-
-			copied = true
 		}
 
 		if err := t.complete(entry); err != nil {
@@ -1121,7 +1111,7 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			continue
 		}
 
-		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Fixed file %s", entry.FileName().Raw)
+		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Fixed %s", entry.FileName().Raw)
 		return nil
 	}
 }

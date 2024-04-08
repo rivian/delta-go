@@ -76,12 +76,22 @@ func (ce *CommitEntry) Complete(expirationDelaySeconds uint64) *CommitEntry {
 	return New(ce.tablePath, ce.fileName, ce.tempPath, true, uint64(time.Now().Unix())+expirationDelaySeconds)
 }
 
+// RelativeFilePath gets the file path for a commit entry, relative to the table path.
+func (ce *CommitEntry) RelativeFilePath() storage.Path {
+	return storage.PathFromIter([]string{"_delta_log", ce.fileName.Raw})
+}
+
+// RelativeTempPath gets the temp path for a commit entry, relative to the table path.
+func (ce *CommitEntry) RelativeTempPath() storage.Path {
+	return storage.PathFromIter([]string{"_delta_log", ce.tempPath.Raw})
+}
+
 // AbsoluteFilePath gets the absolute file path for a commit entry.
-func (ce *CommitEntry) AbsoluteFilePath() (storage.Path, error) {
-	return storage.PathFromIter([]string{ce.tablePath.Raw, "_delta_log", ce.fileName.Raw}), nil
+func (ce *CommitEntry) AbsoluteFilePath() storage.Path {
+	return storage.PathFromIter([]string{ce.tablePath.Raw, "_delta_log", ce.fileName.Raw})
 }
 
 // AbsoluteTempPath gets the absolute temp path for a commit entry.
-func (ce *CommitEntry) AbsoluteTempPath() (storage.Path, error) {
-	return storage.PathFromIter([]string{ce.tablePath.Raw, "_delta_log", ce.tempPath.Raw}), nil
+func (ce *CommitEntry) AbsoluteTempPath() storage.Path {
+	return storage.PathFromIter([]string{ce.tablePath.Raw, "_delta_log", ce.tempPath.Raw})
 }
