@@ -322,6 +322,9 @@ func unmarshalSchemaType(v interface{}) (SchemaDataType, error) {
 }
 
 // GetSchema recursively walks over the given struct interface i and extracts SchemaTypeStruct StructFields using reflect
+//
+// This is not currently being used in production and results should be inspected before being used.
+//
 // TODO: Handle error cases where types are not compatible with spark types.
 // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#schema-serialization-format
 // i.e. Value int is not currently readable with spark.read.format("delta").load("...")

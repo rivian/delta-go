@@ -2,73 +2,88 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Delta[https://delta.io/] native implementation of the delta protocol in go.
-This library started as a port of delta-rs[https://github.com/delta-io/delta-rs/tree/main/rust]
-This project is in alpha and the api is under development.
+A native implementation of the [Delta](https://delta.io/) protocol in go.
+This library started as a port of [delta-rs](https://github.com/delta-io/delta-rs/tree/main/rust).
 
-Current implementation is designed for highly concurrent writes, reads are not yet supported.
+This project is in alpha and the API is under development.
+
+Current implementation is designed for highly concurrent writes; reads are not yet supported.
+
+Our use case is to ingest data, write it to the Delta table folder as a Parquet file using a Parquet go library,
+and then add the Parquet file to the Delta table using delta-go.
 
 
-Usage
----
+## Features
+
+### Cloud Integrations
+
+| Storage              |         Status        | Comment                                                          |
+| -------------------- | :-------------------: | ---------------------------------------------------------------- |
+| Local                |        ![done]        |                                                                  |
+| S3 - AWS             |        ![done]        | Requires lock for concurrent writes                              |
 
 
-Create a Table with object store, state store and lock
+### Supported Operations
+
+| Operation             |         Status        | Description                                 |
+| --------------------- | :-------------------: | ------------------------------------------- |
+| Create                |        ![done]        | Create a new table                          |
+| Append                |        ![done]        | Append data in a Parquet file to a table    |
+| Checkpoint            |        ![done]        | Create a V1 checkpoint for a table. Note that the optional log cleanup has not been fully tested.          |
+
+
+### Protocol Support Level
+
+| Writer Version | Requirement                                   |              Status               |
+| -------------- | --------------------------------------------- | :-------------------------------: |
+| Version 2      | Append Only Tables                            |              ![done]              |
+| Version 2      | Column Invariants                             |                                   |
+| Version 3      | Enforce `delta.checkpoint.writeStatsAsJson`   |                                   |
+| Version 3      | Enforce `delta.checkpoint.writeStatsAsStruct` |                                   |
+| Version 3      | CHECK constraints                             |                                   |
+| Version 4      | Change Data Feed                              |                                   |
+| Version 4      | Generated Columns                             |                                   |
+| Version 5      | Column Mapping                                |                                   |
+| Version 6      | Identity Columns                              |                                   |
+| Version 7      | Table Features                                |                                   |
+
+| Reader Version | Requirement                         | Status |
+| -------------- | ----------------------------------- | ------ |
+| Version 2      | Column Mapping                      |        |
+| Version 3      | Table Features (requires reader V7) |        |
+
+## Usage
+
+Create a table in S3.  This table is configured to use DynamoDB LogStore locking to enable multi-cluster S3 support.
 ```golang
-	store := filestore.New(tmpPath)
-	state := filestate.New(tmpPath, "_delta_log/_commit.state")
-	lock := filelock.New(tmpPath, "_delta_log/_commit.lock", filelock.Options{})
-	checkpointLock := filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.Options{})
-	table := delta.NewTable(store, lock, state)
-	metadata := delta.NewTableMetaData("Test Table", "test description", new(delta.Format).Default(), getSchema(), []string{}, make(map[string]string))
+	store, err := s3store.New(s3Client, baseURI)
+	logStore, err := dynamodblogstore.New(dynamodblogstore.Options{Client: dynamoDBClient, TableName: deltaLogStoreTableName})
+	table := delta.NewTableWithLogStore(store, nillock.New(), logStore)
+	metadata := delta.NewTableMetaData("Test Table", "test description", new(delta.Format).Default(), schema, []string{}, make(map[string]string))
 	err := table.Create(*metadata, new(delta.Protocol).Default(), delta.CommitInfo{}, []delta.Add{})
 ```
 
-Commit an Add transaction to the `_delta_log/`
+Append data to the table.  The data is in a parquet file located at `parquetRelativePath`; the path is relative to the `baseURI`.
 ```golang
-	add := delta.Add{
-		Path:             fileName,
-		Size:             p.Size,
-		DataChange:       true,
-		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.Json()),
-		PartitionValues:  make(map[string]string),
-	}
+	add, _, err := delta.NewAdd(store, storage.NewPath(parquetRelativePath), make(map[string]string))
 	transaction := table.CreateTransaction(delta.NewTransactionOptions())
-
-	transaction.AddAction(add)
-	operation := delta.Write{Mode: delta.Overwrite}
+	transaction.AddActions([]deltalib.Action{add})
+	operation := delta.Write{Mode: delta.Append}
 	appMetaData := make(map[string]any)
-	appMetaData["test"] = 123
-
+	appMetaData["isBlindAppend"] = true
 	transaction.SetAppMetadata(appMetaData)
 	transaction.SetOperation(operation)
-	v, err := transaction.Commit()
+	v, err := transaction.CommitLogStore()
 ```
 
+There are also some simple examples available in the `examples/` folder.
 
---- 
-Read the data
-## Start a pyspark session
-```sh
-pyspark --packages io.delta:delta-core_2.12:2.2.0 --conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" --conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog"
-```
+## Storage configuration on S3
 
-```python
-df = spark.read.format("delta").load("table")
-df.show()
-```
+If delta-go and other client(s) are being used to write to the same Delta table on S3, then it is important to configure all clients to use [multi-cluster LogStore](https://docs.delta.io/latest/delta-storage.html#-delta-storage-s3-multi-cluster) to avoid write conflicts.
 
----
-Limitations / TODO
 
-Checkpoints:
-- The checkpoint checksum is not being written or validated
 
-Other:
-- Nested schemas (containing nested structs, arrays, or maps) are not supported
-- Deletion vectors are not supported
-- Table features are not supported
-- Change data files are not supported
-- CDC files are not supported
-- Add stats need to be manually generated instead of being read from the parquet file
+
+[open]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/IssueNeutral.svg
+[done]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/ApprovedChanges.svg
