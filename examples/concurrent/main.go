@@ -40,26 +40,21 @@ func main() {
 	fileName := fmt.Sprintf("part-%s.snappy.parquet", uuid.New().String())
 	filePath := filepath.Join(tmpPath.Raw, fileName)
 
-	//Make some data
+	// Generate some data
 	data := makeData(5)
-	stats := makeStats(data)
 	schema := getSchema()
-	p, err := writeParquet(data, filePath)
+	_, err := writeParquet(data, filePath)
 	if err != nil {
 		log.Error(err)
 	}
 
-	add := delta.Add{
-		Path:             fileName,
-		Size:             p.Size,
-		DataChange:       true,
-		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.JSON()),
-		PartitionValues:  make(map[string]string),
+	add, _, err := delta.NewAdd(store, storage.NewPath(fileName), make(map[string]string))
+	if err != nil {
+		log.Error(err)
 	}
 
 	metadata := delta.NewTableMetaData("Test Table", "test description", new(delta.Format).Default(), schema, []string{}, make(map[string]string))
-	err = table.Create(*metadata, new(delta.Protocol).Default(), delta.CommitInfo{}, []delta.Add{add})
+	err = table.Create(*metadata, new(delta.Protocol).Default(), delta.CommitInfo{}, []delta.Add{*add})
 	if err != nil {
 		log.Error(err)
 	}
@@ -84,41 +79,43 @@ func main() {
 			transaction := table.CreateTransaction(delta.NewTransactionOptions())
 
 			//Make some data
-			data := makeData(rand.Intn(50))
-			stats := makeStats(data)
+			data := makeData(1 + rand.Intn(50))
 			fileName := fmt.Sprintf("part-%s.snappy.parquet", uuid.New().String())
 			filePath := filepath.Join(tmpPath.Raw, fileName)
-			p, err := writeParquet(data, filePath)
+			_, err := writeParquet(data, filePath)
 			if err != nil {
 				log.Error(err)
 			}
 
-			add := delta.Add{
-				Path:             fileName,
-				Size:             p.Size,
-				DataChange:       true,
-				ModificationTime: time.Now().UnixMilli(),
-				Stats:            string(stats.JSON()),
-				PartitionValues:  make(map[string]string),
+			add, _, err := delta.NewAdd(store, storage.NewPath(fileName), make(map[string]string))
+			if err != nil {
+				log.Error(err)
 			}
 
 			transaction.AddAction(add)
-			operation := delta.Write{Mode: delta.Overwrite}
+			operation := delta.Write{Mode: delta.Append}
 			appMetaData := make(map[string]any)
 			appMetaData["test"] = 123
 
 			transaction.SetOperation(operation)
 			transaction.SetAppMetadata(appMetaData)
-			_, err = transaction.Commit()
+			v, err := transaction.Commit()
 			if err != nil {
 				log.Error(err)
+			}
+
+			if rand.Intn(20) == 0 {
+				// We don't actually need a lock here since we are only writing a checkpoint for a version that this process has committed
+				checkpointLock := filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.Options{})
+				checkpointed, err := table.CreateCheckpoint(checkpointLock, delta.NewCheckpointConfiguration(), v)
+				if err != nil {
+					log.Error(err)
+				}
+				log.Infof("checkpoint created for version %d: %v", v, checkpointed)
 			}
 		}()
 	}
 	wg.Wait()
-	checkpointLock := filelock.New(tmpPath, "_delta_log/_checkpoint.lock", filelock.Options{})
-	v, _ := table.LatestVersion()
-	table.CreateCheckpoint(checkpointLock, delta.NewCheckpointConfiguration(), v)
 }
 
 type data struct {
@@ -131,8 +128,6 @@ type data struct {
 }
 
 func getSchema() delta.SchemaTypeStruct {
-
-	// schema := GetSchema(data)
 	schema := delta.SchemaTypeStruct{
 		Fields: []delta.SchemaField{
 			{Name: "id", Type: delta.Long, Nullable: false, Metadata: make(map[string]any)},
@@ -170,19 +165,6 @@ func makeData(n int) []data {
 	return d
 }
 
-func makeStats(data []data) delta.Stats {
-	stats := delta.Stats{}
-	for _, row := range data {
-		stats.NumRecords++
-		delta.UpdateStats(&stats, "id", &row.Id)
-		delta.UpdateStats(&stats, "t1", &row.Timestamp)
-		delta.UpdateStats(&stats, "label", &row.Label)
-		delta.UpdateStats(&stats, "value1", &row.Value1)
-		delta.UpdateStats(&stats, "value2", row.Value2)
-	}
-	return stats
-}
-
 type payload struct {
 	File *os.File
 	Size int64
@@ -203,8 +185,7 @@ func writeParquet[T any](data []T, filename string) (*payload, error) {
 	if err != nil {
 		return p, err
 	}
-	i, err := file.Write(buf.Bytes())
-	println(i)
+	_, err = file.Write(buf.Bytes())
 	if err != nil {
 		return p, err
 	}
