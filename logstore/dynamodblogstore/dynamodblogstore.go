@@ -23,7 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/rivian/delta-go/internal/dynamodbutils"
+	"github.com/rivian/delta-go/dynamodbutils"
 	"github.com/rivian/delta-go/logstore"
 	"github.com/rivian/delta-go/storage"
 	log "github.com/sirupsen/logrus"
