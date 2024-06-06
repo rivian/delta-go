@@ -312,6 +312,7 @@ func (sd StatsDecimal) MarshalJSON() ([]byte, error) {
 // StatsFloat64 allows us to marshal and unmarshal inf and -inf as strings
 type StatsFloat64 float64
 
+// StatsFloat32 allows us to marshal and unmarshal inf and -inf as strings
 type StatsFloat32 float32
 
 // MarshalJSON writes the float as a string if it is NaN, inf or -inf
