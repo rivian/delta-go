@@ -283,11 +283,15 @@ func TestActionsFromLogEntries(t *testing.T) {
 		NumRecords: 123,
 	}
 
+	statsJSON, err := stats.JSON()
+	if err != nil {
+		t.Errorf("Stats.JSON() error = %v", err)
+	}
 	add := Add{
 		Path:             "part-1.snappy.parquet",
 		Size:             1,
 		ModificationTime: 1675020556534,
-		Stats:            string(stats.JSON()),
+		Stats:            string(statsJSON),
 	}
 
 	write := Write{Mode: ErrorIfExists}

@@ -105,6 +105,15 @@ func TestStatsFromJSON(t *testing.T) {
 	if !reflect.DeepEqual(stats.NullCount, expectedStats.NullCount) {
 		t.Errorf("NullCount did not match: %v vs %v", stats.NullCount, expectedStats.NullCount)
 	}
+
+	statsStr = "{\"numRecords\":4,\"tightBounds\":false,\"minValues\":{\"bytetype\":12,\"datetype\":\"1950-01-01\",\"decimaltype\":1.23,\"doubletype\":0.001,\"floattype\":\"-Infinity\",\"integertype\":-30,\"longtype\":1234567,\"shorttype\":24,\"stringtype\":\"abcdefghijklmnopqrstuvwxyzABCDEF\"},\"maxValues\":{\"bytetype\":120,\"datetype\":\"2023-10-01\",\"decimaltype\":111.23,\"doubletype\":\"Infinity\",\"floattype\":7.6539998054504395,\"integertype\":4331,\"longtype\":111444333,\"shorttype\":43,\"stringtype\":\"zap\"},\"nullCount\":{\"binarytype\":1,\"bytetype\":2,\"datetype\":1,\"decimaltype\":1,\"doubletype\":0,\"floattype\":1,\"integertype\":1,\"longtype\":1,\"shorttype\":1,\"stringtype\":1}}"
+	stats, err = StatsFromJSON([]byte(statsStr))
+	if err != nil {
+		t.Fatalf("Error in StatsFromJson: %v", err)
+	}
+	if stats.MinValues["floattype"] != "-Infinity" {
+		t.Errorf("Expected -Infinity, found %v", stats.MinValues["floattype"])
+	}
 }
 
 func TestTruncatedStringStat(t *testing.T) {
@@ -155,6 +164,8 @@ func TestStatsFromSource(t *testing.T) {
 		{name: "stats2", args: args{location: "stats2.zstd.parquet", partitionValues: nil}, want: "{\"numRecords\":8,\"tightBounds\":false,\"minValues\":{\"city\":\"Abbotsford\",\"id\":1,\"info\":\"Cheakamus River\"},\"maxValues\":{\"city\":\"Victoria\",\"id\":10,\"info\":\"Fraser River\"},\"nullCount\":{\"city\":0,\"id\":0,\"info\":6}}", wantErr: false},
 		// There is a timestamp in this spark-generated parquet file, but it is int96 and there are no min/max stats available in the parquet file
 		{name: "sparkTypes", args: args{location: "sparkTypes.zstd.parquet", partitionValues: nil}, want: "{\"numRecords\":4,\"tightBounds\":false,\"minValues\":{\"bytetype\":12,\"datetype\":\"1950-01-01\",\"decimaltype\":1.23,\"doubletype\":0.001,\"floattype\":1.234,\"integertype\":-30,\"longtype\":1234567,\"shorttype\":24,\"stringtype\":\"abcdefghijklmnopqrstuvwxyzABCDEF\"},\"maxValues\":{\"bytetype\":120,\"datetype\":\"2023-10-01\",\"decimaltype\":111.23,\"doubletype\":12345.6789,\"floattype\":7.654,\"integertype\":4331,\"longtype\":111444333,\"shorttype\":43,\"stringtype\":\"zap\"},\"nullCount\":{\"binarytype\":1,\"bytetype\":2,\"datetype\":1,\"decimaltype\":1,\"doubletype\":0,\"floattype\":2,\"integertype\":1,\"longtype\":1,\"shorttype\":1,\"stringtype\":1}}", wantErr: false, wantMissing: []string{"timestamptype"}},
+		{name: "infinity", args: args{location: "infs.snappy.parquet", partitionValues: nil}, want: "{\"numRecords\":4,\"tightBounds\":false,\"minValues\":{\"bytetype\":12,\"datetype\":\"1950-01-01\",\"decimaltype\":1.23,\"doubletype\":0.001,\"floattype\":\"-Infinity\",\"integertype\":-30,\"longtype\":1234567,\"shorttype\":24,\"stringtype\":\"abcdefghijklmnopqrstuvwxyzABCDEF\"},\"maxValues\":{\"bytetype\":120,\"datetype\":\"2023-10-01\",\"decimaltype\":111.23,\"doubletype\":\"Infinity\",\"floattype\":7.6539998054504395,\"integertype\":4331,\"longtype\":111444333,\"shorttype\":43,\"stringtype\":\"zap\"},\"nullCount\":{\"binarytype\":1,\"bytetype\":2,\"datetype\":1,\"decimaltype\":1,\"doubletype\":0,\"floattype\":1,\"integertype\":1,\"longtype\":1,\"shorttype\":1,\"stringtype\":1}}", wantErr: false, wantMissing: []string{"timestamptype"}},
+		{name: "nan", args: args{location: "nans.snappy.parquet", partitionValues: nil}, want: "{\"numRecords\":4,\"tightBounds\":false,\"minValues\":{\"bytetype\":12,\"datetype\":\"1950-01-01\",\"decimaltype\":1.23,\"doubletype\":\"NaN\",\"floattype\":\"-Infinity\",\"integertype\":-30,\"longtype\":1234567,\"shorttype\":24,\"stringtype\":\"abcdefghijklmnopqrstuvwxyzABCDEF\"},\"maxValues\":{\"bytetype\":120,\"datetype\":\"2023-10-01\",\"decimaltype\":111.23,\"doubletype\":\"NaN\",\"floattype\":7.6539998054504395,\"integertype\":4331,\"longtype\":111444333,\"shorttype\":43,\"stringtype\":\"zap\"},\"nullCount\":{\"binarytype\":1,\"bytetype\":2,\"datetype\":1,\"decimaltype\":1,\"doubletype\":0,\"floattype\":1,\"integertype\":1,\"longtype\":1,\"shorttype\":1,\"stringtype\":1}}", wantErr: false, wantMissing: []string{"timestamptype"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -173,10 +184,13 @@ func TestStatsFromSource(t *testing.T) {
 					t.Errorf("Expected missing columns %v returned %v", tt.wantMissing, missingColumns)
 				}
 			}
-			statsJSON := stats.JSON()
+			statsJSON, err := stats.JSON()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Stats.JSON() error = %v, wantErr %v", err, tt.wantErr)
+			}
 			statsString := string(statsJSON)
 			if statsString != tt.want {
-				t.Errorf("Expected %s returned %s", tt.want, statsString)
+				t.Errorf("Expected\n%s\nReturned\n%s", tt.want, statsString)
 			}
 		})
 	}

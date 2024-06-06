@@ -160,15 +160,19 @@ func TestDeltaTableReadCommitVersionWithAddStats(t *testing.T) {
 	protocol := new(Protocol).Default()
 	stats := Stats{NumRecords: 1, MinValues: map[string]any{"first_column": 1}}
 	path := "part-123.snappy.parquet"
+	statsJSON, err := stats.JSON()
+	if err != nil {
+		t.Error(err)
+	}
 	add := Add{
 		Path:             path,
 		Size:             984,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.JSON()),
+		Stats:            string(statsJSON),
 	}
 	commitInfo := make(map[string]any)
 	commitInfo["test"] = 123
-	err := table.Create(*metadata, protocol, commitInfo, []Add{add})
+	err = table.Create(*metadata, protocol, commitInfo, []Add{add})
 	if err != nil {
 		t.Error(err)
 	}
@@ -935,12 +939,17 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
+	statsJSON, err := stats.JSON()
+	if err != nil {
+		t.Error(err)
+	}
+
 	add := Add{
 		Path:             fileName,
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.JSON()),
+		Stats:            string(statsJSON),
 		PartitionValues:  make(map[string]string),
 	}
 
@@ -981,12 +990,16 @@ func TestCommitConcurrentWithParquet(t *testing.T) {
 				t.Error(err)
 			}
 
+			statsJSON, err := stats.JSON()
+			if err != nil {
+				t.Error(err)
+			}
 			add := Add{
 				Path:             fileName,
 				Size:             p.Size,
 				DataChange:       true,
 				ModificationTime: time.Now().UnixMilli(),
-				Stats:            string(stats.JSON()),
+				Stats:            string(statsJSON),
 				PartitionValues:  make(map[string]string),
 			}
 
@@ -1046,12 +1059,16 @@ func TestCreateWithParquet(t *testing.T) {
 		t.Error(err)
 	}
 
+	statsJSON, err := stats.JSON()
+	if err != nil {
+		t.Error(err)
+	}
 	add := Add{
 		Path:             fileName,
 		Size:             p.Size,
 		DataChange:       true,
 		ModificationTime: time.Now().UnixMilli(),
-		Stats:            string(stats.JSON()),
+		Stats:            string(statsJSON),
 		PartitionValues:  make(map[string]string),
 	}
 

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -46,9 +47,12 @@ const (
 )
 
 // JSON converts the stats into JSON
-func (s *Stats) JSON() []byte {
-	b, _ := json.Marshal(s)
-	return b
+func (s *Stats) JSON() ([]byte, error) {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // StatsFromJSON parses JSON into a Stats object
@@ -281,6 +285,14 @@ func StatsFromParquet(store storage.ObjectStore, add *Add) (*Stats, []string, er
 				} else {
 					s.MinValues[name] = metadata.GetStatValue(stats.Type(), stats.EncodeMin())
 					s.MaxValues[name] = metadata.GetStatValue(stats.Type(), stats.EncodeMax())
+					if stats.Type() == parquet.Types.Double {
+						// Wrap float and double stats so we can handle NaN, inf, -inf
+						s.MinValues[name] = StatsFloat64(s.MinValues[name].(float64))
+						s.MaxValues[name] = StatsFloat64(s.MaxValues[name].(float64))
+					} else if stats.Type() == parquet.Types.Float {
+						s.MinValues[name] = StatsFloat32(s.MinValues[name].(float32))
+						s.MaxValues[name] = StatsFloat32(s.MaxValues[name].(float32))
+					}
 				}
 			}
 		}
@@ -295,6 +307,39 @@ type StatsDecimal string
 // MarshalJSON writes the decimal string without surrounding quotes
 func (sd StatsDecimal) MarshalJSON() ([]byte, error) {
 	return []byte(sd), nil
+}
+
+// StatsFloat64 allows us to marshal and unmarshal inf and -inf as strings
+type StatsFloat64 float64
+
+type StatsFloat32 float32
+
+// MarshalJSON writes the float as a string if it is NaN, inf or -inf
+func (sf StatsFloat64) MarshalJSON() ([]byte, error) {
+	if math.IsInf(float64(sf), 1) {
+		return []byte("\"Infinity\""), nil
+	}
+	if math.IsInf(float64(sf), -1) {
+		return []byte("\"-Infinity\""), nil
+	}
+	if math.IsNaN(float64(sf)) {
+		return []byte("\"NaN\""), nil
+	}
+	return json.Marshal(float64(sf))
+}
+
+// MarshalJSON writes the float as a string if it is NaN, inf or -inf
+func (sf StatsFloat32) MarshalJSON() ([]byte, error) {
+	if math.IsInf(float64(sf), 1) {
+		return []byte("\"Infinity\""), nil
+	}
+	if math.IsInf(float64(sf), -1) {
+		return []byte("\"-Infinity\""), nil
+	}
+	if math.IsNaN(float64(sf)) {
+		return []byte("\"NaN\""), nil
+	}
+	return json.Marshal(float32(sf))
 }
 
 // Set the string statistics from typedStats

@@ -124,7 +124,11 @@ func NewAdd(store storage.ObjectStore, location storage.Path, partitionValues ma
 	if err != nil {
 		return nil, missingColumns, err
 	}
-	add.Stats = string(stats.JSON())
+	statsJSON, err := stats.JSON()
+	if err != nil {
+		return add, missingColumns, err
+	}
+	add.Stats = string(statsJSON)
 
 	return add, missingColumns, nil
 }
