@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rivian/delta-go/internal/dynamodbutils"
+	"github.com/rivian/delta-go/dynamodbutils"
 )
 
 func TestLock(t *testing.T) {

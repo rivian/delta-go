@@ -24,7 +24,7 @@ import (
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
-	"github.com/rivian/delta-go/internal/s3utils"
+	"github.com/rivian/delta-go/s3utils"
 	"github.com/rivian/delta-go/storage"
 )
 

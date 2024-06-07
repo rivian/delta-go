@@ -15,7 +15,7 @@ package dynamodblogstore
 import (
 	"testing"
 
-	"github.com/rivian/delta-go/internal/dynamodbutils"
+	"github.com/rivian/delta-go/dynamodbutils"
 	"github.com/rivian/delta-go/logstore"
 	"github.com/rivian/delta-go/storage"
 )

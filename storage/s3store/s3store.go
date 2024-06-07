@@ -28,7 +28,7 @@ import (
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/rivian/delta-go/internal/s3utils"
+	"github.com/rivian/delta-go/s3utils"
 	"github.com/rivian/delta-go/storage"
 )
 
