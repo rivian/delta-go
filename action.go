@@ -33,6 +33,8 @@ var (
 	ErrActionUnknown error = errors.New("unknown action")
 	// ErrAddZeroSize is returned when an add action has zero size
 	ErrAddZeroSize error = errors.New("add size must not be zero to prevent optimize failures")
+	// ErrAddGenerateStats is returned when an add action cannot generate stats
+	ErrAddGenerateStats error = errors.New("unable to generate stats for add action")
 )
 
 // Action represents a Delta log action that describes a parquet data file part of the table.
@@ -120,11 +122,16 @@ func NewAdd(store storage.ObjectStore, location storage.Path, partitionValues ma
 	}
 	add.Size = parquetHead.Size
 
+	// Return the add action when the error is missing statistics; the caller can decide how to handle this
 	stats, missingColumns, err := StatsFromParquet(store, add)
 	if err != nil {
-		return nil, missingColumns, err
+		return add, missingColumns, errors.Join(ErrAddGenerateStats, err)
 	}
-	add.Stats = string(stats.JSON())
+	statsJSON, err := stats.JSON()
+	if err != nil {
+		return add, missingColumns, errors.Join(ErrAddGenerateStats, err)
+	}
+	add.Stats = string(statsJSON)
 
 	return add, missingColumns, nil
 }
