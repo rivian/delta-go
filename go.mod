@@ -13,7 +13,7 @@ require (
 	github.com/gofrs/flock v0.8.1
 	github.com/google/uuid v1.6.0
 	github.com/iancoleman/strcase v0.3.0
-	github.com/redis/go-redis/v9 v9.5.2
+	github.com/redis/go-redis/v9 v9.5.3
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stvp/tempredis v0.0.0-20181119212430-b82af8480203
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
