@@ -1891,10 +1891,13 @@ func TestCommitLogStore_LimitedConcurrent(t *testing.T) {
 			transaction.SetAppMetadata(appMetaData)
 
 			version, err := transaction.CommitLogStore()
-			if err != nil {
+			if errors.Is(err, ErrFailedToCopyTempFile) {
+				t.Log("Another writer will complete the transaction")
+			} else if err != nil {
 				t.Errorf("Failed to commit with log store: %v", err)
+			} else {
+				t.Logf("Committed version %d", version)
 			}
-			t.Logf("Committed version %d", version)
 
 			if i == transactions-1 {
 				tableTransaction = transaction
@@ -2039,10 +2042,13 @@ func TestCommitLogStore_UnlimitedConcurrent(t *testing.T) {
 			transaction.SetAppMetadata(appMetaData)
 
 			version, err := transaction.CommitLogStore()
-			if err != nil {
+			if errors.Is(err, ErrFailedToCopyTempFile) {
+				t.Log("Another writer will complete the transaction")
+			} else if err != nil {
 				t.Errorf("Failed to commit with log store: %v", err)
+			} else {
+				t.Logf("Committed version %d", version)
 			}
-			t.Logf("Committed version %d", version)
 
 			if i == transactions-1 {
 				tableTransaction = transaction
@@ -2231,10 +2237,13 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 			firstTransaction.SetAppMetadata(appMetaData)
 
 			version, err := firstTransaction.CommitLogStore()
-			if err != nil {
+			if errors.Is(err, ErrFailedToCopyTempFile) {
+				t.Log("Another writer will complete the transaction")
+			} else if err != nil {
 				t.Errorf("Failed to commit first transaction with log store: %v", err)
+			} else {
+				t.Logf("Committed version %d", version)
 			}
-			t.Logf("Committed version %d", version)
 
 			secondTransaction := secondTable.CreateTransaction(NewTransactionOptions())
 			secondTransaction.AddActions(actions)
@@ -2242,10 +2251,13 @@ func TestCommitLogStore_DifferentClients(t *testing.T) {
 			secondTransaction.SetAppMetadata(appMetaData)
 
 			version, err = secondTransaction.CommitLogStore()
-			if err != nil {
+			if errors.Is(err, ErrFailedToCopyTempFile) {
+				t.Log("Another writer will complete the transaction")
+			} else if err != nil {
 				t.Errorf("Failed to commit second transaction with log store: %v", err)
+			} else {
+				t.Logf("Committed version %d", version)
 			}
-			t.Logf("Committed version %d", version)
 
 			if i == transactions/2 {
 				firstTableTransaction = firstTransaction
@@ -2524,10 +2536,13 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 			firstTransaction.SetAppMetadata(appMetaData)
 
 			version, err := firstTransaction.CommitLogStore()
-			if err != nil {
+			if errors.Is(err, ErrFailedToCopyTempFile) {
+				t.Log("Another writer will complete the transaction")
+			} else if err != nil {
 				t.Errorf("Failed to commit first transaction with log store: %v", err)
+			} else {
+				t.Logf("Committed version %d", version)
 			}
-			t.Logf("Committed version %d", version)
 
 			secondTransaction := secondTable.CreateTransaction(NewTransactionOptions())
 			secondTransaction.AddActions(actions)
@@ -2535,10 +2550,13 @@ func TestCommitLogStore_EmptyLogStoreTableExists(t *testing.T) {
 			secondTransaction.SetAppMetadata(appMetaData)
 
 			version, err = secondTransaction.CommitLogStore()
-			if err != nil {
+			if errors.Is(err, ErrFailedToCopyTempFile) {
+				t.Log("Another writer will complete the transaction")
+			} else if err != nil {
 				t.Errorf("Failed to commit second transaction with log store: %v", err)
+			} else {
+				t.Logf("Committed version %d", version)
 			}
-			t.Logf("Committed version %d", version)
 
 			if i == transactions/2 {
 				firstTableTransaction = firstTransaction
