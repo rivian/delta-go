@@ -6,7 +6,7 @@ require (
 	cirello.io/dynamolock/v2 v2.0.3
 	github.com/apache/arrow/go/v14 v14.0.2
 	github.com/aws/aws-sdk-go-v2 v1.30.0
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.33.0
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.33.2
 	github.com/aws/smithy-go v1.20.2
 	github.com/chelseajonesr/rfarrow v0.0.0-20231215213447-d2f3e7b72c3b
 	github.com/go-redsync/redsync/v4 v4.12.1
@@ -33,7 +33,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.15.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.11.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.3.14 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.9.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.9.13 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.11.14 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.17.12 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
