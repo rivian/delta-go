@@ -1,6 +1,7 @@
 module github.com/rivian/delta-go
 
 go 1.21
+toolchain go1.22.4
 
 require (
 	cirello.io/dynamolock/v2 v2.0.3
@@ -10,7 +11,7 @@ require (
 	github.com/aws/smithy-go v1.20.3
 	github.com/chelseajonesr/rfarrow v0.0.0-20231215213447-d2f3e7b72c3b
 	github.com/go-redsync/redsync/v4 v4.12.1
-	github.com/gofrs/flock v0.8.1
+	github.com/gofrs/flock v0.9.0
 	github.com/google/uuid v1.6.0
 	github.com/iancoleman/strcase v0.3.0
 	github.com/redis/go-redis/v9 v9.5.3
@@ -44,7 +45,6 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/klauspost/asmfmt v1.3.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
 	github.com/minio/asm2plan9s v0.0.0-20200509001527-cdd76441f9d8 // indirect
 	github.com/minio/c2goasm v0.0.0-20190812172519-36a3d3bbc4f3 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
@@ -56,7 +56,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231002182017-d307bd883b97 // indirect
 	google.golang.org/grpc v1.58.3 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )
 
 require (
@@ -69,5 +68,5 @@ require (
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/pierrec/lz4/v4 v4.1.18 // indirect
-	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
 )
