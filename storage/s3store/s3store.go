@@ -113,6 +113,7 @@ func (s *S3ObjectStore) Get(location storage.Path) ([]byte, error) {
 	if err != nil {
 		return nil, errors.Join(storage.ErrGetObject, err)
 	}
+	defer resp.Body.Close() //nolint:errcheck
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.Join(storage.ErrGetObject, err)
@@ -369,6 +370,7 @@ func (s *S3ObjectStore) ReadAt(location storage.Path, p []byte, off int64, max i
 	if err != nil {
 		return 0, errors.Join(storage.ErrReadAt, err)
 	}
+	defer resp.Body.Close() //nolint:errcheck
 
 	var m int
 	for len(p) > 0 {
