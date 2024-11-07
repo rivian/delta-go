@@ -105,6 +105,8 @@ const (
 	Array SchemaDataTypeName = "array" //  * array:
 	// Map is the schema data type representing a map.
 	Map SchemaDataTypeName = "map" //  * map:
+	// Variant represents the preview variant type
+	Variant SchemaDataTypeName = "variant"
 	// Unknown is the schema data type representing an unknown.
 	Unknown SchemaDataTypeName = "unknown"
 )
@@ -192,7 +194,7 @@ func unmarshalSchemaType(v interface{}) (SchemaDataType, error) {
 	case reflect.String:
 		t := SchemaDataTypeName(v.(string))
 		switch t {
-		case String, Long, Integer, Short, Byte, Float, Double, Boolean, Binary, Date, Timestamp, Struct, Array, Map:
+		case String, Long, Integer, Short, Byte, Float, Double, Boolean, Binary, Date, Timestamp, Struct, Array, Map, Variant:
 			return t, nil
 		}
 		return nil, errors.Join(ErrParseSchema, fmt.Errorf("unknown type %s", t))
