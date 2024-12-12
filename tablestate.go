@@ -54,6 +54,8 @@ type TableState struct {
 	AppTransactionVersion map[string]int64
 	MinReaderVersion      int32
 	MinWriterVersion      int32
+	ReaderFeatures        map[string]bool
+	WriterFeatures        map[string]bool
 	// Table metadata corresponding to current version
 	CurrentMetadata *TableMetaData
 	// Retention period for tombstones as time.Duration (nanoseconds)
@@ -94,6 +96,8 @@ func NewTableState(version int64) *TableState {
 	tableState.LogRetention = time.Hour * 24 * 30
 	tableState.ExperimentalEnableExpiredLogCleanup = false
 	tableState.concurrentUpdateMutex = new(sync.Mutex)
+	tableState.ReaderFeatures = make(map[string]bool)
+	tableState.WriterFeatures = make(map[string]bool)
 	return tableState
 }
 
@@ -201,6 +205,14 @@ func (tableState *TableState) processAction(actionInterface Action) error {
 	case *Protocol:
 		tableState.MinReaderVersion = action.MinReaderVersion
 		tableState.MinWriterVersion = action.MinWriterVersion
+		tableState.ReaderFeatures = make(map[string]bool, len(action.ReaderFeatures))
+		tableState.WriterFeatures = make(map[string]bool, len(action.WriterFeatures))
+		for _, f := range action.ReaderFeatures {
+			tableState.ReaderFeatures[f] = true
+		}
+		for _, f := range action.WriterFeatures {
+			tableState.WriterFeatures[f] = true
+		}
 	case *CommitInfo:
 		tableState.CommitInfos = append(tableState.CommitInfos, *action)
 	case *CDC:
@@ -242,6 +254,8 @@ func (tableState *TableState) merge(newTableState *TableState, maxRowsPerPart in
 	if newTableState.MinReaderVersion > 0 {
 		tableState.MinReaderVersion = newTableState.MinReaderVersion
 		tableState.MinWriterVersion = newTableState.MinWriterVersion
+		tableState.ReaderFeatures = newTableState.ReaderFeatures
+		tableState.WriterFeatures = newTableState.WriterFeatures
 	}
 
 	if newTableState.CurrentMetadata != nil {
@@ -412,7 +426,7 @@ func (tableState *TableState) processCheckpointBytes(checkpointBytes []byte, par
 	if tableState.onDiskOptimization {
 		fieldExclusions = []string{"Add", "Remove"}
 	}
-	inMemoryIndexMappings, err := rfarrow.MapGoStructFieldNamesToArrowIndices[CheckpointEntry](arrowFieldList, fieldExclusions, true)
+	inMemoryIndexMappings, err := rfarrow.MapGoStructFieldNamesToArrowIndices[CheckpointEntry](arrowFieldList, fieldExclusions, true, true)
 	if err != nil {
 		return err
 	}
@@ -545,6 +559,28 @@ func checkpointRows(
 		protocol := new(Protocol)
 		protocol.MinReaderVersion = tableState.MinReaderVersion
 		protocol.MinWriterVersion = tableState.MinWriterVersion
+
+		// From the specifications:
+		// If a table has Reader Version 3, then a writer must write checkpoints with a not-null readerFeatures in the schema.
+		// If a table has Writer Version 7, then a writer must write checkpoints with a not-null writerFeatures in the schema.
+		// If a table has neither of the above, then a writer chooses whether to write readerFeatures and/or writerFeatures into the checkpoint schema. But if it does, their values must be null.
+		if protocol.MinReaderVersion >= 3 {
+			protocol.ReaderFeatures = make([]string, 0, len(tableState.ReaderFeatures))
+			for k := range tableState.ReaderFeatures {
+				protocol.ReaderFeatures = append(protocol.ReaderFeatures, k)
+			}
+		} else {
+			protocol.ReaderFeatures = nil
+		}
+		if protocol.MinWriterVersion >= 7 {
+			protocol.WriterFeatures = make([]string, 0, len(tableState.WriterFeatures))
+			for k := range tableState.WriterFeatures {
+				protocol.WriterFeatures = append(protocol.WriterFeatures, k)
+			}
+		} else {
+			protocol.WriterFeatures = nil
+		}
+
 		checkpointRows = append(checkpointRows, CheckpointEntry{Protocol: protocol})
 	}
 

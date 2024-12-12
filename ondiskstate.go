@@ -739,7 +739,7 @@ func onDiskRows(
 				}
 
 				// Index mappings need to be generated each time because checkpoint temp files may not have the same schema
-				schemaIndexMappings, err := rfarrow.MapGoStructFieldNamesToArrowIndices[CheckpointEntry](schemaDetails.schema.Fields(), structFieldExclusions, true)
+				schemaIndexMappings, err := rfarrow.MapGoStructFieldNamesToArrowIndices[CheckpointEntry](schemaDetails.schema.Fields(), structFieldExclusions, true, true)
 				if err != nil {
 					return err
 				}
