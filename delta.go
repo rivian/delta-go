@@ -1093,7 +1093,7 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			return errors.Join(fmt.Errorf("failed to fix Delta log after %d attempts", t.options.MaxRetryLogFixAttempts), err)
 		}
 
-		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Trying to fix %s", entry.FileName().Raw)
+		log.WithField("tablePath", entry.TablePath().Raw).Debugf("delta-go: Trying to fix %s", entry.FileName().Raw)
 
 		if _, err = t.Table.Store.Head(relativeFilePath); err != nil {
 			relativeTempPath := entry.RelativeTempPath()
@@ -1111,7 +1111,7 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 			continue
 		}
 
-		log.WithField("tablePath", entry.TablePath().Raw).Infof("delta-go: Fixed %s", entry.FileName().Raw)
+		log.WithField("tablePath", entry.TablePath().Raw).Debugf("delta-go: Fixed %s", entry.FileName().Raw)
 		return nil
 	}
 }
