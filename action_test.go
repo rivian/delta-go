@@ -254,6 +254,8 @@ func TestActionFromLogEntry(t *testing.T) {
 				"timestamp": float64(1679610144893)}, wantErr: nil},
 		{name: "Protocol", args: args{unstructuredResult: map[string]json.RawMessage{"protocol": []byte(`{"minReaderVersion":2,"minWriterVersion":7}`)}},
 			want: &Protocol{MinReaderVersion: 2, MinWriterVersion: 7}, wantErr: nil},
+		{name: "ProtocolFeatures", args: args{unstructuredResult: map[string]json.RawMessage{"protocol": []byte(`{"minReaderVersion":2,"minWriterVersion":7,"readerFeatures":["variantType-preview"],"writerFeatures":["variantType-preview","invariants"]}`)}},
+			want: &Protocol{MinReaderVersion: 2, MinWriterVersion: 7, ReaderFeatures: []string{"variantType-preview"}, WriterFeatures: []string{"variantType-preview", "invariants"}}, wantErr: nil},
 		{name: "Fail on invalid JSON", args: args{unstructuredResult: map[string]json.RawMessage{"add": []byte(`"path":"s3a://bucket/table","size":8382,"partitionValues":{"date":"2021-03-09"},"modificationTime":1679610144893,"dataChange":true}`)}},
 			want: nil, wantErr: ErrActionJSONFormat},
 		{name: "Fail on unknown", args: args{unstructuredResult: map[string]json.RawMessage{"fake": []byte(`{}`)}}, want: nil, wantErr: ErrActionUnknown},

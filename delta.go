@@ -569,6 +569,11 @@ func (t *Table) findLatestCheckpointsForVersion(version *int64) (checkpoints []C
 				}
 				continue
 			}
+			// Check we haven't already stored this checkpoint number
+			if len(foundCheckpoints) > 0 && foundCheckpoints[len(foundCheckpoints)-1].Version == checkpoint.Version {
+				continue
+			}
+
 			// For multi-part checkpoint, verify that all parts are present before using it
 			isCompleteCheckpoint := true
 			if checkpoint.Parts != nil {

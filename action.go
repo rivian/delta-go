@@ -253,6 +253,12 @@ type Protocol struct {
 	/// Minimum version of the Delta write protocol a client must implement to correctly read the
 	/// table.
 	MinWriterVersion int32 `json:"minWriterVersion" parquet:"name=minWriterVersion, repetition=OPTIONAL"`
+	/// A collection of features that a client must implement in order to correctly read this table
+	/// (exist only when minReaderVersion is set to 3)
+	ReaderFeatures []string `json:"readerFeatures,omitempty" parquet:"name=readerFeatures, repetition=OPTIONAL, valueconverted=UTF8"`
+	/// A collection of features that a client must implement in order to correctly write this table
+	/// (exist only when minWriterVersion is set to 7)
+	WriterFeatures []string `json:"writerFeatures,omitempty" parquet:"name=writerFeatures, repetition=OPTIONAL, valueconverted=UTF8"`
 }
 
 // Default sets the minimum reader and writer version to 1.
