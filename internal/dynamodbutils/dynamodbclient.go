@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -52,6 +53,13 @@ func CreateTableIfNotExists(c Client, name string, cti dynamodb.CreateTableInput
 			return fmt.Errorf("failed to create table after %d attempts", maxAttempts)
 		}
 
+		if attemptNumber > 0 {
+			maxDelay := 5 * time.Second
+			retryDelay := min(time.Duration(math.Pow(1.5, float64(attemptNumber-1)))*time.Second, maxDelay)
+			log.Debugf("delta-go: Sleeping for %s before retrying table create operation", retryDelay)
+			time.Sleep(retryDelay)
+		}
+
 		result, err := c.DescribeTable(context.TODO(), &dynamodb.DescribeTableInput{
 			TableName: aws.String(name),
 		})
@@ -69,7 +77,6 @@ func CreateTableIfNotExists(c Client, name string, cti dynamodb.CreateTableInput
 		if result == nil || result.Table == nil {
 			attemptNumber++
 			log.Infof("delta-go: Waiting for %s table creation", name)
-			time.Sleep(1 * time.Second)
 			continue
 		} else {
 			status = string(result.Table.TableStatus)
@@ -84,7 +91,6 @@ func CreateTableIfNotExists(c Client, name string, cti dynamodb.CreateTableInput
 		} else if status == "CREATING" {
 			attemptNumber++
 			log.Infof("delta-go: Waiting for %s table creation", name)
-			time.Sleep(1 * time.Second)
 			continue
 		} else {
 			attemptNumber++
