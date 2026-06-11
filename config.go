@@ -114,10 +114,11 @@ func parseInterval(input string) (time.Duration, error) {
 		case "week", "weeks":
 			durationUnit = time.Hour * 24 * 7
 		case "month", "months":
-			// Note that the CalendarInterval type in spark implements variable length months
-			durationUnit = time.Hour * 24 * 7 * 31
+			// Note that the CalendarInterval type in spark implements variable length months;
+			// approximate with 30 days as Spark's interval-to-microseconds conversion does
+			durationUnit = time.Hour * 24 * 30
 		case "year", "years":
-			durationUnit = time.Hour * 24 * 7 * 365
+			durationUnit = time.Hour * 24 * 365
 		default:
 			return time.Duration(0), ErrConfigValidation
 		}

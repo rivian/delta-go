@@ -291,6 +291,32 @@ func TestRenameIfNotExistsErrorHandling(t *testing.T) {
 	}
 }
 
+// A transient error checking the destination (e.g. S3 throttling) must NOT be reported as
+// ErrObjectAlreadyExists: callers treat that error as a successful commit by another writer,
+// so misreporting a throttle could acknowledge a commit whose log file does not exist.
+func TestRenameIfNotExistsTransientHeadError(t *testing.T) {
+	baseURI, mockClient, s3Store := setupTest(t)
+
+	path := storage.NewPath("first_copy.txt")
+	if err := mockClient.PutFile(baseURI, path, []byte("some data")); err != nil {
+		t.Fatalf("Error occurred setting up TestRenameIfNotExistsTransientHeadError: %v", err)
+	}
+
+	throttleErr := errors.New("simulated throttling error")
+	mockClient.MockError = throttleErr
+
+	err := s3Store.RenameIfNotExists(path, storage.NewPath("destination.txt"))
+	if err == nil {
+		t.Fatal("RenameIfNotExists did not return an error when Head failed")
+	}
+	if errors.Is(err, storage.ErrObjectAlreadyExists) {
+		t.Error("RenameIfNotExists reported ErrObjectAlreadyExists for a transient Head failure")
+	}
+	if !errors.Is(err, throttleErr) {
+		t.Errorf("RenameIfNotExists did not propagate the Head error, got %v", err)
+	}
+}
+
 func TestHead(t *testing.T) {
 	baseURI, mockClient, s3Store := setupTest(t)
 
@@ -659,16 +685,17 @@ func TestReadAt(t *testing.T) {
 		wantErr     error
 		optionalErr error
 	}{
-		{name: "Everything", args: args{location: putPath, offset: 0, max: 19}, want: "01234567890123456789", wantN: 20, wantErr: nil, optionalErr: io.EOF},
-		{name: "Start", args: args{location: putPath, offset: 0, max: 9}, want: "0123456789", wantN: 10, wantErr: nil, optionalErr: io.EOF},
-		{name: "End", args: args{location: putPath, offset: 17, max: 19}, want: "789", wantN: 3, wantErr: nil, optionalErr: io.EOF},
-		{name: "Middle", args: args{location: putPath, offset: 3, max: 5}, want: "345", wantN: 3, wantErr: nil, optionalErr: io.EOF},
-		{name: "Negative", args: args{location: putPath, offset: -3, max: 5}, want: "\000\000\000\000\000\000\000\000\000", wantN: 0, wantErr: storage.ErrReadAt},
-		{name: "Off the End", args: args{location: putPath, offset: 15, max: 24}, want: "\000\000\000\000\000\000\000\000\000\000", wantN: 0, wantErr: io.EOF},
+		// The max argument is an exclusive end offset: bytes [offset, max) are read.
+		{name: "Everything", args: args{location: putPath, offset: 0, max: 20}, want: "01234567890123456789", wantN: 20, wantErr: nil, optionalErr: io.EOF},
+		{name: "Start", args: args{location: putPath, offset: 0, max: 10}, want: "0123456789", wantN: 10, wantErr: nil, optionalErr: io.EOF},
+		{name: "End", args: args{location: putPath, offset: 17, max: 20}, want: "789", wantN: 3, wantErr: nil, optionalErr: io.EOF},
+		{name: "Middle", args: args{location: putPath, offset: 3, max: 6}, want: "345", wantN: 3, wantErr: nil, optionalErr: io.EOF},
+		{name: "Negative", args: args{location: putPath, offset: -3, max: 6}, want: "\000\000\000\000\000\000\000\000\000", wantN: 0, wantErr: storage.ErrReadAt},
+		{name: "Off the End", args: args{location: putPath, offset: 15, max: 24}, want: "\000\000\000\000\000\000\000\000\000", wantN: 0, wantErr: io.EOF},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := make([]byte, tt.args.max-tt.args.offset+1)
+			p := make([]byte, tt.args.max-tt.args.offset)
 			n, err := store.ReadAt(tt.args.location, p, tt.args.offset, tt.args.max)
 			if tt.wantErr != nil && err == nil {
 				t.Errorf("FileObjectStore.ReadAt() error = %v, wantErr %v", err, tt.wantErr)

@@ -123,9 +123,16 @@ func UpdateStats[T constraints.Ordered](s *Stats, k string, vpt *T) {
 // It also will not return stats for timestamps stored in int96 columns because the Parquet file
 // won't have those stats
 func StatsFromParquet(store storage.ObjectStore, add *Add) (*Stats, []string, error) {
-	readerAtSeeker, err := storage.NewObjectReaderAtSeeker(storage.NewPath(add.Path), store)
-	if err != nil {
-		return nil, nil, err
+	var readerAtSeeker *storage.ObjectReaderAtSeeker
+	if add.Size > 0 {
+		// The Add action already knows the file size; skip the redundant Head request
+		readerAtSeeker = storage.NewObjectReaderAtSeekerWithSize(storage.NewPath(add.Path), store, add.Size)
+	} else {
+		var err error
+		readerAtSeeker, err = storage.NewObjectReaderAtSeeker(storage.NewPath(add.Path), store)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	parquetReader, err := file.NewParquetReader(readerAtSeeker)
 	if err != nil {
@@ -355,22 +362,29 @@ func setStringStats(typedStats metadata.TypedStatistics, stats *Stats, name stri
 // See:
 // https://github.com/delta-io/delta/blob/4f9c8b9cc294ec7b321847115bf87909c356bc5a/spark/src/main/scala/org/apache/spark/sql/delta/stats/StatisticsCollection.scala#L759C66-L760C1
 func truncatedStringStat(s string, maxStat bool) string {
-	if len(s) >= stringStatMaxLen {
-		r := []rune(s)
-		remainder := r[stringStatMaxLen:]
-		r = r[:stringStatMaxLen]
-		if maxStat {
-			for i := 0; i < len(remainder); i++ {
-				if remainder[i] > stringStatMaxTiebreaker {
-					r = append(r, remainder[i])
-				} else {
-					break
-				}
+	// Truncation operates on runes. Comparing len(s) (bytes) against the rune limit first
+	// avoids allocating the rune slice for the common case of short ASCII strings; a string
+	// with fewer bytes than the limit always has fewer runes than the limit.
+	if len(s) < stringStatMaxLen {
+		return s
+	}
+	r := []rune(s)
+	if len(r) < stringStatMaxLen {
+		return s
+	}
+	remainder := r[stringStatMaxLen:]
+	r = r[:stringStatMaxLen]
+	if maxStat {
+		for i := 0; i < len(remainder); i++ {
+			if remainder[i] > stringStatMaxTiebreaker {
+				r = append(r, remainder[i])
+			} else {
+				break
 			}
-			s = string(r) + string(stringStatMaxTiebreaker)
-		} else {
-			s = string(r)
 		}
+		s = string(r) + string(stringStatMaxTiebreaker)
+	} else {
+		s = string(r)
 	}
 	return s
 }
@@ -398,8 +412,6 @@ func formattedTimestampStat(v interface{}, t schema.LogicalType) (string, error)
 		if err != nil {
 			return "", err
 		}
-	case schema.TimeLogicalType:
-	case *schema.TimeLogicalType:
 	default:
 		return "", errors.New("unexpected timestamp logical type")
 	}

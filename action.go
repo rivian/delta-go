@@ -107,7 +107,11 @@ func NewAdd(store storage.ObjectStore, location storage.Path, partitionValues ma
 	retry := false
 	for {
 		parquetHead, err = store.Head(location)
-		if errors.Is(storage.ErrObjectDoesNotExist, err) {
+		if errors.Is(err, storage.ErrObjectDoesNotExist) {
+			return nil, nil, err
+		}
+		if err != nil && retry {
+			// Propagate transient Head failures instead of misreporting them as a zero-size add
 			return nil, nil, err
 		}
 		if parquetHead.Size > 0 || retry {

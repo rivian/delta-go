@@ -142,8 +142,14 @@ func (s *S3ObjectStore) Delete(location storage.Path) error {
 func (s *S3ObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
 	// return ErrObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
-	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+	if err == nil {
 		return errors.Join(storage.ErrObjectAlreadyExists, fmt.Errorf("object at location %s already exists", to.Raw))
+	}
+	// A Head failure other than "does not exist" (throttling, network, permissions) must not be
+	// treated as "already exists": callers interpret ErrObjectAlreadyExists as a successful
+	// commit by another writer, which would corrupt the Delta log if the object is missing.
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+		return errors.Join(fmt.Errorf("unable to determine if object at location %s exists", to.Raw), err)
 	}
 
 	err = s.Rename(from, to)
@@ -355,11 +361,15 @@ func (s *S3ObjectStore) ReadAt(location storage.Path, p []byte, off int64, max i
 	if off < 0 {
 		return 0, errors.Join(storage.ErrReadAt, errors.New("offset should not be negative"))
 	}
-	// Get the object from S3.
+	if max <= off {
+		return 0, nil
+	}
+	// Get the object from S3. The max parameter is an exclusive end offset; HTTP byte
+	// ranges are inclusive, so the last requested byte is max-1.
 	input := s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
-		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", off, max)),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", off, max-1)),
 	}
 	resp, err := s.Client.GetObject(context.Background(), &input)
 	// Check for a 404 response, indicating that the object does not exist

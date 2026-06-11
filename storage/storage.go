@@ -258,6 +258,9 @@ type ObjectStore interface {
 	// If ReadAt is reading from an input source with a seek offset,
 	// ReadAt should not affect nor be affected by the underlying
 	// seek offset.
+	//
+	// The max parameter is the exclusive end offset of the read: bytes [off, max) are read.
+	// Callers must cap max at the object size.
 	ReadAt(location Path, p []byte, off int64, max int64) (n int, err error)
 
 	// Whether or not this store can be used as an io.Writer
@@ -325,15 +328,21 @@ type ObjectReaderAtSeeker struct {
 
 // NewObjectReaderAtSeeker creates a new ObjectReaderAtSeeker instance.
 func NewObjectReaderAtSeeker(location Path, store ObjectStore) (*ObjectReaderAtSeeker, error) {
-	reader := new(ObjectReaderAtSeeker)
-	reader.store = store
-	reader.location = location
 	meta, err := store.Head(location)
 	if err != nil {
 		return nil, err
 	}
-	reader.size = meta.Size
-	return reader, nil
+	return NewObjectReaderAtSeekerWithSize(location, store, meta.Size), nil
+}
+
+// NewObjectReaderAtSeekerWithSize creates a new ObjectReaderAtSeeker instance using a known
+// object size, avoiding the Head request that NewObjectReaderAtSeeker performs.
+func NewObjectReaderAtSeekerWithSize(location Path, store ObjectStore, size int64) *ObjectReaderAtSeeker {
+	reader := new(ObjectReaderAtSeeker)
+	reader.store = store
+	reader.location = location
+	reader.size = size
+	return reader
 }
 
 // ReadAt counts the number of bytes read from an object.
@@ -350,11 +359,18 @@ func (reader *ObjectReaderAtSeeker) ReadAt(p []byte, off int64) (n int, err erro
 }
 
 func (reader *ObjectReaderAtSeeker) Read(p []byte) (n int, err error) {
-	max := reader.size - reader.offset
-	if max > int64(len(p)) {
-		max = int64(len(p))
+	if reader.offset >= reader.size {
+		return 0, io.EOF
 	}
-	return reader.store.ReadAt(reader.location, p, reader.offset, max)
+
+	max := reader.offset + int64(len(p))
+	if max > reader.size {
+		max = reader.size
+		p = p[:max-reader.offset]
+	}
+	n, err = reader.store.ReadAt(reader.location, p, reader.offset, max)
+	reader.offset += int64(n)
+	return n, err
 }
 
 // Seek sets the offset for the next read or write to offset.

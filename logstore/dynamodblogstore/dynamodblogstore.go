@@ -114,6 +114,10 @@ type Options struct {
 	RCU int64
 	// The number of write capacity units which can be consumed per second (https://aws.amazon.com/dynamodb/pricing/provisioned/).
 	WCU int64
+	// SkipTableCreation skips the DescribeTable/CreateTable check on construction. Set this
+	// when the DynamoDB table is known to exist (e.g. managed by infrastructure-as-code) to
+	// avoid one DescribeTable round trip per LogStore construction.
+	SkipTableCreation bool
 }
 
 // Client gets the DynamoDB client.
@@ -169,6 +173,10 @@ func New(o Options) (*LogStore, error) {
 
 	log.Debugf("delta-go: Using table name %s", ls.tableName)
 	log.Debugf("delta-go: Using TTL (seconds) %d", ls.expirationDelaySeconds)
+
+	if o.SkipTableCreation {
+		return ls, nil
+	}
 
 	cti := dynamodb.CreateTableInput{
 		AttributeDefinitions: []types.AttributeDefinition{
@@ -227,8 +235,11 @@ func (ls *LogStore) Get(tablePath storage.Path, fileName storage.Path) (*logstor
 
 	gii := dynamodb.GetItemInput{Key: attributes, TableName: aws.String(ls.tableName), ConsistentRead: aws.Bool(true)}
 	gio, err := ls.client.GetItem(context.TODO(), &gii)
-	if err != nil || gio.Item == nil {
+	if err != nil {
 		return nil, errors.Join(errors.New("failed to get item"), err)
+	}
+	if gio.Item == nil {
+		return nil, logstore.ErrEntryDoesNotExist
 	}
 
 	ce, err := ls.mapItemToEntry(gio.Item)
@@ -263,22 +274,56 @@ func (ls *LogStore) Latest(tablePath storage.Path) (*logstore.CommitEntry, error
 // mapItemToEntry maps an item to a commit entry.
 func (ls *LogStore) mapItemToEntry(item map[string]types.AttributeValue) (*logstore.CommitEntry, error) {
 	var time uint64
-	var err error
 
-	if _, ok := item[string(ExpireTime)]; !ok {
-		time = 0
-	} else {
-		time, err = strconv.ParseUint(item[string(ExpireTime)].(*types.AttributeValueMemberN).Value, 10, 64)
+	if expireTime, ok := item[string(ExpireTime)]; ok {
+		expireTimeN, ok := expireTime.(*types.AttributeValueMemberN)
+		if !ok {
+			return nil, fmt.Errorf("item attribute %s is not a number", ExpireTime)
+		}
+		var err error
+		time, err = strconv.ParseUint(expireTimeN.Value, 10, 64)
 		if err != nil {
 			return nil, errors.Join(errors.New("failed to interpret expire time as uint64"), err)
 		}
 	}
 
+	// Use checked type assertions: items written by other Delta log store implementations
+	// (e.g. Spark's S3DynamoDBLogStore) may use a different schema, and a malformed item
+	// must surface as an error rather than a panic.
+	stringAttribute := func(name attribute) (string, error) {
+		value, ok := item[string(name)]
+		if !ok {
+			return "", fmt.Errorf("item is missing attribute %s", name)
+		}
+		valueS, ok := value.(*types.AttributeValueMemberS)
+		if !ok {
+			return "", fmt.Errorf("item attribute %s is not a string", name)
+		}
+		return valueS.Value, nil
+	}
+
+	tablePath, err := stringAttribute(TablePath)
+	if err != nil {
+		return nil, err
+	}
+	fileName, err := stringAttribute(FileName)
+	if err != nil {
+		return nil, err
+	}
+	tempPath, err := stringAttribute(TempPath)
+	if err != nil {
+		return nil, err
+	}
+	complete, err := stringAttribute(Complete)
+	if err != nil {
+		return nil, err
+	}
+
 	return logstore.New(
-		storage.NewPath(item[string(TablePath)].(*types.AttributeValueMemberS).Value),
-		storage.NewPath(item[string(FileName)].(*types.AttributeValueMemberS).Value),
-		storage.NewPath(item[string(TempPath)].(*types.AttributeValueMemberS).Value),
-		item[string(Complete)].(*types.AttributeValueMemberS).Value == "true",
+		storage.NewPath(tablePath),
+		storage.NewPath(fileName),
+		storage.NewPath(tempPath),
+		complete == "true",
 		time,
 	), nil
 }

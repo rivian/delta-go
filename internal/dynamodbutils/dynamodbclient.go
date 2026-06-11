@@ -64,7 +64,11 @@ func CreateTableIfNotExists(c Client, name string, cti dynamodb.CreateTableInput
 			TableName: aws.String(name),
 		})
 		if err != nil {
-			log.Infof("delta-go: DynamoDB table %s does not exist. Creating it now with provisioned throughput of %d RCUs and %d WCUs.", name, *cti.ProvisionedThroughput.ReadCapacityUnits, *cti.ProvisionedThroughput.ReadCapacityUnits)
+			// Note: any DescribeTable error (not only ResourceNotFoundException) is treated as
+			// "table may not exist" for compatibility with consumers' mock clients that return
+			// untyped errors. A spurious CreateTable on an existing table fails harmlessly with
+			// ResourceInUseException and the loop re-describes the table.
+			log.Infof("delta-go: DynamoDB table %s does not exist. Creating it now with provisioned throughput of %d RCUs and %d WCUs.", name, *cti.ProvisionedThroughput.ReadCapacityUnits, *cti.ProvisionedThroughput.WriteCapacityUnits)
 			if _, err := c.CreateTable(context.TODO(), &cti); err != nil {
 				log.Debugf("delta-go: Table %s just created by concurrent process. %v", name, err)
 			}

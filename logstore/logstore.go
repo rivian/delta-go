@@ -23,6 +23,10 @@ import (
 var (
 	// ErrLatestDoesNotExist is returned when the latest item in a log store does not exist.
 	ErrLatestDoesNotExist error = errors.New("the latest item does not exist")
+	// ErrEntryDoesNotExist is returned when a requested commit entry does not exist in a log
+	// store, e.g. because it has expired and been removed. This is distinct from transport or
+	// service errors talking to the log store.
+	ErrEntryDoesNotExist error = errors.New("the commit entry does not exist")
 )
 
 // LogStore uses optimistic concurrency control to commit transactions.

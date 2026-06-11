@@ -133,6 +133,9 @@ func (o *TransactionOptions) setOptionsDefaults() {
 	if o.MaxRetryCommitAttempts == 0 {
 		o.MaxRetryCommitAttempts = defaultMaxRetryCommitAttempts
 	}
+	if o.RetryWaitDuration == 0 {
+		o.RetryWaitDuration = defaultRetryWaitDuration
+	}
 	if o.MaxRetryReadAttempts == 0 {
 		o.MaxRetryReadAttempts = defaultMaxReadAttempts
 	}
@@ -312,6 +315,31 @@ func (t *Table) ReadCommitVersion(version int64) ([]Action, error) {
 	return transaction.ReadActions(path)
 }
 
+// ClientVersion returns the client version string recorded in the commit info, e.g.
+// "delta-go.alpha-0.0.0", or an empty string if none was recorded.
+func (ci CommitInfo) ClientVersion() string {
+	if clientVersion, ok := ci["clientVersion"].(string); ok {
+		return clientVersion
+	}
+	return ""
+}
+
+// IsVersionWrittenByDeltaGo reports whether the given commit version was written by a
+// delta-go client, based on the clientVersion recorded in the commit's CommitInfo action.
+// Returns false if the commit has no CommitInfo action or no clientVersion entry.
+func (t *Table) IsVersionWrittenByDeltaGo(version int64) (bool, error) {
+	actions, err := t.ReadCommitVersion(version)
+	if err != nil {
+		return false, err
+	}
+	for _, action := range actions {
+		if commitInfo, ok := action.(*CommitInfo); ok && commitInfo != nil {
+			return strings.HasPrefix(commitInfo.ClientVersion(), "delta-go"), nil
+		}
+	}
+	return false, nil
+}
+
 // LatestVersion gets the latest version of a table.
 func (t *Table) LatestVersion() (int64, error) {
 	var (
@@ -352,13 +380,19 @@ func (t *Table) LatestVersion() (int64, error) {
 		count      float64
 	)
 	for {
-		if _, err = t.Store.Head(CommitURIFromVersion(maxVersion)); errors.Is(err, storage.ErrObjectDoesNotExist) {
+		_, err = t.Store.Head(CommitURIFromVersion(maxVersion))
+		if errors.Is(err, storage.ErrObjectDoesNotExist) {
 			break
-		} else {
-			count++
-			minVersion = maxVersion
-			maxVersion += int64(math.Pow(count, 2))
 		}
+		// A Head failure other than "does not exist" (throttling, network) must be propagated:
+		// treating it as "exists" would loop forever, and treating it as "does not exist" could
+		// silently return a version earlier than the table's true latest version.
+		if err != nil {
+			return -1, errors.Join(errors.New("failed to determine latest version"), err)
+		}
+		count++
+		minVersion = maxVersion
+		maxVersion += int64(math.Pow(count, 2))
 	}
 
 	var (
@@ -370,7 +404,13 @@ func (t *Table) LatestVersion() (int64, error) {
 		latestVersion = (minVersion + maxVersion) / 2
 
 		_, currErr = t.Store.Head(CommitURIFromVersion(latestVersion))
+		if currErr != nil && !errors.Is(currErr, storage.ErrObjectDoesNotExist) {
+			return -1, errors.Join(errors.New("failed to determine latest version"), currErr)
+		}
 		_, nextErr = t.Store.Head(CommitURIFromVersion(latestVersion + 1))
+		if nextErr != nil && !errors.Is(nextErr, storage.ErrObjectDoesNotExist) {
+			return -1, errors.Join(errors.New("failed to determine latest version"), nextErr)
+		}
 
 		if currErr == nil && nextErr != nil {
 			break
@@ -869,9 +909,15 @@ func (t *Transaction) ReadActions(path storage.Path) ([]Action, error) {
 		}
 
 		entry, err = t.Table.Store.Get(path)
+		if errors.Is(err, storage.ErrObjectDoesNotExist) {
+			// A missing object will not appear by retrying; return immediately so callers
+			// probing for the next commit version do not pay the retry penalty.
+			return nil, err
+		}
 		if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to get log entry. %v", attempt, err)
+			time.Sleep(t.options.RetryWaitDuration)
 			continue
 		}
 
@@ -879,6 +925,7 @@ func (t *Transaction) ReadActions(path storage.Path) ([]Action, error) {
 		if err != nil {
 			attempt++
 			log.Debugf("delta-go: Attempt number %d: failed to get actions from log entry. %v", attempt, err)
+			time.Sleep(t.options.RetryWaitDuration)
 			continue
 		}
 
@@ -975,7 +1022,7 @@ func (t *Transaction) tryCommitLogStore() (version int64, err error) {
 	if err != nil {
 		return -1, errors.Join(errors.New("failed to create lock"), err)
 	}
-	if _, err = versionLock.TryLock(); err != nil {
+	if locked, err := versionLock.TryLock(); err != nil || !locked {
 		return -1, errors.Join(lock.ErrLockNotObtained, err)
 	}
 	defer func() {
@@ -1079,13 +1126,13 @@ func (t *Transaction) fixLog(entry *logstore.CommitEntry) (err error) {
 	if err != nil {
 		return errors.Join(errors.New("failed to create lock"), err)
 	}
-	if _, err = versionLock.TryLock(); err != nil {
+	if locked, err := versionLock.TryLock(); err != nil || !locked {
 		return errors.Join(lock.ErrLockNotObtained, err)
 	}
 	defer func() {
-		// Defer the unlock and overwrite any errors if the unlock fails.
-		if unlockErr := versionLock.Unlock(); err != nil {
-			err = unlockErr
+		// Defer the unlock and join any errors if the unlock fails.
+		if unlockErr := versionLock.Unlock(); unlockErr != nil {
+			err = errors.Join(lock.ErrUnableToUnlock, unlockErr, err)
 		}
 	}()
 
@@ -1199,7 +1246,7 @@ func (t *Transaction) prepareCommit() (PreparedCommit, error) {
 	// Serialize all actions that are part of this log entry.
 	logEntry, err := LogEntryFromActions(t.Actions)
 	if err != nil {
-		return PreparedCommit{}, nil
+		return PreparedCommit{}, err
 	}
 
 	// Write Delta log entry as temporary file to storage. For the actual commit,
