@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -347,4 +348,53 @@ func fileExists(filename string) (bool, error) {
 		return false, err
 	}
 	return !info.IsDir(), nil
+}
+
+// ObjectReaderAtSeeker.Read must advance the reader offset so that sequential reads walk
+// through the object (io.Reader contract), returning io.EOF at the end.
+func TestObjectReaderAtSeekerSequentialRead(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := New(storage.NewPath(tmpDir))
+
+	path := storage.NewPath("data.txt")
+	if err := store.Put(path, []byte("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := storage.NewObjectReaderAtSeeker(path, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := make([]byte, 4)
+	for i, want := range []string{"0123", "4567"} {
+		n, err := reader.Read(p)
+		if err != nil {
+			t.Fatalf("read %d: unexpected error %v", i, err)
+		}
+		if n != 4 || string(p[:n]) != want {
+			t.Fatalf("read %d: got %q (n=%d), want %q", i, string(p[:n]), n, want)
+		}
+	}
+
+	// Final partial read
+	n, err := reader.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("final read: unexpected error %v", err)
+	}
+	if n != 2 || string(p[:n]) != "89" {
+		t.Fatalf("final read: got %q (n=%d), want \"89\"", string(p[:n]), n)
+	}
+
+	// Reading past the end returns io.EOF
+	if _, err := reader.Read(p); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected io.EOF after reading the whole object, got %v", err)
+	}
+
+	// NewObjectReaderAtSeekerWithSize avoids the Head and produces an equivalent reader
+	sizedReader := storage.NewObjectReaderAtSeekerWithSize(path, store, 10)
+	n, err = sizedReader.Read(p)
+	if err != nil || n != 4 || string(p[:n]) != "0123" {
+		t.Fatalf("sized reader: got %q (n=%d, err=%v), want \"0123\"", string(p[:n]), n, err)
+	}
 }

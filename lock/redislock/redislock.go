@@ -37,8 +37,9 @@ type RedisLock struct {
 	opts            Options
 }
 
-// Compile time check that RedisLock implements lock.Locker
+// Compile time check that RedisLock implements lock.Locker and lock.Extender
 var _ lock.Locker = (*RedisLock)(nil)
+var _ lock.Extender = (*RedisLock)(nil)
 
 // Options contains settings that can be adjusted to change the behavior of a Redis lock.
 type Options struct {
@@ -100,6 +101,16 @@ func (l *RedisLock) TryLock() (bool, error) {
 	// can obtain the same lock (the same mutex name) until we unlock it.
 	if err := l.redsyncMutex.Lock(); err != nil {
 		return false, errors.Join(lock.ErrLockNotObtained, err)
+	}
+
+	return true, nil
+}
+
+// Extend resets the expiry of a held Redis lock to its full TTL.
+func (l *RedisLock) Extend() (bool, error) {
+	ok, err := l.redsyncMutex.Extend()
+	if !ok || err != nil {
+		return false, errors.Join(lock.ErrUnableToExtendLock, err)
 	}
 
 	return true, nil

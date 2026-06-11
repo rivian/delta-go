@@ -524,7 +524,7 @@ func (tableState *TableState) prepareStateForCheckpoint(config *OptimizeCheckpoi
 	for path, remove := range tableState.Tombstones {
 		if remove.DeletionTimestamp == nil || *remove.DeletionTimestamp > retentionTimestamp {
 			unexpiredTombstones[path] = remove
-			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata && (!remove.ExtendedFileMetadata)
+			doNotUseExtendedFileMetadata = doNotUseExtendedFileMetadata || !remove.ExtendedFileMetadata
 		}
 	}
 
@@ -602,7 +602,7 @@ func checkpointRows(
 		}
 		sort.Strings(keys)
 		for i, appID := range keys {
-			if startOffset < currentOffset+i {
+			if startOffset <= currentOffset+i {
 				txn := new(Txn)
 				txn.AppID = appID
 				version := tableState.AppTransactionVersion[appID]

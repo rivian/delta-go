@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/go-cmp/cmp"
@@ -221,7 +222,8 @@ func (m *MockClient) DescribeTable(_ context.Context, input *dynamodb.DescribeTa
 		return &dynamodb.DescribeTableOutput{Table: &types.TableDescription{TableStatus: "ACTIVE"}}, nil
 	}
 
-	return &dynamodb.DescribeTableOutput{}, errors.New("table does not exist")
+	// Return the same typed error as the real DynamoDB service
+	return &dynamodb.DescribeTableOutput{}, &types.ResourceNotFoundException{Message: aws.String("table does not exist")}
 }
 
 // Query queries a mock DynamoDB table.

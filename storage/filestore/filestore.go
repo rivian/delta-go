@@ -59,8 +59,13 @@ func (s *FileObjectStore) Put(location storage.Path, bytes []byte) error {
 func (s *FileObjectStore) RenameIfNotExists(from storage.Path, to storage.Path) error {
 	// return ErrObjectAlreadyExists if the destination file exists
 	_, err := s.Head(to)
-	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+	if err == nil || errors.Is(err, storage.ErrObjectIsDir) {
 		return errors.Join(storage.ErrObjectAlreadyExists, err)
+	}
+	// A Head failure other than "does not exist" must not be treated as "already exists":
+	// callers interpret ErrObjectAlreadyExists as a successful commit by another writer.
+	if !errors.Is(err, storage.ErrObjectDoesNotExist) {
+		return err
 	}
 	// rename source to destination
 	return s.Rename(from, to)

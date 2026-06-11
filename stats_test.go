@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/rivian/delta-go/storage"
@@ -131,6 +132,11 @@ func TestTruncatedStringStat(t *testing.T) {
 		{name: "longer truncate", input: "1234a56789Z012345!678901?234567890121qwertyuiop", expectedMax: "1234a56789Z012345!678901?2345678" + string(stringStatMaxTiebreaker), expectedMin: "1234a56789Z012345!678901?2345678"},
 		{name: "unicode truncate", input: "Hello, 世界9Z012345!678901?234567890121qwertyuiop", expectedMax: "Hello, 世界9Z012345!678901?2345678" + string(stringStatMaxTiebreaker), expectedMin: "Hello, 世界9Z012345!678901?2345678"},
 		{name: "truncate with required appends", input: "12345678901234567890123456789012" + string('\uffff') + string('\ufffe') + "123", expectedMax: "12345678901234567890123456789012" + string('\uffff') + string('\ufffe') + string(stringStatMaxTiebreaker), expectedMin: "12345678901234567890123456789012"},
+		// More than stringStatMaxLen bytes but fewer than stringStatMaxLen runes: must not be
+		// truncated (and previously panicked on the rune slice)
+		{name: "multibyte over byte limit under rune limit", input: strings.Repeat("\u4e16", 20), expectedMax: strings.Repeat("\u4e16", 20), expectedMin: strings.Repeat("\u4e16", 20)},
+		{name: "multibyte exactly at rune limit", input: strings.Repeat("\u4e16", 32), expectedMax: strings.Repeat("\u4e16", 32) + string(stringStatMaxTiebreaker), expectedMin: strings.Repeat("\u4e16", 32)},
+		{name: "multibyte truncate", input: strings.Repeat("\u4e16", 40), expectedMax: strings.Repeat("\u4e16", 32) + string(stringStatMaxTiebreaker), expectedMin: strings.Repeat("\u4e16", 32)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
