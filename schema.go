@@ -99,6 +99,8 @@ const (
 	Date SchemaDataTypeName = "date" //  * date: A calendar date, represented as a year-month-day triple without a timezone
 	// Timestamp is the schema data type representing a timestamp.
 	Timestamp SchemaDataTypeName = "timestamp" //  * timestamp: Microsecond precision timestamp without a timezone
+	// TimestampNtz is the schema data type representing a timestamp without a timezone.
+	TimestampNtz SchemaDataTypeName = "timestamp_ntz" //  * timestamp_ntz: Microsecond precision timestamp without a timezone or UTC adjustment
 	// Struct is the schema data type representing a struct.
 	Struct SchemaDataTypeName = "struct" //  * struct:
 	// Array is the schema data type representing an array.
@@ -194,7 +196,7 @@ func unmarshalSchemaType(v interface{}) (SchemaDataType, error) {
 	case reflect.String:
 		t := SchemaDataTypeName(v.(string))
 		switch t {
-		case String, Long, Integer, Short, Byte, Float, Double, Boolean, Binary, Date, Timestamp, Struct, Array, Map, Variant:
+		case String, Long, Integer, Short, Byte, Float, Double, Boolean, Binary, Date, Timestamp, TimestampNtz, Struct, Array, Map, Variant:
 			return t, nil
 		}
 		return nil, errors.Join(ErrParseSchema, fmt.Errorf("unknown type %s", t))

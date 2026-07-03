@@ -28,3 +28,5 @@ dump.rdb
 coverage.txt
 
 local_test.go
+# Azure integration test env (keep template, ignore filled-in copy)
+.env-azure
