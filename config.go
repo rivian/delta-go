@@ -30,7 +30,7 @@ var (
 )
 
 const (
-	// AppendOnlyDeltaConfigKey represents the Delta configuration to specify whethere a table is append-only.
+	// AppendOnlyDeltaConfigKey represents the Delta configuration to specify whether a table is append-only.
 	AppendOnlyDeltaConfigKey ConfigKey = "delta.appendOnly"
 	// CheckpointIntervalDeltaConfigKey represents the Delta configuration to specify a checkpoint interval.
 	CheckpointIntervalDeltaConfigKey ConfigKey = "delta.checkpointInterval"
@@ -56,7 +56,7 @@ const (
 	LogRetentionDurationDeltaConfigKey ConfigKey = "delta.logRetentionDuration"
 	// EnableExpiredLogCleanupDeltaConfigKey represents the Delta configuration to specify whether expired commit logs need be cleaned up.
 	EnableExpiredLogCleanupDeltaConfigKey ConfigKey = "delta.enableExpiredLogCleanup"
-	// MinReaderVersionDeltaConfigKey represents the Delta configuration tp specify the minimum reader version.
+	// MinReaderVersionDeltaConfigKey represents the Delta configuration to specify the minimum reader version.
 	MinReaderVersionDeltaConfigKey ConfigKey = "delta.minReaderVersion"
 	// MinWriterVersionDeltaConfigKey represents the Delta configuration to specify the minimum writer version.
 	MinWriterVersionDeltaConfigKey ConfigKey = "delta.minWriterVersion"
