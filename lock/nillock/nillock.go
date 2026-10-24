@@ -18,7 +18,7 @@ import (
 	"github.com/rivian/delta-go/lock"
 )
 
-// An NilLock implements the Locker interface but is not backed by anything
+// A NilLock implements the Locker interface but is not backed by anything
 // It is intended for use in a scenario where there is guaranteed to be only one process writing to a delta table
 // so that locking is not necessary
 //
@@ -34,7 +34,7 @@ type NilLock struct {
 // Compile time check that NilLock implements lock.Locker
 var _ lock.Locker = (*NilLock)(nil)
 
-// New reates a new NilLock instance.
+// New creates a new NilLock instance.
 func New() *NilLock {
 	return new(NilLock)
 }

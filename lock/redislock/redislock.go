@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package redislock contains the resources required a create a Redis lock.
+// Package redislock contains the resources required to create a Redis lock.
 package redislock
 
 import (

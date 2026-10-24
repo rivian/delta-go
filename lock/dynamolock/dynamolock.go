@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package dynamolock contains the resources required a create a DynamoDB lock.
+// Package dynamolock contains the resources required to create a DynamoDB lock.
 package dynamolock
 
 import (
